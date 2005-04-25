@@ -1,0 +1,63 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+        "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+	<title>RDF::Query</title>
+	<style type="text/css">
+		.list {
+			display: block;
+			margin: 0 2em;
+			font-family: monospace;
+		}
+	</style>
+</head>
+<body>
+	<h1>RDF::Query - A SPARQL/RDQL implementation for RDF::Redland and RDF::Core</h1>
+	<p>RDF::Query allows RDQL and SPARQL queries to be run against an RDF model, returning rows of matching results.</p>
+	
+	<h2>Requirements</h2>
+		<p>To install RDF::Query you'll need the following perl modules installed:</p>
+		<ul>
+			<li>Parse::RecDescent</li>
+			<li>LWP::Simple</li>
+			<li>RDF::Core <em>or</em> RDF::Redland</li>
+		</ul>
+	<h2 id="installing">Installing RDF::Query</h2>
+		<p>To install, run:</p>
+		<div class="list">
+			perl Makefile.PL<br />
+			make<br />
+			make test<br />
+			make install<br />
+		</div>
+	<h2 id="changelog">Version History</h2>
+		<h3 id="v1_012">Version 1.012 (2005-04-24)</h3>
+			<ul>
+				<li>Stream objects now handle being constructed with an undef coderef.</li>
+				<li>Streams are now objects usinig the Redland QueryResult API.</li>
+				<li>RDF namespace is now always available in queries.</li>
+				<li>row() now uses a stream when calling execute().</li>
+				<li>Added ORDER BY support to RDQL parser.</li>
+				<li>SPARQL constraints now properly use the 'FILTER' keyword.</li>
+				<li>SPARQL constraints can now use '&&' as an operator.</li>
+				<li>SPARQL namespace declaration is now optional.</li>
+				<li>Updated tests.</li>
+			</ul>
+		<h3 id="v1_010">Version 1.010 (2005-04-21)</h3>
+			<ul>
+				<li><tt>execute</tt> now returns an iterator</li>
+				<li>Added core support for DISTINCT, LIMIT, OFFSET</li>
+				<li>Added initial core support for ORDER BY (only works on one column right now)</li>
+				<li>Broke out the query parser into it's own RDQL class</li>
+				<li>Added initial support for a SPARQL parser
+					<ul><li>Added support for blank nodes
+						<li>Added lots of syntactic sugar (with blank nodes, multiple predicates and objects)
+						<li>Added SPARQL support for DISTINCT and ORDER BY</li></ul></li>
+				<li>Moved model-specific code into RDF::Query::Model::*</li>
+				<li>Moving over to redland's query API (pass in the model when query is executed)</li>
+			</ul>
+	<h2>Copyright</h2>
+		<p>Copyright &copy; 2005 Gregory Williams. All rights reserved. This program is free software; you can redistribute it and/or modify it under the same terms as Perl itself.</p>
+	
+	$Id: README.html,v 1.3 2005/04/25 02:20:48 greg Exp $
+</body></html>

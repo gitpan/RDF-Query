@@ -1,0 +1,58 @@
+RDF::Query - A SPARQL/RDQL implementation for RDF::Redland and RDF::Core
+
+   RDF::Query allows RDQL and SPARQL queries to be run against an RDF model, returning rows of matching results.
+
+REQUIREMENTS
+
+	To install RDF::Query you'll need the following perl modules installed:
+     * Parse::RecDescent
+     * LWP::Simple
+     * RDF::Core or RDF::Redland
+
+INSTALLATION
+
+   To install, run:
+
+   perl Makefile.PL
+   make
+   make test
+   make install
+
+VERSION HISTORY
+
+  Version 1.012 (2005-04-24)
+
+     * Stream objects now handle being constructed with an undef coderef.
+     * Streams are now objects usinig the Redland QueryResult API.
+     * RDF namespace is now always available in queries.
+     * row() now uses a stream when calling execute().
+     * Added ORDER BY support to RDQL parser.
+     * SPARQL constraints now properly use the 'FILTER' keyword.
+     * SPARQL constraints can now use '&&' as an operator.
+     * SPARQL namespace declaration is now optional.
+     * Updated tests.
+
+  Version 1.010 (2005-04-21)
+
+     * execute now returns an iterator.
+     * Added core support for DISTINCT, LIMIT, OFFSET.
+     * Added initial core support for ORDER BY (only works on one column right now).
+     * Broke out the query parser into it's own RDQL class.
+     * Added initial support for a SPARQL parser.
+          + Added support for blank nodes.
+          + Added lots of syntactic sugar (with blank nodes, multiple predicates and objects).
+          + Added SPARQL support for DISTINCT and ORDER BY.
+     * Moved model-specific code into RDF::Query::Model::*.
+     * Moving over to redland's query API (pass in the model when query is executed).
+
+COPYRIGHT
+
+   Copyright (C) 2005 Gregory Williams. All rights reserved.
+   This program is free software; you can redistribute it and/or
+   modify it under the same terms as Perl itself.
+
+AUTHOR
+
+	Gregory Williams <gwilliams@cpan.org>
+
+$Id: README,v 1.3 2005/04/25 02:20:48 greg Exp $

@@ -1,0 +1,44 @@
+This file contains message digests of all files listed in MANIFEST,
+signed via the Module::Signature module, version 0.44.
+
+To verify the content in this distribution, first make sure you have
+Module::Signature installed, then type:
+
+    % cpansign -v
+
+It will check each file's integrity, as well as the signature's
+validity.  If "==> Signature verified OK! <==" is not displayed,
+the distribution may already have been compromised, and you should
+not run its Makefile.PL or Build.PL.
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+SHA1 8abd67c66e418a015e82448056456e2f67b2f663 MANIFEST
+SHA1 dfea769d4d9144c62a7d0dba6dc493fe0ca428ea META.yml
+SHA1 e65a6dce906fb16eed08e01b5c6c7773fa3ee24f Makefile.PL
+SHA1 a3b38cbb94c1010cb18842546bf6e96f085b109a README
+SHA1 ee328a934c65d04ef36b25f0f22d2a10113b86d3 README.html
+SHA1 10215fc0dd4f73ddae8c24b6c1c6a246b197746b data/about.xrdf
+SHA1 84dc53e7d716cb4b6a521d7323414949572d1a6e data/foaf.xrdf
+SHA1 53cbf246b3a526cf4413a247bf32ef04ae8f6916 lib/RDF/Query.pm
+SHA1 a99aa55336b7a2dcbb3f892af95e5aa5f3159110 lib/RDF/Query/Model/RDFCore.pm
+SHA1 c91e590a6056c4e366edd8e97f85f254fe004176 lib/RDF/Query/Model/Redland.pm
+SHA1 59c420dbe40495a3ace7a17fbc844bfc6ba49c1c lib/RDF/Query/Parser/RDQL.pm
+SHA1 e41e7164b02d648f9fd141988c0190052fef2d6a lib/RDF/Query/Parser/SPARQL.pm
+SHA1 7f7fec9cd0c3a1ecee27578a18ef240567b3490b t/00-simple.t
+SHA1 46d574404663cdfaf48f613d29c51fa362979901 t/01-net.t
+SHA1 68a7de5e2ef7696c2b9597abae8e117744bd5c83 t/01-rdql_parser.t
+SHA1 624c74fac4202889a5e3474b4261c2b05b3a9ec7 t/01-sparql_parser.t
+SHA1 c12ca5f5a10455f2b682c8ddb634cad9ee79f782 t/02-net.t
+SHA1 e6c8a0d58d8f4328c1576b51d9a833c96e1114b6 t/03-coverage.t
+SHA1 386fc6a14e13775fea6747269014992b1f3bea25 t/04-constraints.t
+SHA1 738180cb260c092ac82e7afb88cbf500e69093bf t/05-stress.t
+SHA1 35afbd5890ef69f30921f88ee225f17a9166940e t/06-streams.t
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.2.4 (Darwin)
+
+iD8DBQFCbFXLhPK6VMqoyC0RArVGAKCBb+GenfzDjguD/ySX1eyG0nyXBwCffEgk
+TA9JOAodk6gWuQsgyg6ZEcg=
+=GoyB
+-----END PGP SIGNATURE-----
