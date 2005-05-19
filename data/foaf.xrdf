@@ -30,6 +30,7 @@
 		<foaf:img rdf:resource="http://kasei.us/images/greg.png"/>
 		<foaf:homepage rdf:resource="http://kasei.us/"/>
 		<foaf:weblog rdf:resource="http://kasei.us/"/>
+		<foaf:aimChatID>samofool</foaf:aimChatID>
 
 		<foaf:interest><rdf:Description rdf:about="http://www.w3.org/2001/sw/" dc:title="Semantic Web" /></foaf:interest>
 		<foaf:interest><rdf:Description rdf:about="http://www.movabletype.org/" dc:title="MovableType" /></foaf:interest>

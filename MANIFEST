@@ -1,6 +1,7 @@
 README
 README.html
 data/about.xrdf
+data/Flower-2.rdf
 data/foaf.xrdf
 lib/RDF/Query.pm
 lib/RDF/Query/Model/RDFCore.pm
@@ -19,4 +20,9 @@ t/03-coverage.t
 t/04-constraints.t
 t/05-stress.t
 t/06-streams.t
+t/06-ask.t
+t/06-construct.t
+t/06-describe.t
+t/07-filters.t
+t/08-optionals.t
 META.yml                                 Module meta-data (added by MakeMaker)

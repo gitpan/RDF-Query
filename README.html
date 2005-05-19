@@ -31,6 +31,56 @@
 			make install<br />
 		</div>
 	<h2 id="changelog">Version History</h2>
+		<h3 id="v1_020">Version 1.020 (2005-05-18)</h3>
+			<ul>
+				<li>Added support for SPARQL OPTIONAL graph patterns.</li>
+				<li>Calling bindings_count on a stream now returns 0 with no data.</li>
+				<li>Added Stream methods:
+					<ul><li>is_bindings</li>
+						<li>binding_name</li>
+						<li>binding_values</li>
+						<li>binding_names</li>
+					</ul></li>
+				<li>Added as_xml method to Stream class for XML Binding Results format.</li>
+			</ul>
+		<h3 id="v1_016">Version 1.016 (2005-05-08)</h3>
+			<ul>
+				<li>Added initial support for SPARQL ASK, DESCRIBE and CONSTRUCT queries.
+					<ul><li>Added new test files for new query types.</li></ul></li>
+				<li>Added methods to bridge classes for creating statements and blank nodes.</li>
+				<li>Added as_string method to bridge classes for getting string versions of nodes.</li>
+				<li>Broke out triple fixup code into fixup_triple_bridge_variables().</li>
+				<li>Updated FILTER test to use new Geo::Distance API.</li>
+			</ul>
+		<h3 id="v1_015">Version 1.015 (2005-05-03)</h3>
+			<ul>
+				<li>Fixes to the arguments passed to FILTERs.</li>
+				<li>Filter tests now show example of two custom filters:
+					<ul><li>Transitive subClassOf testing.</li>
+						<li>Logical comparison operators (range testing lat/lon values).</li></ul></li>
+				<li>Added literal_value, uri_value, and blank_identifier methods to bridges.</li>
+				<li>Redland bridge now calls sources/arcs/targets when only one field is missing.</li>
+				<li>Fixes to stream code. Iterators are now destroyed in a timely manner.
+					<ul><li>Complex queries no longer max out mysql connections under Redland.</li></ul></li>
+				<li>Cleaned up node sorting code.
+					<ul><li>Removed dependency on Sort::Naturally.</li>
+						<li>Added new node sorting function ncmp().</li></ul></li>
+				<li>check_constraints now calls ncmp() for logical comparisons.</li>
+				<li>Added get_value method to make bridge calls and return a scalar value.</li>
+				<li>Fixed node creation in Redland bridge.</li>
+				<li>Moved DISTINCT handling code to occur before LIMITing.</li>
+				<li>Added variables method to retrieve bound variable names.</li>
+				<li>Added binding_count and get_all methods to streams.</li>
+				<li>get_statments bridge methods now return RDF::Query::Stream objects.</li>
+			</ul>
+		<h3 id="v1_014">Version 1.014 (2005-04-26)</h3>
+			<ul>
+				<li>Made FILTERs work in SPARQL.</li>
+				<li>Added initial SPARQL support for custom function constraints.</li>
+				<li>SPARQL variables may now begin with the '$' sigil.</li>
+				<li>Added direction support for ORDER BY (ascending/descending).</li>
+				<li>Added 'next', 'current', and 'end' to Stream API.</li>
+			</ul>
 		<h3 id="v1_012">Version 1.012 (2005-04-24)</h3>
 			<ul>
 				<li>Stream objects now handle being constructed with an undef coderef.</li>
@@ -59,5 +109,5 @@
 	<h2>Copyright</h2>
 		<p>Copyright &copy; 2005 Gregory Williams. All rights reserved. This program is free software; you can redistribute it and/or modify it under the same terms as Perl itself.</p>
 	
-	$Id: README.html,v 1.3 2005/04/25 02:20:48 greg Exp $
+	$Id: README.html,v 1.7 2005/05/18 23:18:34 greg Exp $
 </body></html>

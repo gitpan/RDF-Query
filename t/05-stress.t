@@ -10,7 +10,8 @@ use RDF::Query;
 if ($ENV{RDFQUERY_BIGTEST}) {
 	plan qw(no_plan);
 } else {
-	plan skip_all => 'Developer test';
+	plan skip_all => 'developer tests. Set RDFQUERY_BIGTEST to run these tests.';
+	return;
 }
 
 require Kasei::RDF::Common;
@@ -18,17 +19,17 @@ Kasei::RDF::Common->import('mysql_model');
 my $model	= mysql_model();
 
 {
-	local $TODO = "Need to fix constraints parsing.";
+	print "# FILTER rage test\n";
 	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 	PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
 	SELECT	?image ?point ?lat
 	WHERE	{
 				?point geo:lat ?lat .
 				?image ?pred ?point .
+				FILTER	(?pred == <http://purl.org/dc/terms/spatial> || ?pred == <http://xmlns.com/foaf/0.1/based_near>)
+					&&	?lat > 52
+					&&	?lat < 53
 			}
-	FILTER	(?pred == <http://purl.org/dc/terms/spatial> || ?pred == <http://xmlns.com/foaf/0.1/based_near>)
-	&&		?lat > 52
-	&&		?lat < 53
 END
 	my ($image, $point, $lat)	= $query->get( $model );
 	isa_ok($image, 'RDF::Redland::Node');
@@ -39,6 +40,7 @@ END
 }
 
 {
+	print "# lots of points!\n";
 	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 		PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
@@ -58,6 +60,7 @@ END
 }
 
 {
+	print "# foaf:Person ORDER BY name\n";
 	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 		PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
@@ -74,7 +77,7 @@ END
 		my ($p, $node)	= @{ $row };
 		my $name	= $node->getLabel;
 		if (defined($last)) {
-			cmp_ok( $name, 'ge', $last, "In order: $name(" . $p->getLabel . ")" );
+			cmp_ok( $name, 'ge', $last, "In order: $name (" . $p->getLabel . ")" );
 		} else {
 			ok( $name, "$name (" . $p->getLabel . ")" );
 		}
@@ -83,6 +86,7 @@ END
 }
 
 {
+	print "# geo:Point ORDER BY longitude\n";
 	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 		PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>

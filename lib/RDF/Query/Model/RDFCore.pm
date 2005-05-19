@@ -12,13 +12,14 @@ use RDF::Core::Model;
 use RDF::Core::Query;
 use RDF::Core::Model::Parser;
 use RDF::Core::Storage::Memory;
+use RDF::Core::NodeFactory;
 
 ######################################################################
 
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.2 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
+	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.4 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
 }
 
 ######################################################################
@@ -28,8 +29,10 @@ sub new {
 	my $class	= shift;
 	my $storage	= new RDF::Core::Storage::Memory;
 	my $model	= new RDF::Core::Model (Storage => $storage);
+	my $factory	= new RDF::Core::NodeFactory;
 	my $self	= bless( {
-					model	=> $model
+					model	=> $model,
+					factory	=> $factory
 				}, $class );
 }
 
@@ -46,6 +49,17 @@ sub new_resource {
 sub new_literal {
 	my $self	= shift;
 	return RDF::Core::Resource->new(@_);
+}
+
+sub new_blank {
+	my $self	= shift;
+	my $id		= shift;
+	return $self->factory->newResoruce("_:${id}");
+}
+
+sub new_statement {
+	my $self	= shift;
+	return RDF::Core::Statement->new(@_);
 }
 
 sub isa_node {
@@ -66,6 +80,29 @@ sub isa_literal {
 	return UNIVERSAL::isa($node,'RDF::Core::Literal');
 }
 
+sub as_string {
+	my $self	= shift;
+	my $node	= shift;
+	return $node->getLabel;
+}
+
+sub literal_value {
+	my $self	= shift;
+	my $node	= shift;
+	return $node->getLabel;
+}
+
+sub uri_value {
+	my $self	= shift;
+	my $node	= shift;
+	return $node->getLabel;
+}
+
+sub blank_identifier {
+	my $self	= shift;
+	my $node	= shift;
+	return $node->getLabel;
+}
 
 sub count {
 	my $self	= shift;
@@ -109,12 +146,12 @@ sub get_statements {
 	my $self	= shift;
 	my $enum	= $self->{'model'}->getStmts( @_ );
 	my $stmt	= $enum->getFirst;
-	return sub {
+	return RDF::Query::Stream->new( sub {
 		return undef unless defined($stmt);
 		my $ret	= $stmt;
 		$stmt	= $enum->getNext;
 		return $ret;
-	};
+	} );
 }
 
 

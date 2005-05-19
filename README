@@ -20,6 +20,55 @@ INSTALLATION
 
 VERSION HISTORY
 
+  Version 1.020 (2005-05-18)
+
+     * Added support for SPARQL OPTIONAL graph patterns.
+     * Calling bindings_count on a stream now returns 0 with no data.
+     * Added Stream methods:
+          + is_bindings
+          + binding_name
+          + binding_values
+          + binding_names
+     * Added as_xml method to Stream class for XML Binding Results format.</li>
+
+  Version 1.016 (2005-05-08)
+
+     * Added initial support for SPARQL ASK, DESCRIBE and CONSTRUCT queries.
+          + Added new test files for new query types.
+     * Added methods to bridge classes for creating statements and blank nodes.
+     * Added as_string method to bridge classes for getting string versions of nodes.
+     * Broke out triple fixup code into fixup_triple_bridge_variables().
+     * Updated FILTER test to use new Geo::Distance API.
+
+  Version 1.015 (2005-05-03)
+
+     * Fixes to the arguments passed to FILTERs.
+     * Filter tests now show example of two custom filters:
+          + Transitive subClassOf testing.
+          + Logical comparison operators (range testing lat/lon values).
+     * Added literal_value, uri_value, and blank_identifier methods to bridges.
+     * Redland bridge now calls sources/arcs/targets when only one field is missing.
+     * Fixes to stream code. Iterators are now destroyed in a timely manner.
+          + Complex queries no longer max out mysql connections under Redland.
+     * Cleaned up node sorting code.
+          + Removed dependency on Sort::Naturally.
+          + Added new node sorting function ncmp().
+     * check_constraints now calls ncmp() for logical comparisons.
+     * Added get_value method to make bridge calls and return a scalar value.
+     * Fixed node creation in Redland bridge.
+     * Moved DISTINCT handling code to occur before LIMITing.
+     * Added variables method to retrieve bound variable names.
+     * Added binding_count and get_all methods to streams.
+     * get_statments bridge methods now return RDF::Query::Stream objects.
+
+  Version 1.014 (2005-04-26)
+
+     * Made FILTERs work in SPARQL.
+     * Added initial SPARQL support for custom function constraints.
+     * SPARQL variables may now begin with the '$' sigil.
+     * Added direction support for ORDER BY (ascending/descending).
+     * Added 'next', 'current', and 'end' to Stream API.
+
   Version 1.012 (2005-04-24)
 
      * Stream objects now handle being constructed with an undef coderef.
@@ -55,4 +104,4 @@ AUTHOR
 
 	Gregory Williams <gwilliams@cpan.org>
 
-$Id: README,v 1.3 2005/04/25 02:20:48 greg Exp $
+$Id: README,v 1.7 2005/05/18 23:18:34 greg Exp $

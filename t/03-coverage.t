@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use Test::More tests => 29;
+use Test::More tests => 35;
 
 use_ok( 'RDF::Query' );
 
@@ -126,7 +126,7 @@ END
 }
 
 {
-	print "# Broken query with too few triples\n";
+	print "# Query with one triple, two variables\n";
 	my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
 		SELECT
 			?person
@@ -136,10 +136,10 @@ END
 			foaf FOR <http://xmlns.com/foaf/0.1/>
 END
 	my @results	= $query->execute( $model );
-	is( $results[0], undef, 'Error (undef row) on too few triples (query call)' );
+	is( scalar(@results), 6, 'one triple, two variables (query call)' );
 
 	my ($person)	= $query->get( $model );
-	is( $person, undef, 'Error (undef variable) on too few triples (get call)' );
+	ok( $query->bridge->isa_node($person), 'one triple, two variables (get call)' );
 }
 
 {
@@ -186,3 +186,59 @@ END
 	like( $@, qr/Can't locate object method "unimplemented" via package/, 'AUTOLOAD avoiding bogus instance data' );
 	is( RDF::Query->unimplemented, undef, 'AUTOLOAD avoiding class method calls' );
 }
+
+{
+	print "# SPARQL getting foaf:aimChatID by foaf:nick\n";
+	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+		PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT ?aim WHERE { ?p foaf:nick "kasei"; foaf:aimChatID ?aim }
+END
+	my @results	= $query->execute( $model );
+	is( scalar(@results), 1, '1 result' );
+	my $row		= $results[0];
+	my ($aim)	= @{ $row };
+	ok( $query->bridge->isa_literal( $aim ), 'isa_literal' );
+	is( $query->bridge->as_string($aim), 'samofool', 'got string' );
+}
+
+{
+	print "# SPARQL getting foaf:aimChatID by foaf:nick on non-existant person\n";
+	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+		PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT ?aim WHERE { ?p foaf:nick "libby"; foaf:aimChatID ?aim }
+END
+	my @results	= $query->execute( $model );
+	is( scalar(@results), 0, '0 results' );
+}
+
+{
+	print "# XML Bindings Results Format\n";
+	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT	?person ?homepage
+		WHERE	{
+					?person foaf:name "Gregory Todd Williams" .
+					?person foaf:homepage ?homepage
+				}
+		AND		?homepage ~~ /kasei/
+END
+	my $stream	= $query->execute( $model );
+	isa_ok( $stream, 'RDF::Query::Stream' );
+	my $xml		= $stream->as_xml;
+	is( $xml, <<"END", 'XML Results formatting' );
+<?xml version="1.0"?>
+<sparql xmlns="http://www.w3.org/2001/sw/DataAccess/rf1/result2">
+<head>
+	<variable name="person"/>
+	<variable name="homepage"/>
+</head>
+<results>
+		<result>
+			<binding name="person"><uri>http://kasei.us/about/foaf.xrdf#greg</uri></binding>
+			<binding name="homepage"><uri>http://kasei.us/</uri></binding>
+		</result>
+</results>
+</sparql>
+END
+}
+

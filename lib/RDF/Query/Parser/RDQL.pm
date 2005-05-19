@@ -1,7 +1,7 @@
 # RDF::Query::Parser::RDQL
 # -------------
-# $Revision: 1.2 $
-# $Date: 2005/04/25 00:59:29 $
+# $Revision: 1.4 $
+# $Date: 2005/05/08 08:26:09 $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -18,7 +18,6 @@ use Carp qw(carp croak confess);
 
 use Data::Dumper::Simple;
 use LWP::Simple ();
-use Tie::Cache::LRU;
 use Parse::RecDescent;
 use Digest::SHA1  qw(sha1_hex);
 
@@ -29,7 +28,7 @@ BEGIN {
 	$::RD_TRACE	= undef;
 	$::RD_HINT	= undef;
 	$debug		= 1;
-	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.2 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
+	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.4 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
 	$lang		= 'rdql';
 	$languri	= 'http://jena.hpl.hp.com/2003/07/query/RDQL';
 }
@@ -50,7 +49,9 @@ BEGIN {
 																			$return->{options}{orderby}	= $item[9][0];
 																		}
 																	}
-	OptOrderBy:					'ORDER BY' variable(s)							{ $return = $item[2] }
+	OptOrderBy:					'ORDER BY' orderbyvariable(s)					{ $return = $item[2] }
+	orderbyvariable:			variable										{ $return = ['ASC', $item[1]] }
+					|			/ASC|DESC/i '[' variable ']'					{ $return = [uc($item[1]), $item[3]] }
 	SourceClause:				('SOURCE' | 'FROM') Source(s)					{ $return = $item[2] }
 	Source:						URI												{ $return = $item[1] }
 	variable:					'?' identifier									{ $return = ['VAR',$item[2]] }
@@ -247,6 +248,22 @@ __END__
 =head1 REVISION HISTORY
 
  $Log: RDQL.pm,v $
+ Revision 1.4  2005/05/08 08:26:09  greg
+ - Added initial support for SPARQL ASK, DESCRIBE and CONSTRUCT queries.
+   - Added new test files for new query types.
+ - Added methods to bridge classes for creating statements and blank nodes.
+ - Added as_string method to bridge classes for getting string versions of nodes.
+ - Broke out triple fixup code into fixup_triple_bridge_variables().
+ - Updated FILTER test to use new Geo::Distance API.
+
+ Revision 1.3  2005/04/26 02:54:40  greg
+ - added core support for custom function constraints support
+ - added initial SPARQL support for custom function constraints
+ - SPARQL variables may now begin with the '$' sigil
+ - broke out URL fixups into its own method
+ - added direction support for ORDER BY (ascending/descending)
+ - added 'next', 'current', and 'end' to Stream API
+
  Revision 1.2  2005/04/25 00:59:29  greg
  - streams are now objects usinig the Redland QueryResult API
  - RDF namespace is now always available in queries

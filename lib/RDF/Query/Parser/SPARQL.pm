@@ -1,7 +1,7 @@
 # RDF::Query::Parser::SPARQL
 # -------------
-# $Revision: 1.3 $
-# $Date: 2005/04/25 00:59:29 $
+# $Revision: 1.7 $
+# $Date: 2005/05/18 23:05:53 $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -16,9 +16,8 @@ use strict;
 use warnings;
 use Carp qw(carp croak confess);
 
-use Data::Dumper::Simple;
+use Data::Dumper;
 use LWP::Simple ();
-use Tie::Cache::LRU;
 use Parse::RecDescent;
 use Digest::SHA1  qw(sha1_hex);
 
@@ -29,7 +28,7 @@ BEGIN {
 	$::RD_TRACE	= undef;
 	$::RD_HINT	= undef;
 	$debug		= 0;
-	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.3 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
+	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.7 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
 	$lang		= 'sparql';
 	$languri	= 'http://www.w3.org/TR/rdf-sparql-query/';
 }
@@ -38,31 +37,86 @@ our %blank_ids;
 our($SPARQL_GRAMMAR);
 BEGIN {
 	our $SPARQL_GRAMMAR	= <<'END';
-	query:			namespaces 'SELECT' OptDistinct(?) variable(s) SourceClause(?) 'WHERE' triplepatterns constraints(?) OptOrderBy(?)
+	query:			namespaces /SELECT|DESCRIBE/i OptDistinct(?) variable(s) SourceClause(?) /WHERE/i triplepatterns OptOrderBy(?) OptLimit(?)
 																	{
 																		$return = {
+																			method		=> uc($item[2]),
 																			variables	=> $item[4],
 																			sources		=> $item[5][0],
-																			triples		=> $item[7],
-																			constraints	=> ($item[8][0] || []),
+																			triples		=> $item[7][0] || [],
+																			constraints	=> $item[7][1] || [],
 																			namespaces	=> $item[1]
 																		};
 																		$return->{options}{distinct}	= 1 if ($item[3][0]);
+																		if (@{ $item[8] }) {
+																			$return->{options}{orderby}	= $item[8][0];
+																		}
 																		if (@{ $item[9] }) {
-																			$return->{options}{orderby}	= $item[9][0];
+																			$return->{options}{limit}	= $item[9][0];
 																		}
 																	}
-	OptDistinct:				'DISTINCT'										{ $return = 1 }
-	OptOrderBy:					'ORDER BY' variable(s)							{ $return = $item[2] }
-	SourceClause:				('SOURCE' | 'FROM') Source(s)					{ $return = $item[2] }
+	query:			namespaces /CONSTRUCT/i triplepatterns SourceClause(?) /WHERE/i triplepatterns OptOrderBy(?) OptLimit(?)
+																	{
+																		$return = {
+																			method				=> 'CONSTRUCT',
+																			variables			=> [],
+																			construct_triples	=> $item[3][0] || [],
+																			sources				=> $item[4][0],
+																			triples				=> $item[6][0] || [],
+																			constraints			=> $item[6][1] || [],
+																			namespaces			=> $item[1]
+																		};
+																		$return->{options}{distinct}	= 1;
+																		if (@{ $item[7] }) {
+																			$return->{options}{orderby}	= $item[7][0];
+																		}
+																		if (@{ $item[8] }) {
+																			$return->{options}{limit}	= $item[8][0];
+																		}
+																	}
+	query:			namespaces /ASK/i SourceClause(?) triplepatterns
+																	{
+																		$return = {
+																			method		=> 'ASK',
+																			variables	=> [],
+																			sources		=> $item[3][0],
+																			triples		=> $item[4][0] || [],
+																			constraints	=> [],
+																			namespaces	=> $item[1]
+																		};
+																	}
+	OptDistinct:				/DISTINCT/i										{ $return = 1 }
+	OptLimit:					/LIMIT/i /(\d+)/								{ $return = $item[2] }
+	OptOrderBy:					/ORDER BY/i orderbyvariable(s)					{ $return = $item[2] }
+	orderbyvariable:			variable										{ $return = ['ASC', $item[1]] }
+					|			/ASC|DESC/i '[' variable ']'					{ $return = [uc($item[1]), $item[3]] }
+	SourceClause:				(/SOURCE/i | /FROM/i) Source(s)					{ $return = $item[2] }
 	Source:						URI												{ $return = $item[1] }
-	variable:					'?' identifier									{ $return = ['VAR',$item[2]] }
-	triplepatterns:				'{' triplepattern moretriple(s?) OptDot(?) '}'	{ $return = [ @{ $item[2] }, map { @{ $_ } } @{ $item[3] } ] }
-	moretriple:					'.' triplepattern								{ $return = $item[2] }
-	triplepattern:				(VarUri|blanknode) PredVarUri VarUriConst OptObj(s?) OptPredObj(s?)	{ $return = [ [@item[1,2,3]], map { [$item[1], @{$_}] } (@{$item[5] || []}, map { [$item[2], $_] } @{$item[4] || []}) ] }
+	variable:					('?' | '$') identifier							{ $return = ['VAR',$item[2]] }
+	triplepatterns:				'{' triplepattern moretriple(s?) OptDot(?) '}'	{
+																					my @data	= (@{ $item[2] }, map { @{ $_ } } @{ $item[3] });
+																					my @triples	= (
+																									(map { $_->[1] } grep { $_->[0] eq 'TRIPLE' } @data),
+																									(grep { $_->[0] eq 'OPTIONAL' } @data)
+																								);
+																					
+																					my @filters	= map { $_->[1] } grep { $_->[0] eq 'FILTER' } @data;
+																					my $filters	= scalar(@filters) <= 1
+																								? $filters[0]
+																								: [ '&&', @filters ];
+																					$return = [ \@triples, $filters ];
+																				}
+	moretriple:					'.' triplepattern								{
+																					$return = $item[2];
+																				}
+	triplepattern:				(VarUri|blanknode) PredVarUri VarUriConst OptObj(s?) OptPredObj(s?)	{
+																					$return = [ ['TRIPLE', [@item[1,2,3]]], map { ['TRIPLE', [$item[1], @{$_}]] } (@{$item[5] || []}, map { [$item[2], $_] } @{$item[4] || []}) ];
+																				}
+	triplepattern:				/OPTIONAL/i triplepatterns						{ $return = [[ 'OPTIONAL', ($item[2][0] || []) ]] }
+	triplepattern:				constraints										{ $return = [[ 'FILTER', $item[1] ]] }
 	triplepattern:				blanktriple PredObj(?)							{
 																					my ($b,$t)	= @{ $item[1] };
-																					$return = [ @$t, map { [$b, @$_] } @{ $item[2] } ]
+																					$return = [ (map { ['TRIPLE', $_] } @$t), map { ['TRIPLE', [$b, @$_]] } @{ $item[2] } ];
 																				}
 	triplepattern:				triplepatterns									{ $return = $item[1] }
 	blanknode:					'[' ']'											{ $return = ['BLANK', 'a' . ++$RDF::Query::Parser::SPARQL::blank_ids{ $thisparser }]; }
@@ -70,7 +124,7 @@ BEGIN {
 	OptPredObj:					';' PredObj										{ $return = $item[2] }
 	PredObj:					PredVarUri VarUriConst OptObj(s?)				{ $return = [@item[1,2], map { [$item[1], @{$_}] } @{$item[3] || []}] }
 	OptObj:						',' VarUriConst									{ $return = $item[2] }
-	constraints:				'FILTER' Expression OptExpression(s?)			{
+	constraints:				/FILTER/i Expression OptExpression(s?)			{
 																					if (scalar(@{ $item[3] })) {
 																						$return = [ $item[3][0][0], $item[2], map { $_->[1] } @{ $item[3] } ];
 																					} else {
@@ -78,7 +132,7 @@ BEGIN {
 																					}
 																				}
 	OptDot:						'.'
-	OptExpression:				(',' | 'AND' | '&&') Expression					{
+	OptExpression:				(',' | /AND/i | '&&') Expression					{
 																					$return = [ '&&', $item[2] ];
 																				}
 	Expression:					CondOrExpr										{
@@ -171,11 +225,11 @@ BEGIN {
 							|	/([-+])/ UnaryExpression						{ $return = [ @item[1,2] ] }
 	UnaryExprNotPlusMinus:		/([~!])/ UnaryExpression						{ $return = [ @item[1,2] ] }
 							|	PrimaryExpression								{ $return = $item[1] }
-	PrimaryExpression:			(VarUriConst | FunctionCall)					{ $return = $item[1] }
+	PrimaryExpression:			(FunctionCall | VarUriConst)					{ $return = $item[1] }
 							|	'(' Expression ')'								{
 																					$return = $item[2];
 																				}
-	FunctionCall:				identifier '(' ArgList ')'						{ $return = [ 'function', map { @{ $_ } } @item[1,3] ] }
+	FunctionCall:				URI '(' ArgList ')'								{ $return = [ 'FUNCTION', $item[1], @{ $item[3] } ] }
 	ArgList:					VarUriConst MoreArg(s)							{ $return = [ $item[1], @{ $item[2] } ] }
 	
 	
@@ -185,12 +239,12 @@ BEGIN {
 	Literal:					(URI | CONST)									{ $return = $item[1] }
 	URL:						qURI											{ $return = $item[1] }
 	VarUri:						(variable | blankQName | URI)					{ $return = $item[1] }
-	PredVarUri:					'a'												{ $return = ['URI', 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type'] }
+	PredVarUri:					/a/i											{ $return = ['URI', 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type'] }
 							|	VarUri											{ $return = $item[1] }
 	VarUriConst:				(variable | CONST | URI)						{ $return = $item[1] }
 	namespaces:					morenamespace(s?)								{ $return = { map { %{ $_ } } (@{ $item[1] }) } }
 	morenamespace:				namespace										{ $return = $item[1] }
-	namespace:					'PREFIX' identifier ':' qURI					{ $return = {@item[2,4]} }
+	namespace:					/PREFIX/i identifier ':' qURI					{ $return = {@item[2,4]} }
 	OptComma:					',' | ''
 	identifier:					/(([a-zA-Z0-9_.-])+)/							{ $return = $1 }
 	URI:						(qURI | QName)									{ $return = ['URI',$item[1]] }
@@ -198,7 +252,7 @@ BEGIN {
 	blankQName:					'_:' /([^ \t\r\n<>();,]+)/						{ $return = ['BLANK', $item[2] ] }
 	QName:						identifier ':' /([^ \t\r\n<>();,]+)/			{ $return = [@item[1,3]] }
 	CONST:						(Text | Number)									{ $return = ['LITERAL',$item[1]] }
-	Number:						/([0-9]+(\.[0-9]+)?)/							{ $return = $item[1] }
+	Number:						/([+-]?[0-9]+(\.[0-9]+)?)/							{ $return = $item[1] }
 	Text:						dQText | sQText | Pattern						{ $return = $item[1] }
 	sQText:						"'" /([^']+)/ '"'								{ $return = $item[2] }
 	dQText:						'"' /([^"]+)/ '"'								{ $return = $item[2] }
@@ -268,6 +322,33 @@ __END__
 =head1 REVISION HISTORY
 
  $Log: SPARQL.pm,v $
+ Revision 1.7  2005/05/18 23:05:53  greg
+ - Added support for SPARQL OPTIONAL graph patterns.
+ - Added binding_values and binding_names methods to Streams.
+
+ Revision 1.6  2005/05/08 08:26:09  greg
+ - Added initial support for SPARQL ASK, DESCRIBE and CONSTRUCT queries.
+   - Added new test files for new query types.
+ - Added methods to bridge classes for creating statements and blank nodes.
+ - Added as_string method to bridge classes for getting string versions of nodes.
+ - Broke out triple fixup code into fixup_triple_bridge_variables().
+ - Updated FILTER test to use new Geo::Distance API.
+
+ Revision 1.5  2005/04/26 04:22:13  greg
+ - added constraints tests
+ - URIs in constraints are now part of the fixup
+ - parser is removed from the Redland bridge in DESTROY
+ - SPARQL FILTERs are now properly part of the triple patterns (within the braces)
+ - added FILTER tests
+
+ Revision 1.4  2005/04/26 02:54:40  greg
+ - added core support for custom function constraints support
+ - added initial SPARQL support for custom function constraints
+ - SPARQL variables may now begin with the '$' sigil
+ - broke out URL fixups into its own method
+ - added direction support for ORDER BY (ascending/descending)
+ - added 'next', 'current', and 'end' to Stream API
+
  Revision 1.3  2005/04/25 00:59:29  greg
  - streams are now objects usinig the Redland QueryResult API
  - RDF namespace is now always available in queries

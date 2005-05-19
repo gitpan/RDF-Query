@@ -4,7 +4,6 @@ use Test::More tests => 5;
 use Data::Dumper;
 
 use_ok( 'RDF::Query::Parser::RDQL' );
-local($::RD_HINT)	= 1;
 my $parser	= new RDF::Query::Parser::RDQL (undef);
 isa_ok( $parser, 'RDF::Query::Parser::RDQL' );
 
