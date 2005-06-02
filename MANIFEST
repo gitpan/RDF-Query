@@ -8,13 +8,14 @@ lib/RDF/Query/Model/RDFCore.pm
 lib/RDF/Query/Model/Redland.pm
 lib/RDF/Query/Parser/RDQL.pm
 lib/RDF/Query/Parser/SPARQL.pm
+lib/RDF/Query/Stream.pm
 Makefile.PL
 MANIFEST			This list of files
 SIGNATURE
 t/00-simple.t
-t/01-net.t
 t/01-rdql_parser.t
 t/01-sparql_parser.t
+t/02-file.t
 t/02-net.t
 t/03-coverage.t
 t/04-constraints.t
@@ -25,4 +26,7 @@ t/06-construct.t
 t/06-describe.t
 t/07-filters.t
 t/08-optionals.t
+t/09-union.t
+t/10-sparql_protocol.t
+t/11-resultforms.t
 META.yml                                 Module meta-data (added by MakeMaker)

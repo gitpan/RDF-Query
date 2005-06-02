@@ -31,6 +31,43 @@
 			make install<br />
 		</div>
 	<h2 id="changelog">Version History</h2>
+		<h3 id="v1_024">Version 1.024 (2005-06-02)</h3>
+			<ul>
+				<li>Added missing SPARQL OFFSET grammar rules.</li>
+				<li>Added XML Results support for graph and boolean queries (DESCRIBE, CONSTRUCT, ASK).</li>
+				<li>Fixed major bugs in RDF::Core bridge:<ul>
+					<li>- Bridge wasn't using passed model.</li>
+					<li>- Literal construction was broken.</li>
+					<li>- Blank node construction was broken when no identifier was specified.</li></ul></li>
+				<li>Stream::bindings_count now returns the right number even if there is no data.</li>
+				<li>XML Result format now works with RDF::Core models.</li>
+				<li>The Model bridge object is now passed to the Stream constructor.</li>
+				<li>Internal code now uses the variables method.</li>
+				<li>Removed redundant code from ORDER BY/LIMIT/OFFSET handling.</li>
+				<li>Removed unused count method.</li>
+				<li>Removed unused delegating AUTOLOAD.</li>
+				<li>Removed unused parse_files method.</li>
+				<li>Removed usused add_file method.</li>
+				<li>Removed duplicate net test file.</li>
+				<li>Added test file for local file-based SPARQL 'FROM' queries.</li>
+				<li>Added test file for SPARQL Result Forms (LIMIT, ORDER BY, OFFSET, DISTINCT).</li>
+				<li>Added test file for SPARQL Protocol for RDF (XML Results).</li>
+				<li>Added new tests based on Devel::Cover results.</li>
+				<li>Some test files now run against both Redland and RDF::Core:<ul>
+					<li>- 00-simple.t</li>
+					<li>- 03-coverage.t</li>
+					<li>- 10-sparql_protocol.t</li></ul></li>
+				<li>All debugging is now centrally located in the _debug method.</li>
+				<li>Moved Stream class to lib/RDF/Query/Stream.pm.</li>
+				<li>Fixed tests that broke with previous fix to CONSTRUCT queries.</li>
+				<li>Fixed tests that broke with previous change to ASK query results.</li>
+			</ul>
+		<h3 id="v1_021">Version 1.021 (2005-06-01)</h3>
+			<ul>
+				<li>Added SPARQL UNION support.</li>
+				<li>Broke OPTIONAL handling code off into a seperate method.</li>
+				<li>Added new debugging code to trace errors in the twisty web of closures.</li>
+			</ul>
 		<h3 id="v1_020">Version 1.020 (2005-05-18)</h3>
 			<ul>
 				<li>Added support for SPARQL OPTIONAL graph patterns.</li>
@@ -109,5 +146,5 @@
 	<h2>Copyright</h2>
 		<p>Copyright &copy; 2005 Gregory Williams. All rights reserved. This program is free software; you can redistribute it and/or modify it under the same terms as Perl itself.</p>
 	
-	$Id: README.html,v 1.7 2005/05/18 23:18:34 greg Exp $
+	$Id: README.html,v 1.10 2005/06/02 20:27:23 greg Exp $
 </body></html>

@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use Test::More tests => 3;
+use Test::More tests => 4;
 use Data::Dumper;
 
 use_ok( 'RDF::Query' );
@@ -17,7 +17,9 @@ $parser->parse_into_model($_, $_, $model) for (@data);
 		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 		ASK { ?person foaf:name "Gregory Todd Williams" }
 END
-	my $ok	= $query->execute( $model );
+	my $stream	= $query->execute( $model );
+	ok( $stream->is_boolean, "Stream is boolean result" );
+	my $ok		= $stream->get_boolean();
 	ok( $ok, 'Exists in model' );
 }
 
@@ -26,7 +28,8 @@ END
 		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 		ASK { ?person foaf:name "Rene Descartes" }
 END
-	my $ok	= $query->execute( $model );
+	my $stream	= $query->execute( $model );
+	my $ok		= $stream->get_boolean();
 	ok( not($ok), 'Not in model' );
 }
 

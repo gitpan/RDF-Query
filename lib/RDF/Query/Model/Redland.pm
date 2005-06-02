@@ -8,14 +8,17 @@ use Carp qw(carp croak confess);
 
 use File::Spec;
 use RDF::Redland;
+use Data::Dumper;
 use Encode;
+
+use RDF::Query::Stream;
 
 ######################################################################
 
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.5 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
+	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.8 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
 }
 
 ######################################################################
@@ -76,6 +79,9 @@ sub isa_literal {
 	my $node	= shift;
 	return (ref($node) and $node->is_literal);
 }
+*RDF::Query::Model::Redland::is_node		= \&isa_node;
+*RDF::Query::Model::Redland::is_resource	= \&isa_resource;
+*RDF::Query::Model::Redland::is_literal		= \&isa_literal;
 
 sub as_string {
 	my $self	= shift;
@@ -99,20 +105,6 @@ sub blank_identifier {
 	my $self	= shift;
 	my $node	= shift;
 	return $node->blank_identifier;
-}
-
-sub count {
-	my $self	= shift;
-	return $self->{'model'}->size;
-}
-
-sub add_file {
-#	warn 'Z';
-	my $self	= shift;
-	my $file	= File::Spec->rel2abs( shift );
-	warn $file if ($debug);
-	$self->add_uri( "file://${file}" );
-#	warn 'Y';
 }
 
 sub add_uri {
@@ -177,7 +169,19 @@ sub get_statements {
 			return $ret;
 		};
 	}
-	return RDF::Query::Stream->new( $stream );
+	return RDF::Query::Stream->new( $stream, 'graph', undef, bridge => $self );
+}
+
+sub as_xml {
+	my $self	= shift;
+	my $iter	= shift;
+	return undef unless $iter->is_graph;
+	my $storage	= RDF::Redland::Storage->new("hashes", "test", "new='yes',hash-type='memory'");
+	my $model	= RDF::Redland::Model->new($storage, "");
+	while ($iter and not $iter->finished) {
+		$model->add_statement( $iter->current );
+	} continue { $iter->next }
+	return $model->to_string;
 }
 
 sub RDF::Redland::Node::getLabel {
@@ -189,11 +193,6 @@ sub RDF::Redland::Node::getLabel {
 	} elsif ($node->type == $RDF::Redland::Node::Type_Blank) {
 		return $node->blank_identifier;
 	}
-}
-
-sub RDF::Redland::Statement::getLabel {
-	my $st	= shift;
-	return $st->as_string;
 }
 
 1;

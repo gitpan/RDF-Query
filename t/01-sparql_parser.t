@@ -410,7 +410,71 @@ END
 					}
 				}
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI',['foaf','name']],['VAR','name']],['OPTIONAL',[[['VAR','person'],['URI',['foaf','mbox']],['VAR','mbox']],[['VAR','person'],['URI',['foaf','nick']],['VAR','nick']]]]],'constraints' => [],'sources' => undef,'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'}, 'variables' => [['VAR','person'],['VAR','name'],['VAR','mbox'],['VAR','nick']]};
+	my $correct	= {
+					'method' => 'SELECT',
+					'triples' => [[['VAR','person'],['URI',['foaf','name']],['VAR','name']],['OPTIONAL',[[['VAR','person'],['URI',['foaf','mbox']],['VAR','mbox']],[['VAR','person'],['URI',['foaf','nick']],['VAR','nick']]]]],
+					'constraints' => [],
+					'sources' => undef,
+					'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},
+					'variables' => [['VAR','person'],['VAR','name'],['VAR','mbox'],['VAR','nick']]
+				};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, "optional triples '{...; ...}'" );
+}
+
+{
+	my $sparql	= <<"END";
+		PREFIX dc10:  <http://purl.org/dc/elements/1.1/>
+		PREFIX dc11:  <http://purl.org/dc/elements/1.0/>
+		SELECT	?title ?author
+		WHERE	{
+					{ ?book dc10:title ?title .  ?book dc10:creator ?author }
+					UNION
+					{ ?book dc11:title ?title .  ?book dc11:creator ?author }
+				}
+END
+	my $correct = {
+		  'method' => 'SELECT',
+		  'triples' => [
+		  				[
+		  				   'UNION',
+						   [
+						     [
+						       ['VAR','book'],
+							   ['URI',['dc10','title']],
+							   ['VAR','title']
+							 ],
+							 [
+							   ['VAR','book'],
+							   ['URI',['dc10','creator']],
+							   ['VAR','author']
+							 ]
+						   ],
+						   [
+                             [
+                               ['VAR','book'],
+                               ['URI',['dc11','title']],
+                               ['VAR','title']
+                             ],
+                             [
+                               ['VAR','book'],
+                               ['URI',['dc11','creator']],
+                               ['VAR','author']
+                             ]
+                           ]
+						]
+					   ],
+		  'constraints' => [],
+		  'sources' => undef,
+		  'variables' => [
+						   ['VAR','title'],
+						   ['VAR','author']
+						 ],
+		  'namespaces' => {
+							'dc10' => 'http://purl.org/dc/elements/1.1/',
+							'dc11' => 'http://purl.org/dc/elements/1.0/'
+						  }
+		};
+	my $parsed	= $parser->parse( $sparql );
+	is_deeply( $parsed, $correct, "union; sparql 6.2" );
 }

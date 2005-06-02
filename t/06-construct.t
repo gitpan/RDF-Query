@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use Test::More tests => 6;
+use Test::More tests => 16;
 use Data::Dumper;
 
 use_ok( 'RDF::Query' );
@@ -18,6 +18,22 @@ $parser->parse_into_model($_, $_, $model) for (@data);
 		WHERE	{ ?person foaf:firstName ?name }
 END
 	my $stream	= $query->execute( $model );
+	isa_ok( $stream, 'CODE', 'stream' );
+	while (my $stmt = $stream->()) {
+		my $s	= $stmt->as_string;
+		ok( $s, $s );
+	}
+}
+
+{
+	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		PREFIX	dc: <http://purl.org/dc/elements/1.1/>
+		CONSTRUCT	{ _:somebody foaf:name ?name; foaf:made ?thing }
+		WHERE		{ ?thing dc:creator ?name }
+END
+	my $stream	= $query->execute( $model );
+	isa_ok( $stream, 'RDF::Query::Stream' );
 	isa_ok( $stream, 'CODE', 'stream' );
 	while (my $stmt = $stream->()) {
 		my $s	= $stmt->as_string;

@@ -30,6 +30,7 @@
 			<foaf:page rdf:resource="http://kasei.us/pictures/2004/20040909-Ireland/22"/>
 			<exif:make>NIKON CORPORATION</exif:make>
 			<foaf:maker rdf:resource="http://kasei.us/about/foaf.xrdf#greg"/>
+			<dc:creator>Greg Williams</dc:creator>
 			<exif:fNumber>11</exif:fNumber>
 			<exif:model>NIKON D70</exif:model>
 			<exif:exposureTime>1/500</exif:exposureTime>
@@ -64,6 +65,7 @@
 				<foaf:weblog rdf:resource="http://kasei.us/"/>
 			</foaf:Person>
 		</foaf:maker>
+		<dc:creator>Greg Williams</dc:creator>
 		<exif:fNumber>4.5</exif:fNumber>
 		<exif:model>Nikon D70</exif:model>
 		<exif:exposureTime>1/60</exif:exposureTime>
@@ -76,6 +78,7 @@
 		<foaf:page rdf:resource="http://kasei.us/pictures/2005/20050422-WCCS_Dinner/02"/>
 		<exif:make>NIKON CORPORATION</exif:make>
 		<foaf:maker rdf:resource="http://kasei.us/about/foaf.xrdf#greg"/>
+		<dc:creator>Greg Williams</dc:creator>
 		<exif:fNumber>4.5</exif:fNumber>
 		<exif:model>Nikon D70</exif:model>
 		<exif:exposureTime>1/60</exif:exposureTime>
@@ -88,6 +91,7 @@
 		<foaf:page rdf:resource="http://kasei.us/pictures/2005/20050422-WCCS_Dinner/03"/>
 		<exif:make>NIKON CORPORATION</exif:make>
 		<foaf:maker rdf:resource="http://kasei.us/about/foaf.xrdf#greg"/>
+		<dc:creator>Greg Williams</dc:creator>
 		<exif:fNumber>4.5</exif:fNumber>
 		<exif:model>Nikon D70</exif:model>
 		<exif:exposureTime>1/80</exif:exposureTime>

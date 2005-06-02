@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use Test::More tests => 23;
+use Test::More tests => 36;
 
 use_ok( 'RDF::Query' );
 
@@ -47,6 +47,31 @@ END
 		my ($p,$n)	= @{ $row };
 		ok( $query->bridge->isa_node( $p ), 'isa_node' );
 		ok( $query->bridge->isa_literal( $n ), 'isa_literal(nick)' );
+		like( ($n and $n->getLabel), qr/kasei|The Samo Fool/, ($n and $n->getLabel) );
+	} continue { $stream->next }
+}
+
+{
+	print "# optional with trailing triples\n";
+	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT	?person ?nick ?page
+		WHERE	{
+					?person foaf:name "Gregory Todd Williams" .
+					OPTIONAL { ?person foaf:nick ?nick } .
+					?person foaf:homepage ?page
+				}
+END
+	my $stream	= $query->execute( $model );
+	isa_ok( $stream, 'RDF::Query::Stream' );
+	while ($stream and not $stream->finished) {
+		my $row		= $stream->current;
+		isa_ok( $row, "ARRAY" );
+		my ($p,$n,$h)	= @{ $row };
+		ok( $query->bridge->isa_node( $p ), 'isa_node' );
+		ok( $query->bridge->isa_literal( $n ), 'isa_literal(nick)' );
+		ok( $query->bridge->isa_resource( $h ), 'isa_resource(homepage)' );
+		is( $query->bridge->uri_value( $h ), 'http://kasei.us/' );
 		like( ($n and $n->getLabel), qr/kasei|The Samo Fool/, ($n and $n->getLabel) );
 	} continue { $stream->next }
 }

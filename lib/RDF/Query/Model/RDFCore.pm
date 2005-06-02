@@ -13,13 +13,16 @@ use RDF::Core::Query;
 use RDF::Core::Model::Parser;
 use RDF::Core::Storage::Memory;
 use RDF::Core::NodeFactory;
+use RDF::Core::Model::Serializer;
+
+use RDF::Query::Stream;
 
 ######################################################################
 
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.4 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
+	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.6 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
 }
 
 ######################################################################
@@ -27,12 +30,17 @@ BEGIN {
 sub base_ns { 'http://kasei.us/e/ns/' }
 sub new {
 	my $class	= shift;
-	my $storage	= new RDF::Core::Storage::Memory;
-	my $model	= new RDF::Core::Model (Storage => $storage);
+	my $model	= shift;
+	unless (UNIVERSAL::isa($model, 'RDF::Core::Model')) {
+		my $storage	= new RDF::Core::Storage::Memory;
+		$model	= new RDF::Core::Model (Storage => $storage);
+	}
 	my $factory	= new RDF::Core::NodeFactory;
 	my $self	= bless( {
 					model	=> $model,
-					factory	=> $factory
+					factory	=> $factory,
+					sttime	=> time,
+					counter	=> 0
 				}, $class );
 }
 
@@ -48,13 +56,16 @@ sub new_resource {
 
 sub new_literal {
 	my $self	= shift;
-	return RDF::Core::Resource->new(@_);
+	return RDF::Core::Literal->new(@_);
 }
 
 sub new_blank {
 	my $self	= shift;
 	my $id		= shift;
-	return $self->factory->newResoruce("_:${id}");
+	unless ($id) {
+		$id	= 'r' . $self->{'sttime'} . 'r' . $self->{'counter'}++;
+	}
+	return $self->{'factory'}->newResource("_:${id}");
 }
 
 sub new_statement {
@@ -79,6 +90,9 @@ sub isa_literal {
 	my $node	= shift;
 	return UNIVERSAL::isa($node,'RDF::Core::Literal');
 }
+*RDF::Query::Model::RDFCore::is_node		= \&isa_node;
+*RDF::Query::Model::RDFCore::is_resource	= \&isa_resource;
+*RDF::Query::Model::RDFCore::is_literal		= \&isa_literal;
 
 sub as_string {
 	my $self	= shift;
@@ -104,25 +118,6 @@ sub blank_identifier {
 	return $node->getLabel;
 }
 
-sub count {
-	my $self	= shift;
-	return $self->{'model'}->countStmts;
-}
-
-sub add_file {
-	my $self	= shift;
-	my $file	= File::Spec->rel2abs( shift );
-	my %options = (
-				Model		=> $self->{'model'},
-				Source		=> $file,
-				SourceType	=> 'file',
-				BaseURI		=> $self->base_ns,
-				BNodePrefix	=> "genid"
-			);
-	my $parser	= new RDF::Core::Model::Parser (%options);
-	$parser->parse;
-}
-
 sub add_uri {
 	my $self	= shift;
 	my $url		= shift;
@@ -131,7 +126,7 @@ sub add_uri {
 				Model		=> $self->{'model'},
 				Source		=> $rdf,
 				SourceType	=> 'string',
-				BaseURI		=> "http://kasei.us/e/ns/querybase",
+				BaseURI		=> $self->base_ns,
 				BNodePrefix	=> "genid"
 			);
 	my $parser	= new RDF::Core::Model::Parser (%options);
@@ -146,33 +141,34 @@ sub get_statements {
 	my $self	= shift;
 	my $enum	= $self->{'model'}->getStmts( @_ );
 	my $stmt	= $enum->getFirst;
-	return RDF::Query::Stream->new( sub {
+	my $stream	= sub {
 		return undef unless defined($stmt);
 		my $ret	= $stmt;
 		$stmt	= $enum->getNext;
 		return $ret;
-	} );
+	};
+	
+	return RDF::Query::Stream->new( $stream, 'graph', undef, bridge => $self );
 }
 
-
-sub AUTOLOAD {
+sub as_xml {
 	my $self	= shift;
-	my $class	= ref($self);
-	return undef unless ($class);
-	
-	our $AUTOLOAD;
-	return if ($AUTOLOAD =~ /DESTROY/);
-	my $method		= $AUTOLOAD;
-	$method			=~ s/^.*://;
-	my $model		= $self->{'model'};
-	
-	if ($model->can($method)) {
-		$model->$method( @_ );
-	} else {
-		croak qq[Can't locate object method "$method" via package $class];
-	}
+	my $iter	= shift;
+	return undef unless $iter->is_graph;
+	my $storage	= new RDF::Core::Storage::Memory;
+	my $model	= new RDF::Core::Model (Storage => $storage);
+	while ($iter and not $iter->finished) {
+		$model->addStmt( $iter->current );
+	} continue { $iter->next }
+	my $xml;
+	my $serializer	= RDF::Core::Model::Serializer->new(
+						Model	=> $model,
+						Output	=> \$xml,
+						BaseURI => $self->base_ns,
+					);
+	$serializer->serialize;
+	return $xml;
 }
-
 
 1;
 

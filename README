@@ -20,6 +20,43 @@ INSTALLATION
 
 VERSION HISTORY
 
+  Version 1.024 (2005-06-02)
+
+     * Added missing SPARQL OFFSET grammar rules.
+     * Added XML Results support for graph and boolean queries (DESCRIBE, CONSTRUCT, ASK).
+     * Fixed major bugs in RDF::Core bridge:
+          + Bridge wasn't using passed model.
+          + Literal construction was broken.
+          + Blank node construction was broken when no identifier was specified.
+     * Stream::bindings_count now returns the right number even if there is no data.
+     * XML Result format now works with RDF::Core models.
+     * The Model bridge object is now passed to the Stream constructor.
+     * Internal code now uses the variables method.
+     * Removed redundant code from ORDER BY/LIMIT/OFFSET handling.
+     * Removed unused count method.
+     * Removed unused delegating AUTOLOAD.
+     * Removed unused parse_files method.
+     * Removed usused add_file method.
+     * Removed duplicate net test file.
+     * Added test file for local file-based SPARQL 'FROM' queries.
+     * Added test file for SPARQL Result Forms (LIMIT, ORDER BY, OFFSET, DISTINCT).
+     * Added test file for SPARQL Protocol for RDF (XML Results).
+     * Added new tests based on Devel::Cover results.
+     * Some test files now run against both Redland and RDF::Core:
+          + 00-simple.t
+          + 03-coverage.t
+          + 10-sparql_protocol.t
+     * All debugging is now centrally located in the _debug method.
+     * Moved Stream class to lib/RDF/Query/Stream.pm.
+     * Fixed tests that broke with previous fix to CONSTRUCT queries.
+     * Fixed tests that broke with previous change to ASK query results.
+
+  Version 1.021 (2005-06-01)
+
+     * Added SPARQL UNION support.
+     * Broke OPTIONAL handling code off into a seperate method.
+     * Added new debugging code to trace errors in the twisty web of closures.
+
   Version 1.020 (2005-05-18)
 
      * Added support for SPARQL OPTIONAL graph patterns.
@@ -104,4 +141,4 @@ AUTHOR
 
 	Gregory Williams <gwilliams@cpan.org>
 
-$Id: README,v 1.7 2005/05/18 23:18:34 greg Exp $
+$Id: README,v 1.9 2005/06/02 20:27:22 greg Exp $

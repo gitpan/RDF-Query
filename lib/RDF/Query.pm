@@ -1,7 +1,7 @@
 # RDF::Query
 # -------------
-# $Revision: 1.20 $
-# $Date: 2005/05/18 23:05:53 $
+# $Revision: 1.24 $
+# $Date: 2005/06/02 19:28:49 $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -50,6 +50,8 @@ use Carp qw(carp croak confess);
 use LWP::Simple ();
 use Data::Dumper;
 
+use RDF::Query::Stream;
+
 use RDF::Query::Parser::RDQL;
 use RDF::Query::Parser::SPARQL;
 
@@ -61,7 +63,7 @@ use RDF::Query::Model::RDFCore;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.20 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
+	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.24 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
 }
 
 ######################################################################
@@ -128,11 +130,12 @@ sub execute {
 	my $parser	= $self->{parser};
 	my $parsed	= $self->fixup( $self->{parsed} );
 	my $stream	= $self->query_more( {}, @{ $parsed->{'triples'} } );
-	warn "got stream: $stream" if ($debug);
+	_debug( "got stream: $stream" );
 	$stream		= RDF::Query::Stream->new(
 					$self->sort_rows( $stream, $parsed ),
 					'bindings',
-					[ map { $_->[1] } @{ $parsed->{'variables'} } ]
+					[ $self->variables() ],
+					bridge	=> $bridge
 				);
 	if ($parsed->{'method'} eq 'DESCRIBE') {
 		$stream	= $self->describe( $stream );
@@ -143,11 +146,7 @@ sub execute {
 	}
 	
 	if (wantarray) {
-		my @results;
-		while ($stream and my $r = $stream->()) {
-			push(@results, $r);
-		}
-		return @results;
+		return $stream->get_all();
 	} else {
 		return $stream;
 	}
@@ -178,7 +177,7 @@ sub describe {
 		push(@streams, $bridge->get_statements( undef, undef, $node ));
 	}
 	
-	return RDF::Query::Stream->new( sub {
+	my $ret	= sub {
 		while (@streams) {
 			while (@streams and $streams[0]->finished) {
 				shift(@streams);
@@ -188,7 +187,8 @@ sub describe {
 			$streams[0]->next;
 			return $val;
 		}
-	} );
+	};
+	return RDF::Query::Stream->new( $ret, 'graph', undef, bridge => $bridge );
 }
 
 sub construct {
@@ -198,8 +198,8 @@ sub construct {
 	my @streams;
 	
 	my %seen;
-	
 	my %variable_map;
+	my %blank_map;
 	foreach my $var_count (0 .. $#{ $self->parsed->{'variables'} }) {
 		$variable_map{ $self->parsed->{'variables'}[ $var_count ][1] }	= $var_count;
 	}
@@ -210,11 +210,17 @@ sub construct {
 		foreach my $triple (@{ $self->parsed->{'construct_triples'} }) {
 			my @triple	= @{ $triple };
 			for my $i (0 .. 2) {
-				if (UNIVERSAL::isa($triple[$i], 'ARRAY') and $triple[$i][0] eq 'VAR') {
-					$triple[$i]	= $row->[ $variable_map{ $triple[$i][1] } ];
+				if (UNIVERSAL::isa($triple[$i], 'ARRAY')) {
+					if ($triple[$i][0] eq 'VAR') {
+						$triple[$i]	= $row->[ $variable_map{ $triple[$i][1] } ];
+					} elsif ($triple[$i][0] eq 'BLANK') {
+						unless (exists($blank_map{ $triple[$i][1] })) {
+							$blank_map{ $triple[$i][1] }	= $self->bridge->new_blank();
+						}
+						$triple[$i]	= $blank_map{ $triple[$i][1] };
+					}
 				}
 			}
-			
 			push(@triples, $bridge->new_statement( @triple ));
 		}
 		push(@streams, RDF::Query::Stream->new( sub { shift(@triples) } ));
@@ -223,7 +229,7 @@ sub construct {
 	}
 	
 	
-	return RDF::Query::Stream->new( sub {
+	my $ret	= sub {
 		while (@streams) {
 			while (@streams and $streams[0]->finished) {
 				shift(@streams);
@@ -233,15 +239,17 @@ sub construct {
 			$streams[0]->next;
 			return $val;
 		}
-	} );
+	};
+	return RDF::Query::Stream->new( $ret, 'graph', undef, bridge => $bridge );
 }
 
 sub ask {
 	my $self	= shift;
 	my $stream	= shift;
-	my $data	= $stream->();
-	return +$data;
+	return RDF::Query::Stream->new( $stream, 'boolean', undef, bridge => $self->bridge );
 }
+
+######################################################################
 
 sub fixup {
 	my $self		= shift;
@@ -252,6 +260,9 @@ sub fixup {
 	while (my $triple = shift(@triples)) {
 		if ($triple->[0] eq 'OPTIONAL') {
 			push(@triples, @{$triple->[1]});
+		} elsif ($triple->[0] eq 'UNION') {
+			push(@triples, @{$triple->[1]});
+			push(@triples, @{$triple->[2]});
 		} else {
 			$self->fixup_triple_bridge_variables( $triple );
 		}
@@ -261,17 +272,17 @@ sub fixup {
 	if (ref($parsed->{'constraints'})) {
 		my @constraints	= $parsed->{'constraints'};
 		while (my $data = shift @constraints) {
-			warn "FIXING CONSTRAINT DATA: " . Dumper($data) if ($debug > 1);
+			_debug( "FIXING CONSTRAINT DATA: " . Dumper($data), 2 );
 			if (UNIVERSAL::isa($data, 'ARRAY')) {
 				my ($op, $rest)	= @{ $data };
 				if ($op and $op eq 'URI') {
 					$data->[1]	= $self->qualify_uri( $data );
-					warn "FIXED: " . $data->[1] if ($debug > 1);
+					_debug( "FIXED: " . $data->[1], 2 );
 				}
 				push(@constraints, @{ $data }[1 .. $#{ $data }]);
 			}
 		}
-		warn 'filters: ' . Dumper($parsed->{'constraints'}) if ($debug > 1);
+		_debug( 'filters: ' . Dumper($parsed->{'constraints'}), 2 );
 	}
 	
 	## DEFAULT METHOD TO 'SELECT'
@@ -347,7 +358,6 @@ variables are left and found from the RDF store. Called from C<query>.
 sub query_more {
 	my $self	= shift;
 	my $bound	= shift;
-	
 	my @triples	= @_;
 #	warn 'query_more: ' . Dumper(\@triples);
 	our $indent;
@@ -360,71 +370,17 @@ sub query_more {
 		return undef;
 	}
 	my @triple		= @{ $triple };
-	warn Dumper(\@triple) if ($debug);
+	
 	if ($triple[0] eq 'OPTIONAL') {
-		my @opt_triples	= @{ $triple[1] };
-		warn 'optional triples: ' . Dumper(\@opt_triples) if ($debug > 1);
-		my $ostream	= $self->query_more( { %{ $bound } }, @opt_triples );
-		$ostream	= RDF::Query::Stream->new(
-						$ostream,
-						'bindings',
-						[ map { $_->[1] } @{ $parsed->{'variables'} } ]
-					);
-		if ($ostream and not $ostream->finished) {
-			warn 'got optional stream' if ($debug);
-			if (@triples) {
-				warn "with more triples to match.";
-				my $stream;
-				return sub {
-					while ($ostream and not $ostream->finished) {
-						if ($stream and not $stream->finished) {
-							my $data	= $stream->current;
-							$stream->next;
-							return $data;
-						}
-						
-						foreach my $i (0 .. $ostream->bindings_count - 1) {
-							my $name	= $ostream->binding_name( $i );
-							my $value	= $ostream->binding_value( $i );
-							if (defined $value) {
-								$bound->{ $name }	= $value;
-								warn "Setting $name = $value\n";
-							}
-							$stream	= $self->query_more( { %{ $bound } }, @triples );
-							$stream->next;
-						}
-					}
-					return undef;
-				};
-			} else {
-				warn "No more triples. Returning OPTIONAL stream." if ($debug);
-				return sub {
-					return undef unless ($ostream and not $ostream->finished);
-					my $data	= $ostream->current;
-					$ostream->next;
-					return $data;
-				};
-			}
-		} else {
-			warn "OPTIONAL block failed" if ($debug);
-			if (@triples) {
-				warn "More triples. Re-dispatching" if ($debug);
-				return $self->query_more( { %{ $bound } }, @triples );
-			} else {
-				warn "No more triples. Returning empty results." if ($debug);
-				my @values	= map { $bound->{$_} } map { $_->[1] } @{ $parsed->{'variables'} };
-				my @results	= [@values];
-				return sub { shift(@results) };
-			}
-		}
+		return $self->optional( $bound, $triple, @triples );
+	} elsif ($triple[0] eq 'UNION') {
+		return $self->union( $bound, $triple, @triples );
 	}
 	
 	no warnings 'uninitialized';
-	warn "${indent}query_more: " . join(' ', map { $bridge->isa_node($_) ? '<' . $_->getLabel . '>' : $_->[1] } @triple) . "\n" if ($debug);
-	warn "${indent}-> with " . scalar(@triples) . " triples to go\n" if ($debug);
-	if ($debug) {
-		warn "${indent}-> more: " . (($_->[0] eq 'OPTIONAL') ? 'OPTIONAL block' : join(' ', map { $bridge->isa_node($_) ? '<' . $_->getLabel . '>' : $_->[1] } @{$_})) . "\n" for (@triples);
-	}
+	_debug( "${indent}query_more: " . join(' ', map { $bridge->isa_node($_) ? '<' . $_->getLabel . '>' : $_->[1] } @triple) . "\n" );
+	_debug( "${indent}-> with " . scalar(@triples) . " triples to go\n" );
+	_debug( "${indent}-> more: " . (($_->[0] eq 'OPTIONAL') ? 'OPTIONAL block' : join(' ', map { $bridge->isa_node($_) ? '<' . $_->getLabel . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
 	
 	my $vars	= 0;
 	my ($var, $method);
@@ -436,19 +392,17 @@ sub query_more {
 		if (UNIVERSAL::isa($data, 'ARRAY')) {	# and $data->[0] eq 'VAR'
 			if ($data->[0] eq 'VAR' or $data->[0] eq 'BLANK') {
 				my $tmpvar	= ($data->[0] eq 'VAR') ? $data->[1] : '_' . $data->[1];
-				my $val = $bound->{ $tmpvar };
+				my $val		= $bound->{ $tmpvar };
 				if ($bridge->isa_node($val)) {
-					warn "${indent}-> already have value for $tmpvar: " . $val->getLabel . "\n" if ($debug);
+					_debug( "${indent}-> already have value for $tmpvar: " . $val->getLabel . "\n" );
 					$triple[$idx]	= $val;
 				} elsif (++$vars > 1) {
-					warn "${indent}-> we've seen $vars variables in this triple... punt\n" if ($debug);
+					_debug( "${indent}-> we've seen $vars variables in this triple... punt\n" );
 					if (1 + $self->{punt} >= scalar(@{$self->{parsed}{triples}})) {
-						warn "${indent}-> we've punted too many times. binding on ?$tmpvar" if ($debug);
+						_debug( "${indent}-> we've punted too many times. binding on ?$tmpvar" );
 						$triple[$idx]	= undef;
 						$vars[$idx]		= $tmpvar;
 						$methods[$idx]	= $methodmap[ $idx ];
-	#					warn Dumper(\@triple) if ($debug > 1);
-	#					warn Dumper(\@triples) if ($debug);
 					} elsif (scalar(@triples)) {
 						$self->{punt}++;
 						push(@triples, $triple);
@@ -458,7 +412,7 @@ sub query_more {
 						return undef;
 					}
 				} else {
-					warn "${indent}-> found variable $tmpvar (we've seen $vars variables already)\n" if ($debug);
+					_debug( "${indent}-> found variable $tmpvar (we've seen $vars variables already)\n" );
 					$triple[$idx]	= undef;
 					$vars[$idx]		= $tmpvar;
 					$methods[$idx]	= $methodmap[ $idx ];
@@ -467,18 +421,18 @@ sub query_more {
 		}
 	}
 	
-	warn "${indent}getting: " . join(', ', grep defined, @vars) . "\n" if ($debug);
-	
-	warn 'query_more triple: ' . Dumper([map { ($_) ? $_->getLabel : 'undef' } @triple]) if ($debug);
+	_debug( "${indent}getting: " . join(', ', grep defined, @vars) . "\n" );
+	_debug( 'query_more triple: ' . Dumper([map { ($_) ? $_->getLabel : 'undef' } @triple]) );
 	my @streams;
 	my $stream;
 	{
 		my $statments	= $bridge->get_statements( @triple );
 		push(@streams, sub {
 			my $result;
+			_debug_closure( $statments );
 			my $stmt	= $statments->();
 			unless ($stmt) {
-				warn 'no more statements' if ($debug);
+				_debug( 'no more statements' );
 				$statments	= undef;
 				return undef;
 			}
@@ -487,43 +441,41 @@ sub query_more {
 					next unless defined($vars[$_]);
 					my $var		= $vars[ $_ ];
 					my $method	= $methods[ $_ ];
-					warn "${indent}-> got variable $var = " . $stmt->$method()->getLabel . "\n" if ($debug);
+					_debug( "${indent}-> got variable $var = " . $stmt->$method()->getLabel . "\n" );
 					$bound->{ $var }	= $stmt->$method();
 				}
 			} else {
-				warn "${indent}-> triple with no variable. ignoring.\n" if ($debug);
+				_debug( "${indent}-> triple with no variable. ignoring.\n" );
 			}
 			if (scalar(@triples)) {
-				if ($debug) {
-					warn "${indent}-> now for more triples...\n";
-					warn "${indent}-> more: " . (($_->[0] eq 'OPTIONAL') ? 'OPTIONAL block' : join(' ', map { $bridge->isa_node($_) ? '<' . $_->getLabel . '>' : $_->[1] } @{$_})) . "\n" for (@triples);
-					warn "${indent}-> " . Dumper(\@triples);
-				}
+				_debug( "${indent}-> now for more triples...\n" );
+				_debug( "${indent}-> more: " . (($_->[0] eq 'OPTIONAL') ? 'OPTIONAL block' : join(' ', map { $bridge->isa_node($_) ? '<' . $_->getLabel . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
+				_debug( "${indent}-> " . Dumper(\@triples) );
 				$indent	.= '  ';
-				warn 'adding a new stream for more triples' if ($debug);
+				_debug( 'adding a new stream for more triples' );
 				unshift(@streams, $self->query_more( { %{ $bound } }, @triples ) );
 			} else {
-				my @values	= map { $bound->{$_} } map { $_->[1] } @{ $parsed->{'variables'} };
-				warn "${indent}-> no triples left: result: " . join(', ', map {$_->getLabel} grep defined, @values) . "\n" if ($debug);
+				my @values	= map { $bound->{$_} } $self->variables();
+				_debug( "${indent}-> no triples left: result: " . join(', ', map {$_->getLabel} grep defined, @values) . "\n" );
 				if ($self->check_constraints( $bound, $parsed->{'constraints'} )) {
-					my @values	= map { $bound->{$_} } map { $_->[1] } @{ $parsed->{'variables'} };
+					my @values	= map { $bound->{$_} } $self->variables();
 					$result	= [@values];
 				} else {
-					warn "${indent}-> failed constraints check\n" if ($debug);
+					_debug( "${indent}-> failed constraints check\n" );
 				}
 			}
 			foreach my $var (@vars) {
 				if (defined($var)) {
-					warn "deleting value for $var" if ($debug);
+					_debug( "deleting value for $var" );
 					delete $bound->{ $var };
 				}
 			}
 			if ($result) {
 				local($Data::Dumper::Indent)	= 0;
-				warn 'found a result: ' . Dumper($result) if ($debug);
+				_debug( 'found a result: ' . Dumper($result) );
 				return ($result);
 			} else {
-				warn 'no results yet...' if ($debug);
+				_debug( 'no results yet...' );
 				return ();
 			}
 		} );
@@ -532,8 +484,40 @@ sub query_more {
 	substr($indent, -2, 2)	= '';
 	
 	return sub {
+		_debug( 'query_more closure with ' . scalar(@streams) . ' streams' );
 		while (@streams) {
-			my @val = $streams[0]->();
+			_debug( '-> fetching from stream ' . $streams[0] );
+			_debug_closure( $streams[0] );
+			
+			my @val	= $streams[0]->();
+			_debug( '-> ' . (@val ? 'got' : 'no') . ' value' );
+			if (@val) {
+				_debug( '-> ' . $val[0], 1, 1);
+				return $val[0] if defined($val[0]);
+			} else {
+				next;
+			}
+			shift(@streams);
+		}
+		return undef;
+	};	
+}
+
+sub union {
+	my $self		= shift;
+	my $bound		= shift;
+	my $triple		= shift;
+	my @triples		= @_;
+	my $parsed		= $self->parsed;
+	my @streams;
+	foreach my $u_triples (@{ $triple }[1 .. $#{$triple}]) {
+		my $stream	= $self->query_more( { %{ $bound } }, @{ $u_triples }, @triples );
+		push(@streams, $stream);
+	}
+	return sub {
+		while (@streams) {
+			_debug_closure( $streams[0] );
+			my @val	= $streams[0]->();
 			if (@val) {
 				return $val[0] if defined($val[0]);
 			} else {
@@ -545,6 +529,72 @@ sub query_more {
 	};	
 }
 
+sub optional {
+	my $self		= shift;
+	my $bound		= shift;
+	my $triple		= shift;
+	my @triples		= @_;
+	my $parsed		= $self->parsed;
+	
+	my @triple		= @{ $triple };
+	my @opt_triples	= @{ $triple[1] };
+	_debug( 'optional triples: ' . Dumper(\@opt_triples), 2 );
+	my $ostream	= $self->query_more( { %{ $bound } }, @opt_triples );
+	$ostream	= RDF::Query::Stream->new(
+					$ostream,
+					'bindings',
+					[ $self->variables() ],
+					bridge => $self->bridge
+				);
+	if ($ostream and not $ostream->finished) {
+		_debug( 'got optional stream' );
+		if (@triples) {
+			_debug( "with more triples to match." );
+			my $stream;
+			return sub {
+				while ($ostream and not $ostream->finished) {
+					if ($stream and not $stream->finished) {
+						my $data	= $stream->current;
+						$stream->next;
+						return $data;
+					}
+					
+					foreach my $i (0 .. $ostream->bindings_count - 1) {
+						my $name	= $ostream->binding_name( $i );
+						my $value	= $ostream->binding_value( $i );
+						if (defined $value) {
+							$bound->{ $name }	= $value;
+							_debug( "Setting $name = $value\n" );
+						}
+						$stream	= $self->query_more( { %{ $bound } }, @triples );
+						$stream->next;
+					}
+				}
+				return undef;
+			};
+		} else {
+			_debug( "No more triples. Returning OPTIONAL stream." );
+			return sub {
+				return undef unless ($ostream and not $ostream->finished);
+				my $data	= $ostream->current;
+				$ostream->next;
+				return $data;
+			};
+		}
+	} else {
+		_debug( "OPTIONAL block failed" );
+		if (@triples) {
+			_debug( "More triples. Re-dispatching" );
+			return $self->query_more( { %{ $bound } }, @triples );
+		} else {
+			_debug( "No more triples. Returning empty results." );
+			my @values	= map { $bound->{$_} } $self->variables();
+			my @results	= [@values];
+			return sub { shift(@results) };
+		}
+	}
+}
+	
 sub qualify_uri {
 	my $self	= shift;
 	my $data	= shift;
@@ -552,10 +602,8 @@ sub qualify_uri {
 	my $uri;
 	if (ref($data->[1])) {
 		my $prefix	= $data->[1][0];
-		if ($debug) {
-			unless (exists($parsed->{'namespaces'}{$data->[1][0]})) {
-				warn "No namespace defined for prefix '${prefix}'";
-			}
+		unless (exists($parsed->{'namespaces'}{$data->[1][0]})) {
+			_debug( "No namespace defined for prefix '${prefix}'" );
 		}
 		my $ns	= $parsed->{'namespaces'}{$prefix};
 		$uri	= join('', $ns, $data->[1][1]);
@@ -596,7 +644,7 @@ my %dispatch	= (
 													: $self->check_constraints( $values, $_ )
 											} @{ $data }[1..$#{ $data }]
 										);
-							warn "function <$uri> -> $value" if ($debug);
+							_debug( "function <$uri> -> $value" );
 							return $value;
 						} else {
 							warn "No function defined for <${uri}>\n";
@@ -608,14 +656,14 @@ sub check_constraints {
 	my $self	= shift;
 	my $values	= shift;
 	my $data	= shift;
-	warn 'check_constraints: ' . Dumper($data) if ($debug > 1);
+	_debug( 'check_constraints: ' . Dumper($data), 2 );
 	return 1 unless scalar(@$data);
 	my $op		= $data->[0];
 	my $code	= $dispatch{ $op };
 	if ($code) {
 #		local($Data::Dumper::Indent)	= 0;
 		my $result	= $code->( $self, $values, [ @{$data}[1..$#{$data}] ] );
-		warn "OP: $op -> " . Dumper($data) if ($debug > 1);
+		_debug( "OP: $op -> " . Dumper($data), 2 );
 #		warn "RESULT: " . $result . "\n\n";
 		return $result;
 	} else {
@@ -664,9 +712,9 @@ sub sort_rows {
 	my $limit		= $args->{'limit'};
 	my $unique		= $args->{'distinct'};
 	my $offset		= $args->{'offset'} || 0;
-	my @variables	= map { $_->[1] } (@{ $parsed->{variables} });
+	my @variables	= $self->variables;
 	my %colmap		= map { $variables[$_] => $_ } (0 .. $#variables);
-	warn 'sort_rows column map: ' . Dumper(\%colmap) if ($debug);
+	_debug( 'sort_rows column map: ' . Dumper(\%colmap) );
 	
 	if ($unique) {
 		my %seen;
@@ -682,10 +730,10 @@ sub sort_rows {
 	if (exists $args->{'orderby'}) {
 		my $cols		= $args->{'orderby'};
 		my ($dir, $col)	= @{ $cols->[0][1] };
-		warn "ordering by $col" if ($debug);
+		_debug( "ordering by $col" );
 		my @nodes;
 		while (my $node = $nodes->()) {
-			warn "node for sorting: " . Dumper($node) if ($debug);
+			_debug( "node for sorting: " . Dumper($node) );
 			push(@nodes, $node);
 		}
 		no warnings 'numeric';
@@ -694,19 +742,17 @@ sub sort_rows {
 						map { [$_, $_->[$colmap{$col}]->getLabel] }
 							@nodes;
 		@nodes	= reverse @nodes if ($dir eq 'DESC');
-		if ($limit) {
-			$nodes	= sub {
-				return undef unless ($limit);
-				$limit--;
-				return shift(@nodes);
-			};
-		} else {
-			$nodes	= sub {
-				my $row	= shift(@nodes);
-				return $row;
-			};
-		}
-	} elsif ($limit) {
+		$nodes	= sub {
+			my $row	= shift(@nodes);
+			return $row;
+		};
+	}
+	
+	if ($offset) {
+		$nodes->() while ($offset--);
+	}
+	
+	if ($limit) {
 		my $old	= $nodes;
 		$nodes	= sub {
 			return undef unless ($limit);
@@ -715,43 +761,7 @@ sub sort_rows {
 		};
 	}
 	
-	if ($offset) {
-		if ($unique) {
-			my %seen;
-			while (my $row = $nodes->()) {
-				next if ($seen{ @$row }++);
-				last unless --$offset;
-			}
-		} else {
-			$nodes->() while ($offset--);
-		}
-	}
-	
 	return $nodes;
-}
-
-=for private
-
-=item C<parse_files ( @files )>
-
-Parse a local RDF file into the RDF store.
-
-=end private
-
-=cut
-sub parse_files {
-	my $self	= shift;
-	my @files	= @_;
-	my $bridge	= $self->bridge;
-	
-	foreach my $file (@files) {
-		unless (-r $file) {
-			warn "$file isn't readable!";
-			next;
-		}
-		warn "parsing $file\n" if ($debug);
-		$bridge->add_file( $file );
-	}
 }
 
 =for private
@@ -780,6 +790,34 @@ sub variables {
 	return @vars;
 }
 
+sub _debug_closure {
+	return unless ($debug > 1);
+	my $closure	= shift;
+	use B::Deparse;
+	my $deparse	= B::Deparse->new("-p", "-sC");
+	my $body	= $deparse->coderef2text($closure);
+	warn "--- --- CLOSURE --- ---\n";
+	carp $body;
+}
+
+sub _debug {
+	my $mesg	= shift;
+	my $level	= shift	|| 1;
+	my $trace	= shift || 0;
+	my ($package, $filename, $line, $sub, $hasargs, $wantarray, $evaltext, $is_require, $hints, $bitmask)	= caller(1);
+	
+	$sub		=~ s/^.*://;
+	my $output	= join(' ', $mesg, 'at', $filename, $line) . "\n";
+	if ($debug >= $level) {
+		carp $output;
+		if ($trace) {
+			unless ($filename =~ m/Redland/) {
+				warn Carp::longmess();
+			}
+		}
+	}
+}
+
 sub AUTOLOAD {
 	my $self	= $_[0];
 	my $class	= ref($_[0]) || return undef;
@@ -801,168 +839,6 @@ sub AUTOLOAD {
 	}
 }
 
-package RDF::Query::Stream;
-
-use strict;
-use warnings;
-use Data::Dumper;
-use Carp qw(carp);
-
-sub new {
-	my $class		= shift;
-	my $stream		= shift || sub { undef };
-	my $type		= shift || 'bindings';
-	my $names		= shift || [];
-	my $open		= 0;
-	my $finished	= 0;
-	my $row;
-	my $self;
-	$self	= bless(sub {
-		my $arg	= shift;
-		if ($arg) {
-			if ($arg =~ /is_(\w+)$/) {
-				return ($1 eq $type);
-			} elsif ($arg eq 'next_result' or $arg eq 'next') {
-				$open	= 1;
-				$row	= $stream->();
-				unless ($row) {
-					$finished	= 1;
-				}
-			} elsif ($arg eq 'current') {
-				unless ($open) {
-					$self->next_result;
-				}
-				return $row;
-			} elsif ($arg eq 'binding_names') {
-				return @{ $names };
-			} elsif ($arg eq 'binding_name') {
-				my $val	= shift;
-				return $names->[ $val ]
-			} elsif ($arg eq 'binding_value') {
-				unless ($open) {
-					$self->next_result;
-				}
-				my $val	= shift;
-				return $row->[ $val ];
-			} elsif ($arg eq 'binding_values') {
-				unless ($open) {
-					$self->next_result;
-				}
-				return @{ $row };
-			} elsif ($arg eq 'bindings_count') {
-				unless ($open) {
-					$self->next_result;
-				}
-				return 0 unless ref($row);
-				return scalar( @{ $row } );
-			} elsif ($arg eq 'finished' or $arg eq 'end') {
-				unless ($open) {
-					$self->next_result;
-				}
-				return $finished;
-			}
-		} else {
-			return $stream->();
-		}
-	}, $class);
-	return $self;
-}
-
-sub get_all {
-	my $self	= shift;
-	my @data;
-	while (my $data = $self->()) {
-		push(@data, $data);
-	}
-	return @data;
-}
-
-sub as_xml {
-	my $self			= shift;
-	my $max_result_size	= shift || 0;
-	my $width			= $self->bindings_count;
-	my @variables;
-	for (my $i=0; $i < $width; $i++) {
-		my $name	= $self->binding_name($i);
-		push(@variables, $name) if $name;
-	}
-	
-	my $count	= 0;
-	my $t	= join("\n\t", map { qq(<variable name="$_"/>) } @variables);
-	my $xml	= <<"END";
-<?xml version="1.0"?>
-<sparql xmlns="http://www.w3.org/2001/sw/DataAccess/rf1/result2">
-<head>
-	${t}
-</head>
-<results>
-END
-	while (!$self->finished) {
-		my @row;
-		$xml	.= "\t\t<result>\n";
-		for (my $i = 0; $i < $self->bindings_count(); $i++) {
-			my $name		= $self->binding_name($i);
-			my $value		= $self->binding_value($i);
-			$xml	.= "\t\t\t" . format_node_raw($value, $name) . "\n";
-		}
-		$xml	.= "\t\t</result>\n";
-		
-		last if ($max_result_size and ++$count >= $max_result_size);
-	} continue { $self->next_result }
-	$xml	.= <<"EOT";
-</results>
-</sparql>
-EOT
-	return $xml;
-}
-
-sub format_node_raw ($$) {
-	my $node	= shift;
-	my $name	= shift;
-	my $node_label;
-
-	if(!defined $node) {
-		$node_label	= "<unbound/>";
-	} elsif ($node->is_resource) {
-		$node_label	= $node->uri->as_string;
-		$node_label	=~ s/&/&amp;/g;
-		$node_label	=~ s/</&lt;/g;
-		$node_label	=~ s/"/&quot;/g;
-		$node_label	= qq(<uri>${node_label}</uri>);
-	} elsif ($node->is_literal) {
-		$node_label	= $node->literal_value;
-		$node_label	=~ s/&/&amp;/g;
-		$node_label	=~ s/</&lt;/g;
-		$node_label	=~ s/"/&quot;/g;
-		$node_label	= qq(<literal>${node_label}</literal>);
-	} elsif ($node->is_blank) {
-		$node_label	= $node->blank_identifier;
-		$node_label	=~ s/&/&amp;/g;
-		$node_label	=~ s/</&lt;/g;
-		$node_label	=~ s/"/&quot;/g;
-		$node_label	= qq(<bnode>${node_label}</bnode>);
-	} else {
-		$node_label	= "<unbound/>";
-	}
-	return qq(<binding name="${name}">${node_label}</binding>);
-}
-
-sub AUTOLOAD {
-	my $self	= shift;
-	my $class	= ref($self) || return undef;
-	our $AUTOLOAD;
-	return if ($AUTOLOAD =~ /:DESTROY$/);
-	my $method		= $AUTOLOAD;
-	$method			=~ s/^.*://;
-	if (UNIVERSAL::isa( $self, 'CODE' )) {
-		return $self->( $method, @_ );
-	} else {
-		carp "Not a CODE reference";
-		return undef;
-	}
-}
-
-
 1;
 
 __END__
@@ -972,6 +848,28 @@ __END__
 =head1 REVISION HISTORY
 
  $Log: Query.pm,v $
+ Revision 1.24  2005/06/02 19:28:49  greg
+ - All debugging is now centrally located in the _debug method.
+ - Internal code now uses the variables method.
+ - Removed redundant code from ORDER BY/LIMIT/OFFSET handling.
+ - Removed unused parse_files method.
+ - Bridge object is now passed to the Stream constructor.
+
+ Revision 1.23  2005/06/01 22:10:46  greg
+ - Moved Stream class to lib/RDF/Query/Stream.pm.
+ - Fixed tests that broke with previous fix to CONSTRUCT queries.
+ - Fixed tests that broke with previous change to ASK query results.
+
+ Revision 1.22  2005/06/01 21:21:09  greg
+ - Fixed bug in CONSTRUCT queries that used blank nodes.
+ - ASK queries now return a Stream object; Use the new get_boolean method.
+ - Graph and Boolean streams now respond to is_graph and is_boolean methods.
+
+ Revision 1.21  2005/06/01 05:06:33  greg
+ - Added SPARQL UNION support.
+ - Broke OPTIONAL handling code off into a seperate method.
+ - Added new debugging code to trace errors in the twisty web of closures.
+
  Revision 1.20  2005/05/18 23:05:53  greg
  - Added support for SPARQL OPTIONAL graph patterns.
  - Added binding_values and binding_names methods to Streams.
@@ -1093,6 +991,23 @@ __END__
  import
 
  
+=head1 TODO
+
+=over 4
+
+=item * Typed Literals
+
+=item * Built-in Operators and Functions
+
+L<http://www.w3.org/TR/rdf-sparql-query/#StandardOperations>
+
+Casting functions: xsd:{boolean,double,float,decimal,integer,dateTime,string}, rdf:{URIRef,Literal}, STR, LANG, DATATYPE
+XPath functions: numeric-equal, numeric-less-than, numeric-greater-than, numeric-multiply, numeric-divide, numeric-add, numeric-subtract, not, dateTime-equal, dateTime-greater-than, matches
+SPARQL operators: sop:RDFterm-equal, sop:bound, sop:isURI, sop:isBlank, sop:isLiteral, sop:str, sop:lang, sop:datatype, sop:logical-or, sop:logical-and, 
+SPARQL functions: REGEX, BOUND, ISURI, ISBLANK, ISLITERAL
+
+=back
+
 =head1 AUTHOR
 
  Gregory Williams <gwilliams@cpan.org>

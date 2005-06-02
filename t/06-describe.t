@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use Test::More tests => 32;
+use Test::More tests => 35;
 use Data::Dumper;
 
 use_ok( 'RDF::Query' );
@@ -19,6 +19,7 @@ $parser->parse_into_model($_, $_, $model) for (@data);
 		WHERE	{ ?person foaf:name "Gregory Todd Williams" }
 END
 	my $stream	= $query->execute( $model );
+	ok( $stream->is_graph, "Stream is graph result" );
 	isa_ok( $stream, 'CODE', 'stream' );
 	while (my $stmt = $stream->()) {
 		my $s	= $stmt->as_string;

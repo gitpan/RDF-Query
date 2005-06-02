@@ -1,7 +1,7 @@
 # RDF::Query::Parser::SPARQL
 # -------------
-# $Revision: 1.7 $
-# $Date: 2005/05/18 23:05:53 $
+# $Revision: 1.9 $
+# $Date: 2005/06/02 19:36:22 $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -28,7 +28,7 @@ BEGIN {
 	$::RD_TRACE	= undef;
 	$::RD_HINT	= undef;
 	$debug		= 0;
-	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.7 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
+	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.9 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
 	$lang		= 'sparql';
 	$languri	= 'http://www.w3.org/TR/rdf-sparql-query/';
 }
@@ -37,7 +37,7 @@ our %blank_ids;
 our($SPARQL_GRAMMAR);
 BEGIN {
 	our $SPARQL_GRAMMAR	= <<'END';
-	query:			namespaces /SELECT|DESCRIBE/i OptDistinct(?) variable(s) SourceClause(?) /WHERE/i triplepatterns OptOrderBy(?) OptLimit(?)
+	query:			namespaces /SELECT|DESCRIBE/i OptDistinct(?) variable(s) SourceClause(?) /WHERE/i triplepatterns OptOrderBy(?) OptLimit(?) OptOffset(?)
 																	{
 																		$return = {
 																			method		=> uc($item[2]),
@@ -54,8 +54,11 @@ BEGIN {
 																		if (@{ $item[9] }) {
 																			$return->{options}{limit}	= $item[9][0];
 																		}
+																		if (@{ $item[10] }) {
+																			$return->{options}{offset}	= $item[10][0];
+																		}
 																	}
-	query:			namespaces /CONSTRUCT/i triplepatterns SourceClause(?) /WHERE/i triplepatterns OptOrderBy(?) OptLimit(?)
+	query:			namespaces /CONSTRUCT/i triplepatterns SourceClause(?) /WHERE/i triplepatterns OptOrderBy(?) OptLimit(?) OptOffset(?)
 																	{
 																		$return = {
 																			method				=> 'CONSTRUCT',
@@ -73,6 +76,9 @@ BEGIN {
 																		if (@{ $item[8] }) {
 																			$return->{options}{limit}	= $item[8][0];
 																		}
+																		if (@{ $item[9] }) {
+																			$return->{options}{offset}	= $item[9][0];
+																		}
 																	}
 	query:			namespaces /ASK/i SourceClause(?) triplepatterns
 																	{
@@ -87,6 +93,7 @@ BEGIN {
 																	}
 	OptDistinct:				/DISTINCT/i										{ $return = 1 }
 	OptLimit:					/LIMIT/i /(\d+)/								{ $return = $item[2] }
+	OptOffset:					/OFFSET/i /(\d+)/								{ $return = $item[2] }
 	OptOrderBy:					/ORDER BY/i orderbyvariable(s)					{ $return = $item[2] }
 	orderbyvariable:			variable										{ $return = ['ASC', $item[1]] }
 					|			/ASC|DESC/i '[' variable ']'					{ $return = [uc($item[1]), $item[3]] }
@@ -97,7 +104,8 @@ BEGIN {
 																					my @data	= (@{ $item[2] }, map { @{ $_ } } @{ $item[3] });
 																					my @triples	= (
 																									(map { $_->[1] } grep { $_->[0] eq 'TRIPLE' } @data),
-																									(grep { $_->[0] eq 'OPTIONAL' } @data)
+																									(grep { $_->[0] eq 'OPTIONAL' } @data),
+																									(grep { $_->[0] eq 'UNION' } @data)
 																								);
 																					
 																					my @filters	= map { $_->[1] } grep { $_->[0] eq 'FILTER' } @data;
@@ -113,6 +121,7 @@ BEGIN {
 																					$return = [ ['TRIPLE', [@item[1,2,3]]], map { ['TRIPLE', [$item[1], @{$_}]] } (@{$item[5] || []}, map { [$item[2], $_] } @{$item[4] || []}) ];
 																				}
 	triplepattern:				/OPTIONAL/i triplepatterns						{ $return = [[ 'OPTIONAL', ($item[2][0] || []) ]] }
+	triplepattern:				triplepatterns /UNION/i triplepatterns			{ $return = [[ 'UNION', ($item[1][0] || []), ($item[3][0] || []) ]] }
 	triplepattern:				constraints										{ $return = [[ 'FILTER', $item[1] ]] }
 	triplepattern:				blanktriple PredObj(?)							{
 																					my ($b,$t)	= @{ $item[1] };
@@ -322,6 +331,14 @@ __END__
 =head1 REVISION HISTORY
 
  $Log: SPARQL.pm,v $
+ Revision 1.9  2005/06/02 19:36:22  greg
+ - Added missing OFFSET grammar rules.
+
+ Revision 1.8  2005/06/01 05:06:33  greg
+ - Added SPARQL UNION support.
+ - Broke OPTIONAL handling code off into a seperate method.
+ - Added new debugging code to trace errors in the twisty web of closures.
+
  Revision 1.7  2005/05/18 23:05:53  greg
  - Added support for SPARQL OPTIONAL graph patterns.
  - Added binding_values and binding_names methods to Streams.

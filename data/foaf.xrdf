@@ -15,7 +15,7 @@
 		<dc:description>Friend of a Friend (FOAF) description, containing personal metadata for Gregory Williams</dc:description>
 		<wot:assurance rdf:resource="http://kasei.us/about/foaf.xrdf.asc" />
 		<dc:date>Sat, 4 Oct 2003 20:02:22 PDT-0700</dc:date>
-		<dc:creator rdf:resource="#greg" />
+		<foaf:maker rdf:resource="#greg" />
 	</rdf:Description>
 
 <!-- ME -->
@@ -29,6 +29,8 @@
 		<foaf:depiction rdf:resource="http://kasei.us/images/greg.png"/>
 		<foaf:img rdf:resource="http://kasei.us/images/greg.png"/>
 		<foaf:homepage rdf:resource="http://kasei.us/"/>
+		<foaf:schoolHomepage rdf:resource="http://www.samohi.smmusd.org/"/>
+		<foaf:schoolHomepage rdf:resource="http://www.wheatonma.edu/"/>
 		<foaf:weblog rdf:resource="http://kasei.us/"/>
 		<foaf:aimChatID>samofool</foaf:aimChatID>
 
