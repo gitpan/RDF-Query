@@ -20,6 +20,37 @@ INSTALLATION
 
 VERSION HISTORY
 
+  Version 1.028 (2005-11-18)
+
+     * Added SPARQL functions: BOUND, isURI, isBLANK, isLITERAL.
+     * Updated SPARQL REGEX syntax.
+     * Updated SPARQL FILTER syntax.
+     * Added SPARQL RDF Collections syntactic forms.
+     * Fixed FILTER support in OPTIONAL queries.
+     * Added binding_value_by_name method to Query results stream class.
+     * Added isa_blank methods to RDF::Redland and RDF::Core model classes.
+     * Fixed RDF literal datatyping when using Redland versions >= 1.00_02.
+     * Updated SPARQL grammar to make 'WHERE' token optional.
+     * Added <commit> directives to SPARQL grammar.
+     * Updated SPARQL 'ORDER BY' syntax to use parenthesis.
+     * Fixed SPARQL FILTER logical-and support for more than two operands.
+     * Fixed SPARQL FILTER equality operator syntax to use '=' instead of '=='.
+     * Now requires Test::More 0.52 because of changes to is_deeply().
+
+  Version 1.027 (2005-07-28)
+
+	* Updated to follow SPARQL Draft 2005.07.21:
+		+ ORDER BY arguments now use parenthesis.
+		+ SPARQL parser now supports ORDER BY operands:
+		  variable, expression, or function call.
+	* Added binding_value_by_name() method to query result streams.
+
+  Version 1.026 (2005-06-05)
+
+     * Added new DBI model bridge (accesses Redland's mysql storage directly).
+     * Added built-in SPARQL functions and operators (not connected to grammar yet).
+     * Added bridge methods for accessing typed literal information.
+
   Version 1.024 (2005-06-02)
 
      * Added missing SPARQL OFFSET grammar rules.
@@ -66,7 +97,7 @@ VERSION HISTORY
           + binding_name
           + binding_values
           + binding_names
-     * Added as_xml method to Stream class for XML Binding Results format.</li>
+     * Added as_xml method to Stream class for XML Binding Results format.
 
   Version 1.016 (2005-05-08)
 
@@ -141,4 +172,4 @@ AUTHOR
 
 	Gregory Williams <gwilliams@cpan.org>
 
-$Id: README,v 1.9 2005/06/02 20:27:22 greg Exp $
+$Id: README,v 1.12 2005/11/19 01:46:02 greg Exp $

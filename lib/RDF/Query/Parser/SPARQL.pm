@@ -1,7 +1,7 @@
 # RDF::Query::Parser::SPARQL
 # -------------
-# $Revision: 1.9 $
-# $Date: 2005/06/02 19:36:22 $
+# $Revision: 1.12 $
+# $Date: 2005/11/19 00:56:38 $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -28,7 +28,7 @@ BEGIN {
 	$::RD_TRACE	= undef;
 	$::RD_HINT	= undef;
 	$debug		= 0;
-	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.9 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
+	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.12 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
 	$lang		= 'sparql';
 	$languri	= 'http://www.w3.org/TR/rdf-sparql-query/';
 }
@@ -37,66 +37,70 @@ our %blank_ids;
 our($SPARQL_GRAMMAR);
 BEGIN {
 	our $SPARQL_GRAMMAR	= <<'END';
-	query:			namespaces /SELECT|DESCRIBE/i OptDistinct(?) variable(s) SourceClause(?) /WHERE/i triplepatterns OptOrderBy(?) OptLimit(?) OptOffset(?)
+	query:			namespaces /SELECT|DESCRIBE/i <commit> OptDistinct(?) variables SourceClause(?) (/WHERE/i)(?) triplepatterns OptOrderBy(?) OptLimit(?) OptOffset(?)
 																	{
 																		$return = {
 																			method		=> uc($item[2]),
-																			variables	=> $item[4],
-																			sources		=> $item[5][0],
-																			triples		=> $item[7][0] || [],
-																			constraints	=> $item[7][1] || [],
-																			namespaces	=> $item[1]
+																			variables	=> $item{variables},
+																			sources		=> $item{SourceClause}[0],
+																			triples		=> $item{triplepatterns}[0] || [],
+																			constraints	=> $item{triplepatterns}[1] || [],
+																			namespaces	=> $item{namespaces}
 																		};
-																		$return->{options}{distinct}	= 1 if ($item[3][0]);
-																		if (@{ $item[8] }) {
-																			$return->{options}{orderby}	= $item[8][0];
+																		$return->{options}{distinct}	= 1 if ($item{'OptDistinct(?)'}[0]);
+																		if (@{ $item{'OptOrderBy(?)'} }) {
+																			$return->{options}{orderby}	= $item{'OptOrderBy(?)'}[0];
 																		}
-																		if (@{ $item[9] }) {
-																			$return->{options}{limit}	= $item[9][0];
+																		if (@{ $item{'OptLimit(?)'} }) {
+																			$return->{options}{limit}	= $item{'OptLimit(?)'}[0];
 																		}
-																		if (@{ $item[10] }) {
-																			$return->{options}{offset}	= $item[10][0];
+																		if (@{ $item{'OptOffset(?)'} }) {
+																			$return->{options}{offset}	= $item{'OptOffset(?)'}[0];
 																		}
 																	}
-	query:			namespaces /CONSTRUCT/i triplepatterns SourceClause(?) /WHERE/i triplepatterns OptOrderBy(?) OptLimit(?) OptOffset(?)
+	variables: variable Comma(?) variables							{ $return = [ $item[1], @{ $item[3] } ] }
+	variables: variable												{ $return = [ $item[1] ] }
+	query:			namespaces /CONSTRUCT/i <commit> triplepatterns SourceClause(?) /WHERE/i triplepatterns OptOrderBy(?) OptLimit(?) OptOffset(?)
 																	{
 																		$return = {
 																			method				=> 'CONSTRUCT',
 																			variables			=> [],
-																			construct_triples	=> $item[3][0] || [],
-																			sources				=> $item[4][0],
-																			triples				=> $item[6][0] || [],
-																			constraints			=> $item[6][1] || [],
-																			namespaces			=> $item[1]
+																			construct_triples	=> $item[4][0] || [],
+																			sources				=> $item{SourceClause}[0],
+																			triples				=> $item[7][0] || [],
+																			constraints			=> $item[7][1] || [],
+																			namespaces			=> $item{namespaces}
 																		};
 																		$return->{options}{distinct}	= 1;
-																		if (@{ $item[7] }) {
-																			$return->{options}{orderby}	= $item[7][0];
+																		if (@{ $item{'OptOrderBy(?)'} }) {
+																			$return->{options}{orderby}	= $item{'OptOrderBy(?)'}[0];
 																		}
-																		if (@{ $item[8] }) {
-																			$return->{options}{limit}	= $item[8][0];
+																		if (@{ $item{'OptLimit(?)'} }) {
+																			$return->{options}{limit}	= $item{'OptLimit(?)'}[0];
 																		}
-																		if (@{ $item[9] }) {
-																			$return->{options}{offset}	= $item[9][0];
+																		if (@{ $item{'OptOffset(?)'} }) {
+																			$return->{options}{offset}	= $item{'OptOffset(?)'}[0];
 																		}
 																	}
-	query:			namespaces /ASK/i SourceClause(?) triplepatterns
+	query:			namespaces /ASK/i <commit> SourceClause(?) triplepatterns
 																	{
 																		$return = {
 																			method		=> 'ASK',
 																			variables	=> [],
-																			sources		=> $item[3][0],
-																			triples		=> $item[4][0] || [],
+																			sources		=> $item{SourceClause}[0],
+																			triples		=> $item{triplepatterns}[0] || [],
 																			constraints	=> [],
-																			namespaces	=> $item[1]
+																			namespaces	=> $item{namespaces}
 																		};
 																	}
 	OptDistinct:				/DISTINCT/i										{ $return = 1 }
 	OptLimit:					/LIMIT/i /(\d+)/								{ $return = $item[2] }
 	OptOffset:					/OFFSET/i /(\d+)/								{ $return = $item[2] }
-	OptOrderBy:					/ORDER BY/i orderbyvariable(s)					{ $return = $item[2] }
-	orderbyvariable:			variable										{ $return = ['ASC', $item[1]] }
-					|			/ASC|DESC/i '[' variable ']'					{ $return = [uc($item[1]), $item[3]] }
+	OptOrderBy:					/ORDER BY/i OrderCondition(s)					{ $return = $item[2] }
+	OrderCondition:				/ASC|DESC/i <commit> BrackettedExpression		{ $return = [uc($item[1]), $item{BrackettedExpression}] }
+					|			variable										{ $return = ['ASC', $item[1]] }
+					|			FunctionCall									{ $return = ['ASC', $item[1]] }
+					|			BrackettedExpression							{ $return = ['ASC', $item[1]] }
 	SourceClause:				(/SOURCE/i | /FROM/i) Source(s)					{ $return = $item[2] }
 	Source:						URI												{ $return = $item[1] }
 	variable:					('?' | '$') identifier							{ $return = ['VAR',$item[2]] }
@@ -112,12 +116,13 @@ BEGIN {
 																					my $filters	= scalar(@filters) <= 1
 																								? $filters[0]
 																								: [ '&&', @filters ];
+																				#	warn Data::Dumper::Dumper(\@triples);
 																					$return = [ \@triples, $filters ];
 																				}
 	moretriple:					'.' triplepattern								{
 																					$return = $item[2];
 																				}
-	triplepattern:				(VarUri|blanknode) PredVarUri VarUriConst OptObj(s?) OptPredObj(s?)	{
+	triplepattern:				(VarUri|blanknode) PredVarUri Object OptObj(s?) OptPredObj(s?)	{
 																					$return = [ ['TRIPLE', [@item[1,2,3]]], map { ['TRIPLE', [$item[1], @{$_}]] } (@{$item[5] || []}, map { [$item[2], $_] } @{$item[4] || []}) ];
 																				}
 	triplepattern:				/OPTIONAL/i triplepatterns						{ $return = [[ 'OPTIONAL', ($item[2][0] || []) ]] }
@@ -128,22 +133,77 @@ BEGIN {
 																					$return = [ (map { ['TRIPLE', $_] } @$t), map { ['TRIPLE', [$b, @$_]] } @{ $item[2] } ];
 																				}
 	triplepattern:				triplepatterns									{ $return = $item[1] }
+	triplepattern:				Collection PredVarObj(?)						{
+																					my $collection	= $item[1][0][1];
+																					my @triples		= @{ $item[1] };
+																					foreach my $elem (@{ $item[2] || [] }) {
+																						my @triple	= [ $collection, @{ $elem } ];
+																						push(@triples, \@triple);
+																					}
+																					$return = \@triples;
+																				}
+	PredVarObj:					PredVarUri Object OptObj(s?) OptPredObj(s?)		{
+																					$return = [
+																						[@item[1,2]],
+																						map { [@{$_}] }
+																							(@{$item[4] || []}, map { [$item[1], $_] } @{$item[3] || []})
+																					];
+																				}
+	Object:						(VarUriConst|Collection)						{ $return = $item[1] }
+	Collection:					'('  <commit> Object(s) ')'						{
+																					my @triples;
+																					my $id		= 'a' . ++$RDF::Query::Parser::SPARQL::blank_ids{ $thisparser };
+																					my $count	= scalar(@{ $item[3] });
+																					foreach my $i (0 .. $#{ $item[3] }) {
+																						my $elem	= $item[3][ $i ];
+																						push(@triples, 
+																							[ 'TRIPLE',
+																								[
+																									[ 'BLANK', $id ],
+																									[ 'URI', 'http://www.w3.org/1999/02/22-rdf-syntax-ns#first' ],
+																									$elem
+																								]
+																							]
+																						);
+																						if ($i < $#{ $item[3] }) {
+																							my $oldid	= $id;
+																							$id			= 'a' . ++$RDF::Query::Parser::SPARQL::blank_ids{ $thisparser };
+																							push(@triples,
+																								[ 'TRIPLE',
+																									[
+																										[ 'BLANK', $oldid ],
+																										[ 'URI', 'http://www.w3.org/1999/02/22-rdf-syntax-ns#rest' ],
+																										[ 'BLANK', $id ],
+																									]
+																								]
+																							);
+																						} else {
+																							push(@triples,
+																								[ 'TRIPLE',
+																									[
+																										[ 'BLANK', $id ],
+																										[ 'URI', 'http://www.w3.org/1999/02/22-rdf-syntax-ns#rest' ],
+																										[ 'URI', 'http://www.w3.org/1999/02/22-rdf-syntax-ns#nil' ],
+																									]
+																								]
+																							);
+																						}
+																					} 
+																					$return = \@triples;
+																				}
 	blanknode:					'[' ']'											{ $return = ['BLANK', 'a' . ++$RDF::Query::Parser::SPARQL::blank_ids{ $thisparser }]; }
 	blanktriple:				'[' PredObj OptPredObj(s?) ']'					{ my $b = ['BLANK', 'a' . ++$RDF::Query::Parser::SPARQL::blank_ids{ $thisparser }]; $return = [$b, [ [$b, @{ $item[2] }], map { [$b, @$_] } @{ $item[3] } ] ] }
 	OptPredObj:					';' PredObj										{ $return = $item[2] }
-	PredObj:					PredVarUri VarUriConst OptObj(s?)				{ $return = [@item[1,2], map { [$item[1], @{$_}] } @{$item[3] || []}] }
-	OptObj:						',' VarUriConst									{ $return = $item[2] }
-	constraints:				/FILTER/i Expression OptExpression(s?)			{
-																					if (scalar(@{ $item[3] })) {
-																						$return = [ $item[3][0][0], $item[2], map { $_->[1] } @{ $item[3] } ];
-																					} else {
-																						$return	= $item[2];
-																					}
-																				}
+	PredObj:					PredVarUri Object OptObj(s?)					{ $return = [@item[1,2], map { [$item[1], @{$_}] } @{$item[3] || []}] }
+	OptObj:						',' Object										{ $return = $item[2] }
+	constraints:				/FILTER/i BrackettedExpression					{ $return = $item{'BrackettedExpression'} }
+	constraints:				/FILTER/i CallExpression						{ $return = $item{'CallExpression'} }
+	
 	OptDot:						'.'
-	OptExpression:				(',' | /AND/i | '&&') Expression					{
+	OptExpression:				(',' | /AND/i | '&&') Expression				{
 																					$return = [ '&&', $item[2] ];
 																				}
+	BrackettedExpression:		'(' <commit> Expression ')'								{ $return = $item{'Expression'}; }
 	Expression:					CondOrExpr										{
 																					$return = $item[1]
 																				}
@@ -155,14 +215,14 @@ BEGIN {
 																					}
 																				}
 	CondOrExprOrPart:			'||' CondAndExpr								{ $return = [ @item[1,2] ] }
-	CondAndExpr:				ValueLogical CondAndExprAndPart(?)				{
+	CondAndExpr:				ValueLogical CondAndExprAndPart(s?)				{
 																					if (scalar(@{ $item[2] })) {
-																						$return = [ $item[2][0][0], $item[1], $item[2][0][1] ];
+																						$return = [ '&&', $item[1], map { $_->[1] } @{ $item[2] } ];
 																					} else {
 																						$return	= $item[1];
 																					}
 																				}
-	CondAndExprAndPart:			'&&' ValueLogical								{ $return = [ @item[1,2] ] }
+	CondAndExprAndPart:			'&&' <commit> ValueLogical						{ $return = [ '&&', $item{ValueLogical} ] }
 	ValueLogical:				StringEqualityExpression						{ $return = $item[1] }
 	StringEqualityExpression:	NumericalLogical StrEqExprPart(s?)				{
 																					if (scalar(@{ $item[2] })) {
@@ -171,7 +231,7 @@ BEGIN {
 																						$return	= $item[1];
 																					}
 																				}
-	StrEqExprPart:				('==' | '!=' | '=~' | '~~') NumericalLogical	{ $return = [ @item[1,2] ] }
+	StrEqExprPart:				('=' | '!=' | '=~' | '~~') NumericalLogical	{ $return = [ (($item[1] eq '=') ? '==' : $item[1]), $item[2] ] }
 	NumericalLogical:			InclusiveOrExpression							{ $return = $item[1] }
 	InclusiveOrExpression:		ExclusiveOrExpression InclusiveOrExprPart(s?)	{
 																					if (scalar(@{ $item[2] })) {
@@ -205,7 +265,7 @@ BEGIN {
 																						$return	= $item[1];
 																					}
 																				}
-	EqualityExprPart:			/(==|!=)/ RelationalExpression					{ $return = [ @item[1,2] ] }
+	EqualityExprPart:			/(!?=)/ RelationalExpression					{ $return = [ (($item[1] eq '=') ? '==' : $item[1]), $item[2] ] }
 	RelationalExpression:		NumericExpression RelationalExprPart(?)			{
 																					if (scalar(@{ $item[2] })) {
 																						$return = [ $item[2][0][0], $item[1], $item[2][0][1] ];
@@ -232,13 +292,19 @@ BEGIN {
 	MultExprPart:				/([\/*])/ UnaryExpression						{ $return = [ @item[1,2] ] }
 	UnaryExpression:			UnaryExprNotPlusMinus							{ $return = $item[1] }
 							|	/([-+])/ UnaryExpression						{ $return = [ @item[1,2] ] }
-	UnaryExprNotPlusMinus:		/([~!])/ UnaryExpression						{ $return = [ @item[1,2] ] }
-							|	PrimaryExpression								{ $return = $item[1] }
-	PrimaryExpression:			(FunctionCall | VarUriConst)					{ $return = $item[1] }
-							|	'(' Expression ')'								{
-																					$return = $item[2];
-																				}
-	FunctionCall:				URI '(' ArgList ')'								{ $return = [ 'FUNCTION', $item[1], @{ $item[3] } ] }
+	UnaryExprNotPlusMinus:		PrimaryExpression								{ $return = $item[1] }
+							|	/([~!])/ UnaryExpression						{ $return = [ @item[1,2] ] }
+	PrimaryExpression:			BrackettedExpression							{ $return = $item[1] }
+							|	CallExpression									{ $return = $item[1] }
+							|	VarUriConst										{ $return = $item[1] }
+	CallExpression:				'REGEX' '(' <commit> Expression ',' Expression ')'	{ $return	= [ '~~', $item[4], $item[6]] }
+							|	FunctionCall									{ $return = $item[1] }
+							|	'BOUND' '(' <commit> variable ')'				{ $return = [ 'FUNCTION', ['URI', 'sop:isBound'], $item{'variable'} ] }
+							|	'isURI' '(' <commit> Expression ')'				{ $return = [ 'FUNCTION', ['URI', 'sop:isURI'], $item{'Expression'} ] }
+							|	'isBLANK' '(' <commit> Expression ')'			{ $return = [ 'FUNCTION', ['URI', 'sop:isBlank'], $item{'Expression'} ] }
+							|	'isLITERAL' '(' <commit> Expression ')'			{ $return = [ 'FUNCTION', ['URI', 'sop:isLiteral'], $item{'Expression'} ] }
+							
+	FunctionCall:				URI '(' <commit> ArgList ')'					{ $return = [ 'FUNCTION', $item[1], @{ $item[4] } ] }
 	ArgList:					VarUriConst MoreArg(s)							{ $return = [ $item[1], @{ $item[2] } ] }
 	
 	
@@ -255,14 +321,22 @@ BEGIN {
 	morenamespace:				namespace										{ $return = $item[1] }
 	namespace:					/PREFIX/i identifier ':' qURI					{ $return = {@item[2,4]} }
 	OptComma:					',' | ''
+	Comma:						','
 	identifier:					/(([a-zA-Z0-9_.-])+)/							{ $return = $1 }
 	URI:						(qURI | QName)									{ $return = ['URI',$item[1]] }
 	qURI:						'<' /[A-Za-z0-9_.!~*'()%;\/?:@&=+,#\$-]+/ '>'	{ $return = $item[2] }
 	blankQName:					'_:' /([^ \t\r\n<>();,]+)/						{ $return = ['BLANK', $item[2] ] }
 	QName:						identifier ':' /([^ \t\r\n<>();,]+)/			{ $return = [@item[1,3]] }
-	CONST:						(Text | Number)									{ $return = ['LITERAL',$item[1]] }
-	Number:						/([+-]?[0-9]+(\.[0-9]+)?)/							{ $return = $item[1] }
-	Text:						dQText | sQText | Pattern						{ $return = $item[1] }
+	CONST:						Text											{ $return = [ 'LITERAL', @{ $item[1] } ] }
+	CONST:						Number											{ $return = [ 'LITERAL', $item[1] ] }
+	Number:						/([+-]?[0-9]+(\.[0-9]+)?)/						{ $return = $item[1] }
+	Text:						Quoted StrLang									{ $return = [ $item[1], $item[2], undef ] }
+	Text:						Quoted StrType									{ $return = [ $item[1], undef, $item[2] ] }
+	Text:						Quoted											{ $return = [ $item[1] ] }
+	Text:						Pattern											{ $return = [ $item[1] ] }
+	StrLang:					'@' /[A-Za-z]+(-[A-Za-z]+)*/					{ $return = $item[2] }
+	StrType:					'^^' URI										{ $return = $item[2] }
+	Quoted:						(dQText | sQText)								{ $return = $item[1] }
 	sQText:						"'" /([^']+)/ '"'								{ $return = $item[2] }
 	dQText:						'"' /([^"]+)/ '"'								{ $return = $item[2] }
 	Pattern:					'/' /([^\/]+(?:\\.[^\/]*)*)/ '/'				{ $return = $item[2] }
@@ -331,6 +405,29 @@ __END__
 =head1 REVISION HISTORY
 
  $Log: SPARQL.pm,v $
+ Revision 1.12  2005/11/19 00:56:38  greg
+ - Added SPARQL functions: BOUND, isURI, isBLANK, isLITERAL.
+ - Updated SPARQL REGEX syntax.
+ - Updated SPARQL FILTER syntax.
+ - Added SPARQL RDF Collections syntactic forms.
+ - Updated SPARQL grammar to make 'WHERE' token optional.
+ - Added <commit> directives to SPARQL grammar.
+ - Updated SPARQL 'ORDER BY' syntax to use parenthesis.
+ - Fixed SPARQL FILTER logical-and support for more than two operands.
+ - Fixed SPARQL FILTER equality operator syntax to use '=' instead of '=='.
+
+ Revision 1.11  2005/07/27 00:35:59  greg
+ - Added commit directives to some top-level non-terminals.
+ - Started using the %item hash for more flexibility in parse rules.
+
+ Following SPARQL Draft 2005.07.21:
+ - ORDER BY arguments now use parenthesis.
+ - ORDER BY operand may now be a variable, expression, or function call.
+
+ Revision 1.10  2005/06/04 07:27:13  greg
+ - Added support for typed literals.
+   - (Redland support for datatypes is currently broken, however.)
+
  Revision 1.9  2005/06/02 19:36:22  greg
  - Added missing OFFSET grammar rules.
 

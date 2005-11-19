@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 use strict;
-use Test::More qw(no_plan);
+use Test::More tests => 31;
 use Data::Dumper;
 
 use_ok( 'RDF::Query::Parser::SPARQL' );
@@ -16,7 +16,7 @@ isa_ok( $parser, 'RDF::Query::Parser::SPARQL' );
 				?node rdf:type <http://kasei.us/e/ns/mt/blog> .
 				}
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','node'],['URI',['rdf','type']],['URI','http://kasei.us/e/ns/mt/blog']]],'namespaces' => {}, 'sources' => undef,'variables' => [['VAR','node']]};
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','node'],['URI',['rdf','type']],['URI','http://kasei.us/e/ns/mt/blog']]],'namespaces' => {}, 'sources' => undef,'variables' => [['VAR','node']], 'constraints' => []};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, "single triple; no prefix" );
 }
@@ -26,7 +26,7 @@ END
 		DESCRIBE ?node
 		WHERE { ?node rdf:type <http://kasei.us/e/ns/mt/blog> }
 END
-	my $correct	= {'method' => 'DESCRIBE', 'triples' => [[['VAR','node'],['URI',['rdf','type']],['URI','http://kasei.us/e/ns/mt/blog']]],'namespaces' => {}, 'sources' => undef,'variables' => [['VAR','node']]};
+	my $correct	= {'method' => 'DESCRIBE', 'triples' => [[['VAR','node'],['URI',['rdf','type']],['URI','http://kasei.us/e/ns/mt/blog']]],'namespaces' => {}, 'sources' => undef,'variables' => [['VAR','node']], 'constraints' => [], 'constraints' => []};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, "simple DESCRIBE" );
 }
@@ -75,9 +75,11 @@ END
 		WHERE	{
 					?point geo:lat ?lat .
 					?image ?pred ?point .
-					FILTER	(?pred == <http://purl.org/dc/terms/spatial> || ?pred == <http://xmlns.com/foaf/0.1/based_near>)
-					&&		?lat > 52.988674
-					&&		?lat < 53.036526
+					FILTER(
+						(?pred = <http://purl.org/dc/terms/spatial> || ?pred = <http://xmlns.com/foaf/0.1/based_near>)
+						&&		?lat > 52.988674
+						&&		?lat < 53.036526
+					) .
 		}
 END
 	my $correct	= {
@@ -89,7 +91,6 @@ END
 			'sources'		=> undef,
 			'namespaces'	=> {'foaf' => 'http://xmlns.com/foaf/0.1/','geo' => 'http://www.w3.org/2003/01/geo/wgs84_pos#','dcterms' => 'http://purl.org/dc/terms/','rdf' => 'http://www.w3.org/1999/02/22-rdf-syntax-ns#'},
 			'constraints'	=> ['&&',
-								 ['&&',
 								   ['||',
 									 ['==',
 									   ['VAR','pred'],
@@ -103,12 +104,11 @@ END
 								   ['>',
 									 ['VAR','lat'],
 									 ['LITERAL','52.988674']
+								   ],
+								   ['<',
+									 ['VAR','lat'],
+									 ['LITERAL','53.036526']
 								   ]
-								 ],
-								 ['<',
-								   ['VAR','lat'],
-								   ['LITERAL','53.036526']
-								 ]
 							   ],
 			'variables'		=> [['VAR','image'],['VAR','point'],['VAR','lat']]
 	};
@@ -126,7 +126,7 @@ END
 		WHERE	{
 					?person foaf:name "Gregory Todd Williams" .
 					?person foaf:homepage ?homepage .
-					FILTER	?homepage ~~ /kasei/ .
+					FILTER	REGEX(?homepage, "kasei")
 				}
 END
 	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI',['foaf','name']],['LITERAL','Gregory Todd Williams']],[['VAR','person'],['URI',['foaf','homepage']],['VAR','homepage']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/','rdf' => 'http://www.w3.org/1999/02/22-rdf-syntax-ns#','geo' => 'http://www.w3.org/2003/01/geo/wgs84_pos#','dcterms' => 'http://purl.org/dc/terms/'},'constraints' => ['~~',['VAR','homepage'],['LITERAL','kasei']],'sources' => undef,'variables' => [['VAR','person'],['VAR','homepage']]};
@@ -142,7 +142,7 @@ END
 					?person foaf:name "Gregory Todd Williams" ; foaf:homepage ?homepage .
 				}
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI',['foaf','name']],['LITERAL','Gregory Todd Williams']],[['VAR','person'],['URI',['foaf','homepage']],['VAR','homepage']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','person'],['VAR','homepage']]};
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI',['foaf','name']],['LITERAL','Gregory Todd Williams']],[['VAR','person'],['URI',['foaf','homepage']],['VAR','homepage']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','person'],['VAR','homepage']], 'constraints' => []};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, "multiple attributes using ';'" );
 }
@@ -155,7 +155,7 @@ END
 					?person foaf:name "Gregory Todd Williams", "Greg Williams" .
 				}
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI',['foaf','name']],['LITERAL','Gregory Todd Williams']],[['VAR','person'],['URI',['foaf','name']],['LITERAL','Greg Williams']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','person']]};
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI',['foaf','name']],['LITERAL','Gregory Todd Williams']],[['VAR','person'],['URI',['foaf','name']],['LITERAL','Greg Williams']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','person']], 'constraints' => []};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, "multiple objects using ','" );
 }
@@ -168,7 +168,7 @@ END
 					?person <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> foaf:Person
 				}
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI', ['foaf', 'Person']]]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','person']]};
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI', ['foaf', 'Person']]]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','person']], 'constraints' => []};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, "predicate with full qURI" );
 }
@@ -181,7 +181,7 @@ END
 					?person a foaf:Person .
 				}
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI', ['foaf', 'Person']]]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','person']]};
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI', ['foaf', 'Person']]]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','person']], 'constraints' => []};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, "'a' rdf:type" );
 }
@@ -194,7 +194,7 @@ END
 					?person a foaf:Person ; foaf:name ?name .
 				}
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI', ['foaf', 'Person']]], [['VAR','person'],['URI',['foaf','name']],['VAR', 'name']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','name']]};
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI', ['foaf', 'Person']]], [['VAR','person'],['URI',['foaf','name']],['VAR', 'name']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','name']], 'constraints' => []};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, "'a' rdf:type; multiple attributes using ';'" );
 }
@@ -202,7 +202,6 @@ END
 
 
 {
-#local($::RD_TRACE)	= 1;
 	my $rdql	= <<"END";
 		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 		SELECT	?nick
@@ -210,7 +209,7 @@ END
 					[ foaf:name "Gregory Todd Williams" ; foaf:nick ?nick ] .
 				}
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['BLANK','a1'],['URI',['foaf','name']],['LITERAL','Gregory Todd Williams']],[['BLANK','a1'],['URI',['foaf','nick']],['VAR','nick']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','nick']]};
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['BLANK','a1'],['URI',['foaf','name']],['LITERAL','Gregory Todd Williams']],[['BLANK','a1'],['URI',['foaf','nick']],['VAR','nick']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','nick']], 'constraints' => []};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, "blank node; multiple attributes using ';'" );
 }
@@ -223,7 +222,7 @@ END
 					[ a foaf:Person ] foaf:name ?name .
 				}
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['BLANK','a1'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI',['foaf','Person']]],[['BLANK','a1'],['URI',['foaf','name']],['VAR','name']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','name']]};
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['BLANK','a1'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI',['foaf','Person']]],[['BLANK','a1'],['URI',['foaf','name']],['VAR','name']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','name']], 'constraints' => []};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, "blank node; using brackets '[...]'; 'a' rdf:type" );
 }
@@ -236,7 +235,7 @@ END
 					[] foaf:name ?name .
 				}
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['BLANK','a1'],['URI',['foaf','name']],['VAR','name']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','name']]};
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['BLANK','a1'],['URI',['foaf','name']],['VAR','name']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','name']], 'constraints' => []};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, "blank node; empty brackets '[]'" );
 }
@@ -249,7 +248,7 @@ END
 					_:abc foaf:name ?name .
 				}
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['BLANK','abc'],['URI',['foaf','name']],['VAR','name']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','name']]};
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['BLANK','abc'],['URI',['foaf','name']],['VAR','name']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','name']], 'constraints' => []};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, "blank node; using qName _:abc" );
 }
@@ -263,7 +262,7 @@ END
 				}
 		ORDER BY ?name
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI', ['foaf', 'Person']]],[['VAR','person'],['URI',['foaf','name']],['VAR','name']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','name']],'options'=>{orderby => [['ASC', ['VAR', 'name']]]}};
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI', ['foaf', 'Person']]],[['VAR','person'],['URI',['foaf','name']],['VAR','name']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','name']],'options'=>{orderby => [['ASC', ['VAR', 'name']]]}, 'constraints' => []};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, "select with ORDER BY" );
 }
@@ -276,7 +275,15 @@ END
 					?person a foaf:Person; foaf:name ?name
 				}
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI', ['foaf', 'Person']]],[['VAR','person'],['URI',['foaf','name']],['VAR','name']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','name']],'options'=>{distinct => 1}};
+	my $correct	= {
+					'method' => 'SELECT',
+					'triples' => [[['VAR','person'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI', ['foaf', 'Person']]],[['VAR','person'],['URI',['foaf','name']],['VAR','name']]],
+					'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},
+					'sources' => undef,
+					'variables' => [['VAR','name']],
+					'options'=>{distinct => 1},
+					'constraints' => []
+				};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, "select with DISTINCT" );
 }
@@ -288,11 +295,11 @@ END
 		WHERE	{
 					?person a foaf:Person; foaf:name ?name
 				}
-		ORDER BY asc[ ?name ]
+		ORDER BY asc( ?name )
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI', ['foaf', 'Person']]],[['VAR','person'],['URI',['foaf','name']],['VAR','name']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','name']],'options'=>{orderby => [['ASC', ['VAR', 'name']]]}};
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI', ['foaf', 'Person']]],[['VAR','person'],['URI',['foaf','name']],['VAR','name']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','name']],'options'=>{orderby => [['ASC', ['VAR', 'name']]]}, 'constraints' => []};
 	my $parsed	= $parser->parse( $rdql );
-	is_deeply( $parsed, $correct, "select with ORDER BY; asc[]" );
+	is_deeply( $parsed, $correct, "select with ORDER BY; asc()" );
 }
 
 {
@@ -302,11 +309,11 @@ END
 		WHERE	{
 					?person a foaf:Person; foaf:name ?name
 				}
-		ORDER BY DESC[?name]
+		ORDER BY DESC(?name)
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI', ['foaf', 'Person']]],[['VAR','person'],['URI',['foaf','name']],['VAR','name']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','name']],'options'=>{orderby => [['DESC', ['VAR', 'name']]]}};
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI', ['foaf', 'Person']]],[['VAR','person'],['URI',['foaf','name']],['VAR','name']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','name']],'options'=>{orderby => [['DESC', ['VAR', 'name']]]}, 'constraints' => []};
 	my $parsed	= $parser->parse( $rdql );
-	is_deeply( $parsed, $correct, "select with ORDER BY; DESC[]" );
+	is_deeply( $parsed, $correct, "select with ORDER BY; DESC()" );
 }
 
 {
@@ -316,11 +323,11 @@ END
 		WHERE	{
 					?person a foaf:Person; foaf:name ?name
 				}
-		ORDER BY DESC[?name] LIMIT 10
+		ORDER BY DESC(?name) LIMIT 10
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI', ['foaf', 'Person']]],[['VAR','person'],['URI',['foaf','name']],['VAR','name']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','name']],'options'=>{orderby => [['DESC', ['VAR', 'name']]], limit => 10}};
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI', ['foaf', 'Person']]],[['VAR','person'],['URI',['foaf','name']],['VAR','name']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','name']],'options'=>{orderby => [['DESC', ['VAR', 'name']]], limit => 10}, 'constraints' => []};
 	my $parsed	= $parser->parse( $rdql );
-	is_deeply( $parsed, $correct, "select with ORDER BY; DESC[]; with LIMIT" );
+	is_deeply( $parsed, $correct, "select with ORDER BY; DESC(); with LIMIT" );
 }
 
 {
@@ -329,11 +336,11 @@ END
 		PREFIX dc: <http://purl.org/dc/elements/1.1/>
 		 select $pic $thumb $date 
 		 WHERE { $pic foaf:thumbnail $thumb .
-		 $pic dc:date $date } order by desc[$date] limit 10
+		 $pic dc:date $date } order by desc($date) limit 10
 END
 	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','pic'],['URI',['foaf','thumbnail']],['VAR','thumb']],[['VAR','pic'],['URI',['dc','date']],['VAR','date']]],'constraints' => [],'sources' => undef,'options' => {'orderby' => [['DESC',['VAR','date']]],'limit' => '10'},'variables' => [['VAR','pic'],['VAR','thumb'],['VAR','date']],'namespaces' => {'dc' => 'http://purl.org/dc/elements/1.1/','foaf' => 'http://xmlns.com/foaf/0.1/'}};
 	my $parsed	= $parser->parse( $rdql );
-	is_deeply( $parsed, $correct, 'select with ORDER BY; DESC[]; with LIMIT; variables with "$"' );
+	is_deeply( $parsed, $correct, 'select with ORDER BY; DESC(); with LIMIT; variables with "$"' );
 }
 
 {
@@ -347,7 +354,7 @@ END
 		WHERE	{
 					?point geo:lat ?lat .
 					?image ?pred ?point .
-					FILTER mygeo:distance(?point, 41.849331, -71.392) < 10
+					FILTER( mygeo:distance(?point, 41.849331, -71.392) < 10 )
 				}
 END
 	my $correct	= {
@@ -376,8 +383,8 @@ END
 		WHERE	{
 					?image dcterms:spatial ?point .
 					?point foaf:name ?name .
-					FILTER mygeo:distance(?point, 41.849331, -71.392) < 10 .
-					FILTER ?name ~~ /Providence, RI/
+					FILTER( mygeo:distance(?point, 41.849331, -71.392) < 10 ) .
+					FILTER REGEX(?name, "Providence, RI")
 				}
 END
 	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','image'],['URI',['dcterms','spatial']],['VAR','point']],[['VAR','point'],['URI',['foaf','name']],['VAR','name']]],'constraints' => ['&&',['<',['FUNCTION',['URI',['mygeo','distance']],['VAR','point'],['LITERAL','41.849331'],['LITERAL','-71.392']],['LITERAL','10']],['~~',['VAR','name'],['LITERAL','Providence, RI']]],'sources' => undef,'variables' => [['VAR','image'],['VAR','point'],['VAR','name']],'namespaces' => {'mygeo' => 'http://kasei.us/e/ns/geo#','geo' => 'http://www.w3.org/2003/01/geo/wgs84_pos#','foaf' => 'http://xmlns.com/foaf/0.1/','rdf' => 'http://www.w3.org/1999/02/22-rdf-syntax-ns#','dcterms' => 'http://purl.org/dc/terms/'}};
@@ -394,7 +401,7 @@ END
 					OPTIONAL { ?person foaf:mbox ?mbox }
 				}
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI',['foaf','name']],['VAR','name']],['OPTIONAL',[[['VAR','person'],['URI',['foaf','mbox']],['VAR','mbox']]]]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','person'], ['VAR','name'], ['VAR','mbox']]};
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI',['foaf','name']],['VAR','name']],['OPTIONAL',[[['VAR','person'],['URI',['foaf','mbox']],['VAR','mbox']]]]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','person'], ['VAR','name'], ['VAR','mbox']], 'constraints' => []};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, "optional triple '{...}'" );
 }
@@ -478,3 +485,86 @@ END
 	my $parsed	= $parser->parse( $sparql );
 	is_deeply( $parsed, $correct, "union; sparql 6.2" );
 }
+
+
+{
+	my $rdql	= <<'END';
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT	?person ?homepage
+		WHERE	{
+					?person foaf:name "Gary Peck"@en ; foaf:homepage ?homepage .
+				}
+END
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI',['foaf','name']],['LITERAL','Gary Peck', 'en', undef]],[['VAR','person'],['URI',['foaf','homepage']],['VAR','homepage']]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','person'],['VAR','homepage']], 'constraints' => []};
+	my $parsed	= $parser->parse( $rdql );
+	is_deeply( $parsed, $correct, 'literal language tag @en' );
+}
+
+{
+	my $rdql	= <<'END';
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT	?image
+		WHERE	{
+					?image dc:date "2005-04-07T18:27:56-04:00"^^<http://www.w3.org/2001/XMLSchema#dateTime>
+				}
+END
+	my $correct	= {
+		  'method'		=> 'SELECT',
+		  'triples'		=> [
+							 [
+							   ['VAR','image'],
+							   ['URI',['dc','date']],
+							   [
+								 'LITERAL',
+								 '2005-04-07T18:27:56-04:00',
+								 undef,
+								 ['URI','http://www.w3.org/2001/XMLSchema#dateTime']
+							   ]
+							 ]
+						   ],
+		  'constraints' => [],
+		  'sources'		=> undef,
+		  'variables'	=> [['VAR','image']],
+		  'namespaces'	=> {
+							'foaf' => 'http://xmlns.com/foaf/0.1/'
+						}
+		};
+	my $parsed	= $parser->parse( $rdql );
+	is_deeply( $parsed, $correct, 'typed literal ^^URI' );
+}
+
+{
+	my $rdql	= <<'END';
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		PREFIX  xs: <http://www.w3.org/2001/XMLSchema#>
+		SELECT	?image
+		WHERE	{
+					?image dc:date "2005-04-07T18:27:56-04:00"^^xs:dateTime
+				}
+END
+	my $correct	= {
+		  'method'		=> 'SELECT',
+		  'triples'		=> [
+							 [
+							   ['VAR','image'],
+							   ['URI',['dc','date']],
+							   [
+								 'LITERAL',
+								 '2005-04-07T18:27:56-04:00',
+								 undef,
+								 ['URI',['xs', 'dateTime']]
+							   ]
+							 ]
+						   ],
+		  'constraints' => [],
+		  'sources'		=> undef,
+		  'variables'	=> [['VAR','image']],
+		  'namespaces'	=> {
+							'foaf'	=> 'http://xmlns.com/foaf/0.1/',
+							'xs'	=> 'http://www.w3.org/2001/XMLSchema#'
+						}
+		};
+	my $parsed	= $parser->parse( $rdql );
+	is_deeply( $parsed, $correct, 'typed literal ^^qName' );
+}
+

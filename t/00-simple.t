@@ -1,37 +1,18 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use Test::More tests => 65; # qw(no_plan);
-use RDF::Redland;
 use File::Spec;
 
-use_ok( 'RDF::Query' );
+use lib qw(. t);
+BEGIN { require "models.pl"; }
 
 my @files	= map { File::Spec->rel2abs( "data/$_" ) } qw(foaf.xrdf);
-my @models;
+my @models	= test_models( @files );
 
-{
-	my @data	= map { RDF::Redland::URI->new( 'file://' . $_ ) } @files;
-	my $storage	= new RDF::Redland::Storage("hashes", "test", "new='yes',hash-type='memory'");
-	my $model	= new RDF::Redland::Model($storage, "");
-	my $parser	= new RDF::Redland::Parser("rdfxml");
-	$parser->parse_into_model($_, $_, $model) for (@data);
-	push(@models, $model);
-} {
-	my $storage	= new RDF::Core::Storage::Memory;
-	my $model	= new RDF::Core::Model (Storage => $storage);
-	foreach my $file (@files) {
-		my $parser	= new RDF::Core::Model::Parser (
-						Model		=> $model,
-						Source		=> $file,
-						SourceType	=> 'file',
-						BaseURI		=> 'http://example.com/'
-					);
-		$parser->parse;
-	}
-	push(@models, $model);
-}	
+use Test::More;
+plan tests => 1 + (32 * scalar(@models));
 
+use_ok( 'RDF::Query' );
 foreach my $model (@models) {
 	print "\n#################################\n";
 	print "### Using model: $model\n\n";
@@ -49,11 +30,11 @@ END
 		
 		print "# (?var qname literal)\n";
 		my @results	= $query->execute( $model );
-		is( scalar(@results), 1, 'one result' );
+		ok( scalar(@results), 'got result' );
 		isa_ok( $results[0], 'ARRAY' );
 		is( scalar(@{$results[0]}), 1, 'got one field' );
 		ok( $query->bridge->isa_resource( $results[0][0] ), 'Resource' );
-		is( $results[0][0]->getLabel, 'http://kasei.us/about/foaf.xrdf#greg', 'got person uri' );
+		is( $query->bridge->uri_value( $results[0][0] ), 'http://kasei.us/about/foaf.xrdf#greg', 'got person uri' );
 	}
 	
 	{
@@ -69,34 +50,35 @@ END
 		
 		print "# (?var qname quri)\n";
 		my @results	= $query->execute( $model );
-		is( scalar(@results), 1, 'one result' );
+		ok( scalar(@results), 'got result' );
 		isa_ok( $results[0], 'ARRAY' );
 		is( scalar(@{$results[0]}), 1, 'got one field' );
 		ok( $query->bridge->isa_resource( $results[0][0] ), 'Resource' );
-		is( $results[0][0]->getLabel, 'http://kasei.us/about/foaf.xrdf#greg', 'got person uri' );
+		is( $query->bridge->uri_value( $results[0][0] ), 'http://kasei.us/about/foaf.xrdf#greg', 'got person uri' );
 	}
 	
 	{
-		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
+		print "# multiple namespaces\n";
+		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+			PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+			PREFIX dc: <http://purl.org/dc/elements/1.1/>
 			SELECT
 				?title
-			WHERE
-				(?person foaf:name "Gregory Todd Williams")
-				(?desc foaf:maker ?person)
-				(?desc dc:title ?title)
-			USING
-				foaf FOR <http://xmlns.com/foaf/0.1/>
-				dc FOR <http://purl.org/dc/elements/1.1/>
+			WHERE {
+				?desc rdf:type foaf:PersonalProfileDocument .
+				?desc foaf:maker ?person .
+				?person foaf:name "Gregory Todd Williams" .
+				?desc dc:title ?title .
+			}
 END
 		isa_ok( $query, 'RDF::Query' );
 		
-		print "# multiple namespaces\n";
 		my @results	= $query->execute( $model );
-		is( scalar(@results), 1, 'one result' );
+		ok( scalar(@results), 'got result' );
 		isa_ok( $results[0], 'ARRAY' );
 		is( scalar(@{$results[0]}), 1, 'got one field' );
-		ok( $query->bridge->isa_literal( $results[0][0] ), 'Literal' );
-		is( $results[0][0]->getLabel, 'FOAF Description for Gregory Williams', 'got file title' );
+		ok( ref($results[0]) && $query->bridge->isa_literal( $results[0][0] ), 'Literal' );
+		is( ref($results[0]) && $query->bridge->literal_value( $results[0][0] ), 'FOAF Description for Gregory Williams', 'got file title' );
 	}
 	
 	{
@@ -113,11 +95,11 @@ END
 		
 		print "# chained (name->person->homepage)\n";
 		my @results	= $query->execute( $model );
-		is( scalar(@results), 1, 'one result' );
+		ok( scalar(@results), 'got result' );
 		isa_ok( $results[0], 'ARRAY' );
 		is( scalar(@{$results[0]}), 1, 'got one field' );
 		ok( $query->bridge->isa_resource( $results[0][0] ), 'Resource' );
-		is( $results[0][0]->getLabel, 'http://kasei.us/', 'got homepage url' );
+		is( $query->bridge->uri_value( $results[0][0] ), 'http://kasei.us/', 'got homepage url' );
 	}
 	
 	{
@@ -135,12 +117,12 @@ END
 		
 		print "# chained (homepage->person->(name|mbox)\n";
 		my @results	= $query->execute( $model );
-		is( scalar(@results), 1, 'one result' );
+		ok( scalar(@results), 'got result' );
 		isa_ok( $results[0], 'ARRAY' );
 		is( scalar(@{$results[0]}), 2, 'got two fields' );
 		ok( $query->bridge->isa_literal( $results[0][0] ), 'Literal' );
 		ok( $query->bridge->isa_resource( $results[0][1] ), 'Resource' );
-		is( $results[0][0]->getLabel, 'Gregory Todd Williams', 'got name' );
-		is( $results[0][1]->getLabel, 'mailto:greg@evilfunhouse.com', 'got mbox uri' );
+		is( $query->bridge->literal_value( $results[0][0] ), 'Gregory Todd Williams', 'got name' );
+		is( $query->bridge->uri_value( $results[0][1] ), 'mailto:greg@evilfunhouse.com', 'got mbox uri' );
 	}
 }

@@ -31,6 +31,34 @@
 			make install<br />
 		</div>
 	<h2 id="changelog">Version History</h2>
+		<h3 id="v1_028">Version 1.028 (2005-11-18)</h3>
+			<ul>
+				<li>Added SPARQL functions: BOUND, isURI, isBLANK, isLITERAL.</li>
+				<li>Updated SPARQL REGEX syntax.</li>
+				<li>Updated SPARQL FILTER syntax.</li>
+				<li>Added SPARQL RDF Collections syntactic forms.</li>
+				<li>Fixed FILTER support in OPTIONAL queries.</li>
+				<li>Added binding_value_by_name method to Query results stream class.</li>
+				<li>Added isa_blank methods to RDF::Redland and RDF::Core model classes.</li>
+				<li>Fixed RDF literal datatyping when using Redland versions >= 1.00_02.</li>
+				<li>Updated SPARQL grammar to make 'WHERE' token optional.</li>
+				<li>Added <commit> directives to SPARQL grammar.</li>
+				<li>Updated SPARQL 'ORDER BY' syntax to use parenthesis.</li>
+				<li>Fixed SPARQL FILTER logical-and support for more than two operands.</li>
+				<li>Fixed SPARQL FILTER equality operator syntax to use '=' instead of '=='.</li>
+				<li>Now requires Test::More 0.52 because of changes to is_deeply().</li>
+			</ul>
+		<h3 id="v1_027">Version 1.027 (2005-07-28)</h3>
+				<li>Updated to follow SPARQL Draft 2005.07.21:<ul>
+					<li>ORDER BY arguments now use parenthesis.</li>
+					<li>SPARQL parser now supports ORDER BY operands: variable, expression, or function call.</li></ul></li>
+				<li>Added binding_value_by_name() method to query result streams.</li>
+		<h3 id="v1_026">Version 1.026 (2005-06-05)</h3>
+			<ul>
+				<li>Added new DBI model bridge (accesses Redland's mysql storage directly).</li>
+				<li>Added built-in SPARQL functions and operators (not connected to grammar yet).</li>
+				<li>Added bridge methods for accessing typed literal information.</li>
+			</ul>
 		<h3 id="v1_024">Version 1.024 (2005-06-02)</h3>
 			<ul>
 				<li>Added missing SPARQL OFFSET grammar rules.</li>
@@ -146,5 +174,5 @@
 	<h2>Copyright</h2>
 		<p>Copyright &copy; 2005 Gregory Williams. All rights reserved. This program is free software; you can redistribute it and/or modify it under the same terms as Perl itself.</p>
 	
-	$Id: README.html,v 1.10 2005/06/02 20:27:23 greg Exp $
+	$Id: README.html,v 1.13 2005/11/19 01:46:02 greg Exp $
 </body></html>

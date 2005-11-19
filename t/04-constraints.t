@@ -122,5 +122,3 @@ END
 
 
 __END__
-		AND
-				(?pred == <http://purl.org/dc/terms/spatial> || ?pred == <http://xmlns.com/foaf/0.1/based_near>)

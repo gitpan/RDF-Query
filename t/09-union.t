@@ -15,7 +15,7 @@ $parser->parse_into_model($_, $_, $model) for (@data);
 	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 		PREFIX	rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-		SELECT	?thing ?name
+		SELECT	DISTINCT ?thing ?name
 		WHERE	{
 					{ ?thing rdf:type foaf:Person; foaf:name ?name }
 					UNION

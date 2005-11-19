@@ -95,7 +95,7 @@
 		<exif:fNumber>4.5</exif:fNumber>
 		<exif:model>Nikon D70</exif:model>
 		<exif:exposureTime>1/80</exif:exposureTime>
-		<dc:date>2005-04-07T18:27:56-0400</dc:date>
+		<dc:date rdf:datatype="http://www.w3.org/2001/XMLSchema#dateTime">2005-04-07T18:27:56-04:00</dc:date>
 		<foaf:thumbnail rdf:resource="http://kasei.us/pictures/2005/20050422-WCCS_Dinner/thumbnails/DSC_8057.jpg"/>
 	</foaf:Image>
 </rdf:RDF>

@@ -1,7 +1,7 @@
 # RDF::Query
 # -------------
-# $Revision: 1.24 $
-# $Date: 2005/06/02 19:28:49 $
+# $Revision: 1.28 $
+# $Date: 2005/11/19 00:58:07 $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -47,23 +47,24 @@ use strict;
 use warnings;
 use Carp qw(carp croak confess);
 
-use LWP::Simple ();
 use Data::Dumper;
+use LWP::Simple ();
 
 use RDF::Query::Stream;
 
-use RDF::Query::Parser::RDQL;
-use RDF::Query::Parser::SPARQL;
-
+use RDF::Query::Model::DBI;
 use RDF::Query::Model::Redland;
 use RDF::Query::Model::RDFCore;
+
+use RDF::Query::Parser::RDQL;
+use RDF::Query::Parser::SPARQL;
 
 ######################################################################
 
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.24 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
+	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.28 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
 }
 
 ######################################################################
@@ -89,7 +90,17 @@ sub new {
 				? RDF::Query::Parser::RDQL->new()
 				: RDF::Query::Parser::SPARQL->new();
 	$self->{parser}	= $parser;
-	$self->{parsed}	= $parser->parse( $query );
+	my $parsed		= $parser->parse( $query );
+	$self->{parsed}	= $parsed;
+	unless ($parsed->{'triples'} and scalar(@{ $parsed->{'triples'} })) {
+		if ($debug) {
+			warn "*** Failed to parse. Parse trace follows:\n\n";
+			local($::RD_TRACE)	= 1;
+			local($::RD_HINT)	= 1;
+			$parser->parse( $query );
+		}
+		return undef;
+	}
 	$self->{parsed}{namespaces}{rdf}	= 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 	return $self;
 }
@@ -121,9 +132,19 @@ context, returns an array of rows, otherwise returns an iterator.
 sub execute {
 	my $self	= shift;
 	my $model	= shift;
-	my $bridge	= (UNIVERSAL::isa($model, 'RDF::Redland::Model'))
-				? RDF::Query::Model::Redland->new( $model )
-				: RDF::Query::Model::RDFCore->new( $model );
+	my $bridge;
+	
+	if (UNIVERSAL::isa($model, 'RDF::Redland::Model')) {
+		require RDF::Query::Model::Redland;
+		$bridge	= RDF::Query::Model::Redland->new( $model );
+	} elsif (UNIVERSAL::isa($model, 'ARRAY') and UNIVERSAL::isa($model->[0], 'DBI::db')) {
+		require RDF::Query::Model::DBI;
+		$bridge	= RDF::Query::Model::DBI->new( $model );
+	} else {
+		require RDF::Query::Model::RDFCore;
+		$bridge	= RDF::Query::Model::RDFCore->new( $model );
+	}
+	
 	$self->{model}		= $model;
 	$self->{bridge}		= $bridge;
 	
@@ -333,7 +354,10 @@ sub fixup_triple_bridge_variables {
 # XXX THIS CONDITIONAL SHOULD ALWAYS BE TRUE ... ? (IT IS IN ALL TEST CASES)
 #	if (ref($obj)) {
 		if (UNIVERSAL::isa($obj, 'ARRAY') and $obj->[0] eq 'LITERAL') {
-			my $literal		= $self->bridge->new_literal($obj->[1]);
+			if (UNIVERSAL::isa($obj->[3], 'ARRAY') and $obj->[3][0] eq 'URI') {
+				$obj->[3]	= $self->qualify_uri( $obj->[3] );
+			}
+			my $literal		= $self->bridge->new_literal(@{$obj}[ 1 .. $#{$obj} ]);
 			$triple->[2]	= $literal;
 		} elsif (UNIVERSAL::isa($obj, 'ARRAY') and $obj->[0] eq 'URI') {
 			my $resource	= $self->qualify_uri( $obj );
@@ -359,7 +383,7 @@ sub query_more {
 	my $self	= shift;
 	my $bound	= shift;
 	my @triples	= @_;
-#	warn 'query_more: ' . Dumper(\@triples);
+	warn 'query_more: ' . Dumper(\@triples, $bound) if ($debug > 0.1);
 	our $indent;
 
 	my $parsed		= $self->parsed;
@@ -378,9 +402,9 @@ sub query_more {
 	}
 	
 	no warnings 'uninitialized';
-	_debug( "${indent}query_more: " . join(' ', map { $bridge->isa_node($_) ? '<' . $_->getLabel . '>' : $_->[1] } @triple) . "\n" );
+	_debug( "${indent}query_more: " . join(' ', map { $bridge->isa_node($_) ? '<' . $bridge->as_string($_) . '>' : $_->[1] } @triple) . "\n" );
 	_debug( "${indent}-> with " . scalar(@triples) . " triples to go\n" );
-	_debug( "${indent}-> more: " . (($_->[0] eq 'OPTIONAL') ? 'OPTIONAL block' : join(' ', map { $bridge->isa_node($_) ? '<' . $_->getLabel . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
+	_debug( "${indent}-> more: " . (($_->[0] eq 'OPTIONAL') ? 'OPTIONAL block' : join(' ', map { $bridge->isa_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
 	
 	my $vars	= 0;
 	my ($var, $method);
@@ -388,13 +412,14 @@ sub query_more {
 	
 	my @methodmap	= $bridge->statement_method_map;
 	for my $idx (0 .. 2) {
+		_debug( "looking at triple " . $methodmap[ $idx ] );
 		my $data	= $triple[$idx];
 		if (UNIVERSAL::isa($data, 'ARRAY')) {	# and $data->[0] eq 'VAR'
 			if ($data->[0] eq 'VAR' or $data->[0] eq 'BLANK') {
 				my $tmpvar	= ($data->[0] eq 'VAR') ? $data->[1] : '_' . $data->[1];
 				my $val		= $bound->{ $tmpvar };
 				if ($bridge->isa_node($val)) {
-					_debug( "${indent}-> already have value for $tmpvar: " . $val->getLabel . "\n" );
+					_debug( "${indent}-> already have value for $tmpvar: " . $bridge->as_string( $val ) . "\n" );
 					$triple[$idx]	= $val;
 				} elsif (++$vars > 1) {
 					_debug( "${indent}-> we've seen $vars variables in this triple... punt\n" );
@@ -422,11 +447,11 @@ sub query_more {
 	}
 	
 	_debug( "${indent}getting: " . join(', ', grep defined, @vars) . "\n" );
-	_debug( 'query_more triple: ' . Dumper([map { ($_) ? $_->getLabel : 'undef' } @triple]) );
+	_debug( 'query_more triple: ' . Dumper([map { ($_) ? $bridge->as_string($_) : 'undef' } @triple]) );
 	my @streams;
 	my $stream;
-	{
-		my $statments	= $bridge->get_statements( @triple );
+	my $statments	= $bridge->get_statements( @triple );
+	if ($statments) {
 		push(@streams, sub {
 			my $result;
 			_debug_closure( $statments );
@@ -441,7 +466,7 @@ sub query_more {
 					next unless defined($vars[$_]);
 					my $var		= $vars[ $_ ];
 					my $method	= $methods[ $_ ];
-					_debug( "${indent}-> got variable $var = " . $stmt->$method()->getLabel . "\n" );
+					_debug( "${indent}-> got variable $var = " . $bridge->as_string( $stmt->$method() ) . "\n" );
 					$bound->{ $var }	= $stmt->$method();
 				}
 			} else {
@@ -449,14 +474,14 @@ sub query_more {
 			}
 			if (scalar(@triples)) {
 				_debug( "${indent}-> now for more triples...\n" );
-				_debug( "${indent}-> more: " . (($_->[0] eq 'OPTIONAL') ? 'OPTIONAL block' : join(' ', map { $bridge->isa_node($_) ? '<' . $_->getLabel . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
+				_debug( "${indent}-> more: " . (($_->[0] eq 'OPTIONAL') ? 'OPTIONAL block' : join(' ', map { $bridge->isa_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
 				_debug( "${indent}-> " . Dumper(\@triples) );
 				$indent	.= '  ';
 				_debug( 'adding a new stream for more triples' );
 				unshift(@streams, $self->query_more( { %{ $bound } }, @triples ) );
 			} else {
 				my @values	= map { $bound->{$_} } $self->variables();
-				_debug( "${indent}-> no triples left: result: " . join(', ', map {$_->getLabel} grep defined, @values) . "\n" );
+				_debug( "${indent}-> no triples left: result: " . join(', ', map {$bridge->as_string($_)} grep defined, @values) . "\n" );
 				if ($self->check_constraints( $bound, $parsed->{'constraints'} )) {
 					my @values	= map { $bound->{$_} } $self->variables();
 					$result	= [@values];
@@ -492,7 +517,7 @@ sub query_more {
 			my @val	= $streams[0]->();
 			_debug( '-> ' . (@val ? 'got' : 'no') . ' value' );
 			if (@val) {
-				_debug( '-> ' . $val[0], 1, 1);
+				_debug( '-> "' . $val[0] . '"', 1, 1);
 				return $val[0] if defined($val[0]);
 			} else {
 				next;
@@ -574,12 +599,16 @@ sub optional {
 			};
 		} else {
 			_debug( "No more triples. Returning OPTIONAL stream." );
-			return sub {
-				return undef unless ($ostream and not $ostream->finished);
-				my $data	= $ostream->current;
-				$ostream->next;
-				return $data;
-			};
+			if ($self->check_constraints( $bound, $parsed->{'constraints'} )) {
+				return sub {
+					return undef unless ($ostream and not $ostream->finished);
+					my $data	= $ostream->current;
+					$ostream->next;
+					return $data;
+				};
+			} else {
+				_debug( "failed constraints check\n" );
+			}
 		}
 	} else {
 		_debug( "OPTIONAL block failed" );
@@ -588,9 +617,21 @@ sub optional {
 			return $self->query_more( { %{ $bound } }, @triples );
 		} else {
 			_debug( "No more triples. Returning empty results." );
+			my @vars	= $self->variables;
 			my @values	= map { $bound->{$_} } $self->variables();
 			my @results	= [@values];
-			return sub { shift(@results) };
+			my $stream;
+			$stream	= sub {
+						while (@results) {
+							my $result	= shift(@results);
+							my %bound;
+							@bound{ @vars }	= @$result;
+							if ($self->check_constraints( \%bound, $parsed->{'constraints'} )) {
+								return $result;
+							}
+						}
+					};
+			return $stream;
 		}
 	}
 }
@@ -628,6 +669,10 @@ my %dispatch	= (
 					'>='	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return ncmp($operands[0], $operands[1]) != -1 },
 					'&&'	=> sub { my ($self, $values, $data) = @_; foreach my $part (@{ $data }) { return 0 unless $self->check_constraints( $values, $part ); } return 1 },
 					'||'	=> sub { my ($self, $values, $data) = @_; foreach my $part (@{ $data }) { return 1 if $self->check_constraints( $values, $part ); } return 0 },
+					'*'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return $operands[0] * $operands[1] },
+					'/'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return $operands[0] / $operands[1] },
+					'+'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return $operands[0] + $operands[1] },
+					'-'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return $operands[0] - $operands[1] },
 					'FUNCTION'	=> sub {
 						our %functions;
 						my ($self, $values, $data) = @_;
@@ -708,6 +753,7 @@ sub sort_rows {
 	my $self	= shift;
 	my $nodes	= shift;
 	my $parsed	= shift;
+	my $bridge	= $self->bridge;
 	my $args		= $parsed->{options} || {};
 	my $limit		= $args->{'limit'};
 	my $unique		= $args->{'distinct'};
@@ -721,7 +767,7 @@ sub sort_rows {
 		my $old	= $nodes;
 		$nodes	= sub {
 			while (my $row = $old->()) {
-				next if $seen{ join($;, map {$_->getLabel} @$row) }++;
+				next if $seen{ join($;, map {$bridge->as_string( $_ )} @$row) }++;
 				return $row;
 			}
 		};
@@ -739,7 +785,7 @@ sub sort_rows {
 		no warnings 'numeric';
 		@nodes	= map { $_->[0] }
 					sort { ncmp($a->[1], $b->[1]) }
-						map { [$_, $_->[$colmap{$col}]->getLabel] }
+						map { [$_, $bridge->as_string( $_->[$colmap{$col}] )] }
 							@nodes;
 		@nodes	= reverse @nodes if ($dir eq 'DESC');
 		$nodes	= sub {
@@ -793,7 +839,7 @@ sub variables {
 sub _debug_closure {
 	return unless ($debug > 1);
 	my $closure	= shift;
-	use B::Deparse;
+	require B::Deparse;
 	my $deparse	= B::Deparse->new("-p", "-sC");
 	my $body	= $deparse->coderef2text($closure);
 	warn "--- --- CLOSURE --- ---\n";
@@ -807,7 +853,8 @@ sub _debug {
 	my ($package, $filename, $line, $sub, $hasargs, $wantarray, $evaltext, $is_require, $hints, $bitmask)	= caller(1);
 	
 	$sub		=~ s/^.*://;
-	my $output	= join(' ', $mesg, 'at', $filename, $line) . "\n";
+	chomp($mesg);
+	my $output	= join(' ', $mesg, 'at', $filename, $line); # . "\n";
 	if ($debug >= $level) {
 		carp $output;
 		if ($trace) {
@@ -839,6 +886,272 @@ sub AUTOLOAD {
 	}
 }
 
+
+our %functions;
+
+### XSD CASTING FUNCTIONS
+
+$functions{"sop:boolean"}	= sub {
+	my $query	= shift;
+	my $node	= shift;
+	my $bridge	= $query->bridge;
+	if ($node->is_literal) {
+		my $value	= $bridge->literal_value( $node );
+		my $type	= $bridge->literal_datatype( $node );
+		if ($type and $type->as_string eq 'http://www.w3.org/2001/XMLSchema#boolean') {
+			return 0 if ($value eq 'false');
+		}
+		return 0 if (length($value) == 0);
+		return 0 if ($value == 0);
+	}
+	return 1;
+};
+
+$functions{"sop:numeric"}	= sub {
+	my $query	= shift;
+	my $node	= shift;
+	my $bridge	= $query->bridge;
+	if ($bridge->is_literal($node)) {
+		my $value	= $bridge->literal_value( $node );
+		my $type	= $bridge->literal_datatype( $node );
+		if ($type and $type->as_string eq 'http://www.w3.org/2001/XMLSchema#integer') {
+			return int($value)
+		}
+		return +$value;
+	}
+	return 0;
+};
+
+$functions{"sop:str"}	= sub {
+	my $query	= shift;
+	my $node	= shift;
+	my $bridge	= $query->bridge;
+	if ($bridge->is_literal($node)) {
+		my $value	= $bridge->literal_value( $node );
+		my $type	= $bridge->literal_datatype( $node );
+		return $value;
+	} elsif ($bridge->is_resource($node)) {
+		return $bridge->uri_value($node);
+	}
+	return '';
+};
+
+$functions{"sop:lang"}	= sub {
+	my $query	= shift;
+	my $node	= shift;
+	my $bridge	= $query->bridge;
+	if ($bridge->is_literal($node)) {
+		my $lang	= $bridge->literal_value_language( $node );
+		return $lang;
+	}
+	return '';
+};
+
+$functions{"sop:datatype"}	= sub {
+	my $query	= shift;
+	my $node	= shift;
+	my $bridge	= $query->bridge;
+	if ($bridge->is_literal($node)) {
+		my $type	= $bridge->literal_datatype( $node );
+		return $type;
+	}
+	return '';
+};
+
+use DateTime::Format::W3CDTF;
+my $f = DateTime::Format::W3CDTF->new;
+$functions{"sop:date"}	= sub {
+	my $query	= shift;
+	my $node	= shift;
+	my $dt		= eval { $f->parse_datetime( $functions{'sop:str'}->( $node ) ) };
+	return $dt;
+};
+
+
+# sop:logical-or
+$functions{"sop:logical-or"}	= sub {
+	my $query	= shift;
+	my $nodea	= shift;
+	my $nodeb	= shift;
+	my $cast	= 'sop:boolean';
+	return ($functions{$cast}->($nodea) || $functions{$cast}->($nodeb));
+};
+
+# sop:logical-and
+$functions{"sop:logical-and"}	= sub {
+	my $query	= shift;
+	my $nodea	= shift;
+	my $nodeb	= shift;
+	my $cast	= 'sop:boolean';
+	return ($functions{$cast}->($nodea) && $functions{$cast}->($nodeb));
+};
+
+# sop:isBound
+$functions{"sop:isBound"}	= sub {
+	my $query	= shift;
+	my $node	= shift;
+	return ref($node) ? 1 : 0;
+};
+
+# sop:isURI
+$functions{"sop:isURI"}	= sub {
+	my $query	= shift;
+	my $node	= shift;
+	my $bridge	= $query->bridge;
+	return $bridge->is_resource( $node );
+};
+
+# sop:isBlank
+$functions{"sop:isBlank"}	= sub {
+	my $query	= shift;
+	my $node	= shift;
+	my $bridge	= $query->bridge;
+	return $bridge->is_blank( $node );
+};
+
+# sop:isLiteral
+$functions{"sop:isLiteral"}	= sub {
+	my $query	= shift;
+	my $node	= shift;
+	my $bridge	= $query->bridge;
+	return $bridge->is_literal( $node );
+};
+
+# op:dateTime-equal
+$functions{"op:dateTime-equal"}	= sub {
+	my $query	= shift;
+	my $nodea	= shift;
+	my $nodeb	= shift;
+	my $cast	= 'sop:date';
+	return ($functions{$cast}->($nodea) == $functions{$cast}->($nodeb));
+};
+
+# op:dateTime-less-than
+$functions{"op:dateTime-less-than"}	= sub {
+	my $query	= shift;
+	my $nodea	= shift;
+	my $nodeb	= shift;
+	my $cast	= 'sop:date';
+	return ($functions{$cast}->($nodea) < $functions{$cast}->($nodeb));
+};
+
+# op:dateTime-greater-than
+$functions{"op:dateTime-greater-than"}	= sub {
+	my $query	= shift;
+	my $nodea	= shift;
+	my $nodeb	= shift;
+	my $cast	= 'sop:date';
+	return ($functions{$cast}->($nodea) > $functions{$cast}->($nodeb));
+};
+
+# op:numeric-equal
+$functions{"op:numeric-equal"}	= sub {
+	my $query	= shift;
+	my $nodea	= shift;
+	my $nodeb	= shift;
+	my $cast	= 'sop:numeric';
+	return ($functions{$cast}->($nodea) == $functions{$cast}->($nodeb));
+};
+
+# op:numeric-less-than
+$functions{"op:numeric-less-than"}	= sub {
+	my $query	= shift;
+	my $nodea	= shift;
+	my $nodeb	= shift;
+	my $cast	= 'sop:numeric';
+	return ($functions{$cast}->($nodea) < $functions{$cast}->($nodeb));
+};
+
+# op:numeric-greater-than
+$functions{"op:numeric-greater-than"}	= sub {
+	my $query	= shift;
+	my $nodea	= shift;
+	my $nodeb	= shift;
+	my $cast	= 'sop:numeric';
+	return ($functions{$cast}->($nodea) > $functions{$cast}->($nodeb));
+};
+
+# op:numeric-multiply
+$functions{"op:numeric-multiply"}	= sub {
+	my $query	= shift;
+	my $nodea	= shift;
+	my $nodeb	= shift;
+	my $cast	= 'sop:numeric';
+	return ($functions{$cast}->($nodea) * $functions{$cast}->($nodeb));
+};
+
+# op:numeric-divide
+$functions{"op:numeric-divide"}	= sub {
+	my $query	= shift;
+	my $nodea	= shift;
+	my $nodeb	= shift;
+	my $cast	= 'sop:numeric';
+	return ($functions{$cast}->($nodea) / $functions{$cast}->($nodeb));
+};
+
+# op:numeric-add
+$functions{"op:numeric-add"}	= sub {
+	my $query	= shift;
+	my $nodea	= shift;
+	my $nodeb	= shift;
+	my $cast	= 'sop:numeric';
+	return ($functions{$cast}->($nodea) + $functions{$cast}->($nodeb));
+};
+
+# op:numeric-subtract
+$functions{"op:numeric-subtract"}	= sub {
+	my $query	= shift;
+	my $nodea	= shift;
+	my $nodeb	= shift;
+	my $cast	= 'sop:numeric';
+	return ($functions{$cast}->($nodea) - $functions{$cast}->($nodeb));
+};
+
+# fn:compare
+$functions{"http://www.w3.org/2005/04/xpath-functionscompare"}	= sub {
+	my $query	= shift;
+	my $nodea	= shift;
+	my $nodeb	= shift;
+	my $cast	= 'sop:str';
+	return ($functions{$cast}->($nodea) cmp $functions{$cast}->($nodeb));
+};
+
+# fn:not
+$functions{"http://www.w3.org/2005/04/xpath-functionsnot"}	= sub {
+	my $query	= shift;
+	my $nodea	= shift;
+	my $nodeb	= shift;
+	my $cast	= 'sop:str';
+	return (0 != ($functions{$cast}->($nodea) cmp $functions{$cast}->($nodeb)));
+};
+
+# fn:matches
+$functions{"http://www.w3.org/2005/04/xpath-functionsmatches"}	= sub {
+	my $query	= shift;
+	my $cast	= 'sop:str';
+	my $string	= $functions{$cast}->( shift );
+	my $pattern	= $functions{$cast}->( shift );
+	return undef if (index($pattern, '(?{') != -1);
+	return undef if (index($pattern, '(??{') != -1);
+	my $flags	= $functions{$cast}->( shift );
+	if ($flags) {
+		$pattern	= "(?${flags}:${pattern})";
+		return $string =~ /$pattern/;
+	} else {
+		return ($string =~ /$pattern/) ? 1 : 0;
+	}
+};
+
+# sop:	http://www.w3.org/TR/rdf-sparql-query/
+# xs:	http://www.w3.org/2001/XMLSchema
+# fn:	http://www.w3.org/2005/04/xpath-functions
+# xdt:	http://www.w3.org/2005/04/xpath-datatypes
+# err:	http://www.w3.org/2004/07/xqt-errors
+
+
+
+
+
 1;
 
 __END__
@@ -848,6 +1161,23 @@ __END__
 =head1 REVISION HISTORY
 
  $Log: Query.pm,v $
+ Revision 1.28  2005/11/19 00:58:07  greg
+ - Fixed FILTER support in OPTIONAL queries.
+
+ Revision 1.27  2005/07/27 00:30:04  greg
+ - Added arithmetic operators to check_constraints().
+ - Dependency cleanups.
+ - Added debugging warnings when parsing fails.
+
+ Revision 1.26  2005/06/06 00:49:00  greg
+ - Added new DBI model bridge (accesses Redland's mysql storage directly).
+ - Added built-in SPARQL functions and operators (not connected to grammar yet).
+ - Added bridge methods for accessing typed literal information.
+
+ Revision 1.25  2005/06/04 07:27:12  greg
+ - Added support for typed literals.
+   - (Redland support for datatypes is currently broken, however.)
+
  Revision 1.24  2005/06/02 19:28:49  greg
  - All debugging is now centrally located in the _debug method.
  - Internal code now uses the variables method.
@@ -994,8 +1324,6 @@ __END__
 =head1 TODO
 
 =over 4
-
-=item * Typed Literals
 
 =item * Built-in Operators and Functions
 

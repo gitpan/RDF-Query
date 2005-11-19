@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use Test::More tests => 16;
+use Test::More qw(no_plan); #tests => 16;
 use Data::Dumper;
 
 use_ok( 'RDF::Query' );
@@ -37,7 +37,7 @@ END
 	isa_ok( $stream, 'CODE', 'stream' );
 	while (my $stmt = $stream->()) {
 		my $s	= $stmt->as_string;
-		ok( $s, $s );
+		like( $s, qr#foaf/0.1/(name|made)#, 'predicate looks good' );
 	}
 }
 

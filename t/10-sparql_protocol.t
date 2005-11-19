@@ -2,35 +2,17 @@
 use strict;
 use warnings;
 use File::Spec;
-use Test::More tests => 15; # qw(no_plan);
 
-use_ok( 'RDF::Query' );
+use lib qw(. t);
+require "models.pl";
 
 my @files	= map { File::Spec->rel2abs( "data/$_" ) } qw(about.xrdf foaf.xrdf Flower-2.rdf);
-my @models;
+my @models	= test_models( @files );
 
-{
-	my @data	= map { RDF::Redland::URI->new( 'file://' . $_ ) } @files;
-	my $storage	= new RDF::Redland::Storage("hashes", "test", "new='yes',hash-type='memory'");
-	my $model	= new RDF::Redland::Model($storage, "");
-	my $parser	= new RDF::Redland::Parser("rdfxml");
-	$parser->parse_into_model($_, $_, $model) for (@data);
-	push(@models, $model);
-} {
-	my $storage	= new RDF::Core::Storage::Memory;
-	my $model	= new RDF::Core::Model (Storage => $storage);
-	foreach my $file (@files) {
-		my $parser	= new RDF::Core::Model::Parser (
-						Model		=> $model,
-						Source		=> $file,
-						SourceType	=> 'file',
-						BaseURI		=> 'http://example.com/'
-					);
-		$parser->parse;
-	}
-	push(@models, $model);
-}	
+use Test::More;
+plan tests => 1 + (7 * scalar(@models));
 
+use_ok( 'RDF::Query' );
 foreach my $model (@models) {
 	print "\n#################################\n";
 	print "### Using model: $model\n";
@@ -42,9 +24,10 @@ foreach my $model (@models) {
 			SELECT	?person ?homepage
 			WHERE	{
 						?person foaf:name "Gregory Todd Williams" .
-						?person foaf:homepage ?homepage
+						?person foaf:homepage ?homepage .
+						FILTER REGEX(?homepage, "kasei")
 					}
-			AND		?homepage ~~ /kasei/
+			LIMIT 1
 END
 		my $stream	= $query->execute( $model );
 		ok( $stream->is_bindings, 'Bindings result' );
@@ -77,15 +60,18 @@ END
 		like( $xml, qr%<boolean>true</boolean>%sm, 'XML Boolean Results formatting' );
 	}
 	
-	{
+	TODO: {
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
-			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+			PREFIX foaf: <http://xmlns.com/foaf/0.1/>
 			PREFIX dc: <http://purl.org/dc/elements/1.1/>
 			CONSTRUCT	{ _:somebody foaf:name ?name; foaf:made ?thing }
 			WHERE		{ ?thing dc:creator ?name }
 END
 		my $stream	= $query->execute( $model );
 		ok( $stream->is_graph, 'Graph result' );
+		
+		local($TODO)	= "XML Serialization of DBI models isn't supported yet." if (UNIVERSAL::isa($model, 'ARRAY'));
+		
 		my $xml		= $stream->as_xml;
 		like( $xml, qr%:made\s+.*?rdf:resource="http://kasei\.us/pictures/2004/20040909-Ireland/images/DSC_5705\.jpg"%ms, 'XML Results formatting' );
 		like( $xml, qr%:name.*?>Greg Williams<%ms, 'XML Results formatting' );

@@ -1,7 +1,7 @@
 # RDF::Query::Stream
 # -------------
-# $Revision: 1.3 $
-# $Date: 2005/06/02 19:31:22 $
+# $Revision: 1.4 $
+# $Date: 2005/07/27 00:30:29 $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -55,6 +55,14 @@ sub new {
 			} elsif ($arg eq 'binding_name') {
 				my $val	= shift;
 				return $names->[ $val ]
+			} elsif ($arg eq 'binding_value_by_name') {
+				my $name	= shift;
+				foreach my $i (0 .. $#{ $names }) {
+					if ($names->[$i] eq $name) {
+						return $self->binding_value( $i );
+					}
+				}
+				warn "No variable named '$name' is present in query results.\n";
 			} elsif ($arg eq 'binding_value') {
 				unless ($open) {
 					$self->next_result;
@@ -234,11 +242,12 @@ sub AUTOLOAD {
 
 __END__
 
-=back
-
 =head1 REVISION HISTORY
 
  $Log: Stream.pm,v $
+ Revision 1.4  2005/07/27 00:30:29  greg
+ - Added binding_value_by_name() method.
+
  Revision 1.3  2005/06/02 19:31:22  greg
  - Bridge object is now passed to the Stream constructor.
  - bindings_count() now returns the right number even if there is no data.

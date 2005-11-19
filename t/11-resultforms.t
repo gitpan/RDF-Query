@@ -16,7 +16,7 @@ my %seen;
 	print "# foaf:Person ORDER BY name with LIMIT\n";
 	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-		SELECT	?p ?name
+		SELECT	DISTINCT ?p ?name
 		WHERE	{
 					?p a foaf:Person; foaf:name ?name
 				}
@@ -44,7 +44,7 @@ END
 	print "# foaf:Person ORDER BY name with LIMIT and OFFSET\n";
 	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-		SELECT	?p ?name
+		SELECT	DISTINCT ?p ?name
 		WHERE	{
 					?p a foaf:Person; foaf:name ?name
 				}
@@ -113,7 +113,7 @@ END
 }
 
 {
-	print "# foaf:Image with ORDER BY and OFFSET [2]\n";
+	print "# foaf:Image with OFFSET [2]\n";
 	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 		PREFIX	exif: <http://www.kanzaki.com/ns/exif#>
@@ -137,3 +137,63 @@ END
 	is( $count, 1, "Good DISTINCT with LIMIT" );
 }
 
+TODO: {
+	local($TODO)	= "Sorting of expressions is not yet implemented.";
+
+{
+	print "# foaf:Image with ORDER BY ASC(expression) [1]\n";
+	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		PREFIX	dcterms: <http://purl.org/dc/terms/>
+		PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+		PREFIX	exif: <http://www.kanzaki.com/ns/exif#>
+		PREFIX	dc: <http://purl.org/dc/elements/1.1/>
+		SELECT	DISTINCT ?img ?long
+		WHERE	{
+					?img a foaf:Image .
+					?img dcterms:spatial ?point .
+					?point geo:long ?long .
+				}
+		ORDER BY ASC(?long * -1)
+END
+	my $stream	= $query->execute( $model );
+	isa_ok( $stream, 'RDF::Query::Stream' );
+	my $count	= 0;
+	my @images	= qw(http://kasei.us/pictures/2004/20040909-Ireland/images/DSC_5705.jpg http://kasei.us/pictures/2005/20050422-WCCS_Dinner/images/DSC_8055.jpg);
+	
+	while (my $row = $stream->()) {
+		my ($i, $l)	= @{ $row };
+		is( $query->bridge->uri_value( $i ), shift(@images) );
+	} continue { last if ++$count == 2 };
+	is( $count, 2, "Good ORDER BY ASC(expression) [1]" );
+}
+
+{
+	print "# foaf:Image with ORDER BY DESC(expression) [2]\n";
+	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		PREFIX	dcterms: <http://purl.org/dc/terms/>
+		PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+		PREFIX	exif: <http://www.kanzaki.com/ns/exif#>
+		PREFIX	dc: <http://purl.org/dc/elements/1.1/>
+		SELECT	DISTINCT ?img ?long
+		WHERE	{
+					?img a foaf:Image .
+					?img dcterms:spatial ?point .
+					?point geo:long ?long .
+				}
+		ORDER BY DESC(?long * -1)
+END
+	my $stream	= $query->execute( $model );
+	isa_ok( $stream, 'RDF::Query::Stream' );
+	my $count	= 0;
+	my @images	= qw(http://kasei.us/pictures/2005/20050422-WCCS_Dinner/images/DSC_8055.jpg http://kasei.us/pictures/2004/20040909-Ireland/images/DSC_5705.jpg);
+	
+	while (my $row = $stream->()) {
+		my ($i, $l)	= @{ $row };
+		is( $query->bridge->uri_value( $i ), shift(@images) );
+	} continue { last if ++$count == 2 };
+	is( $count, 2, "Good ORDER BY DESC(expression) [2]" );
+}
+
+} # END TODO

@@ -18,7 +18,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.8 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
+	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.12 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
 }
 
 ######################################################################
@@ -49,7 +49,24 @@ sub new_resource {
 
 sub new_literal {
 	my $self	= shift;
-	return RDF::Redland::Node->new_literal(@_);
+	my $value	= shift;
+	my $lang	= shift;
+	my $type	= shift;
+	my @args	= ($value);
+	no warnings 'uninitialized';
+	if ($type and $RDF::Redland::VERSION >= 1.00_02) {
+		# $RDF::Redland::VERSION is introduced in 1.0.2, and that's also when datatypes are fixed.
+		$type	= RDF::Redland::URI->new( $type );
+		push(@args, $type);
+	} elsif ($lang) {
+		push(@args, undef);
+	}
+	
+	if ($lang) {
+		push(@args, $lang);
+	}
+	
+	return RDF::Redland::Node->new_literal( @args );
 }
 
 sub new_blank {
@@ -79,9 +96,16 @@ sub isa_literal {
 	my $node	= shift;
 	return (ref($node) and $node->is_literal);
 }
+
+sub isa_blank {
+	my $self	= shift;
+	my $node	= shift;
+	return (ref($node) and $node->is_blank);
+}
 *RDF::Query::Model::Redland::is_node		= \&isa_node;
 *RDF::Query::Model::Redland::is_resource	= \&isa_resource;
 *RDF::Query::Model::Redland::is_literal		= \&isa_literal;
+*RDF::Query::Model::Redland::is_blank		= \&isa_blank;
 
 sub as_string {
 	my $self	= shift;
@@ -93,6 +117,20 @@ sub literal_value {
 	my $self	= shift;
 	my $node	= shift;
 	return decode('utf8', $node->literal_value);
+}
+
+sub literal_datatype {
+	my $self	= shift;
+	my $node	= shift;
+	my $type	= $node->literal_datatype;
+	return $type->as_string;
+}
+
+sub literal_value_language {
+	my $self	= shift;
+	my $node	= shift;
+	my $lang	= $node->literal_value_language;
+	return $lang;
 }
 
 sub uri_value {

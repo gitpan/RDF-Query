@@ -22,7 +22,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.6 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
+	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.9 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
 }
 
 ######################################################################
@@ -90,9 +90,17 @@ sub isa_literal {
 	my $node	= shift;
 	return UNIVERSAL::isa($node,'RDF::Core::Literal');
 }
+
+sub isa_blank {
+	my $self	= shift;
+	my $node	= shift;
+	warn Data::Dumper::Dumper($node);
+	return (UNIVERSAL::isa($node,'RDF::Core::Resource') and $node->getURI =~ /^_:/);
+}
 *RDF::Query::Model::RDFCore::is_node		= \&isa_node;
 *RDF::Query::Model::RDFCore::is_resource	= \&isa_resource;
 *RDF::Query::Model::RDFCore::is_literal		= \&isa_literal;
+*RDF::Query::Model::RDFCore::is_blank		= \&isa_blank;
 
 sub as_string {
 	my $self	= shift;
@@ -104,6 +112,20 @@ sub literal_value {
 	my $self	= shift;
 	my $node	= shift;
 	return $node->getLabel;
+}
+
+sub literal_datatype {
+	my $self	= shift;
+	my $node	= shift;
+	my $type	= $node->getDatatype;
+	return $type;
+}
+
+sub literal_value_language {
+	my $self	= shift;
+	my $node	= shift;
+	my $lang	= $node->getLang;
+	return $lang;
 }
 
 sub uri_value {
@@ -140,7 +162,7 @@ sub statement_method_map {
 sub get_statements {
 	my $self	= shift;
 	my $enum	= $self->{'model'}->getStmts( @_ );
-	my $stmt	= $enum->getFirst;
+	my $stmt	= $enum->getNext;
 	my $stream	= sub {
 		return undef unless defined($stmt);
 		my $ret	= $stmt;

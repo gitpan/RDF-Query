@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use Test::More tests => 7;
+use Test::More tests => 25;
 
 use Data::Dumper;
 use RDF::Redland;
@@ -13,6 +13,84 @@ my $storage	= new RDF::Redland::Storage("hashes", "test", "new='yes',hash-type='
 my $model	= new RDF::Redland::Model($storage, "");
 my $parser	= new RDF::Redland::Parser("rdfxml");
 $parser->parse_into_model($_, $_, $model) for (@data);
+
+
+{
+	my $sparql	= <<"END";
+		PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+		PREFIX	rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		PREFIX	myrdf: <http://kasei.us/e/ns/rdf#>
+		PREFIX	wn: <http://xmlns.com/wordnet/1.6/>
+		SELECT	?image ?thing ?type ?name
+		WHERE	{
+					?image foaf:depicts ?thing .
+					?thing rdf:type ?type .
+					?type rdfs:label ?name .
+					FILTER(REGEX(?type,"Flower")) .
+				}
+END
+	my $query	= RDF::Query->new( $sparql, undef, undef, 'sparql' );
+	my $count	= 0;
+	my $stream	= $query->execute( $model );
+	while (my $row = $stream->()) {
+		my ($image, $thing, $ttype, $tname)	= @{ $row };
+		my $url		= $image->uri->as_string;
+		my $node	= $thing->as_string;
+		my $name	= $tname->literal_value;
+		my $type	= $ttype->as_string;
+		like( $type, qr/Flower/, "$node is a Flower" );
+		$count++;
+	}
+	is( $count, 3, "3 object depictions found" );
+}
+
+
+{
+	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		PREFIX	dc: <http://purl.org/dc/elements/1.1/>
+		SELECT	?person ?name
+		WHERE	{
+					?person rdf:type foaf:Person .
+					?person foaf:name ?name .
+					FILTER isBLANK(?person) .
+				}
+END
+	my $stream	= $query->execute( $model );
+	isa_ok( $stream, 'RDF::Query::Stream' );
+	while (my $row = $stream->()) {
+		isa_ok( $row, "ARRAY" );
+		my ($p,$n)	= @{ $row };
+		ok( $query->bridge->isa_node( $p ), $query->bridge->as_string( $p ) . ' is a node' );
+		like( $query->bridge->as_string( $n ), qr/^Gary Peck/, 'name' );
+	}
+}
+
+
+{
+	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		PREFIX	dc: <http://purl.org/dc/elements/1.1/>
+		SELECT	?person ?name
+		WHERE	{
+					?person rdf:type foaf:Person .
+					?person foaf:name ?name .
+					FILTER isURI(?person) .
+				}
+END
+	my $stream	= $query->execute( $model );
+	isa_ok( $stream, 'RDF::Query::Stream' );
+	while (my $row = $stream->()) {
+		isa_ok( $row, "ARRAY" );
+		my ($p,$n)	= @{ $row };
+		ok( $query->bridge->isa_node( $p ), $query->bridge->as_string( $p ) . ' is a node' );
+		like( $query->bridge->as_string( $n ), qr/^(Greg|Liz|Lauren)/, 'name' );
+	}
+}
+
+
+
 
 SKIP: {
 	eval "use Geo::Distance 0.09;";
@@ -30,7 +108,7 @@ SKIP: {
 					?point foaf:name ?name .
 					?point geo:lat ?lat .
 					?point geo:long ?long .
-					FILTER mygeo:distance(?point, 41.849331, -71.392) < 10 .
+					FILTER( mygeo:distance(?point, 41.849331, -71.392) < 10 ) .
 				}
 END
 	my $query	= RDF::Query->new( $sparql, undef, undef, 'sparql' );

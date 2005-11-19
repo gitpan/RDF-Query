@@ -21,9 +21,10 @@ END
 	my $stream	= $query->execute( $model );
 	ok( $stream->is_graph, "Stream is graph result" );
 	isa_ok( $stream, 'CODE', 'stream' );
+	my $count	= 0;
 	while (my $stmt = $stream->()) {
 		my $s	= $stmt->as_string;
 		ok( $s, $s );
-	}
+	} continue { last if ++$count >= 32 }
 }
 

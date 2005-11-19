@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use Test::More tests => 36;
+use Test::More tests => 28;
 
 use_ok( 'RDF::Query' );
 
@@ -12,7 +12,6 @@ my $parser	= new RDF::Redland::Parser("rdfxml");
 $parser->parse_into_model($_, $_, $model) for (@data);
 
 {
-#	local($::RD_TRACE)	= 1;
 	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 		SELECT	?person ?nick
@@ -48,6 +47,7 @@ END
 		ok( $query->bridge->isa_node( $p ), 'isa_node' );
 		ok( $query->bridge->isa_literal( $n ), 'isa_literal(nick)' );
 		like( ($n and $n->getLabel), qr/kasei|The Samo Fool/, ($n and $n->getLabel) );
+		last;
 	} continue { $stream->next }
 }
 
@@ -73,6 +73,7 @@ END
 		ok( $query->bridge->isa_resource( $h ), 'isa_resource(homepage)' );
 		is( $query->bridge->uri_value( $h ), 'http://kasei.us/' );
 		like( ($n and $n->getLabel), qr/kasei|The Samo Fool/, ($n and $n->getLabel) );
+		last;
 	} continue { $stream->next }
 }
 
@@ -118,5 +119,21 @@ END
 	ok( $query->bridge->isa_node( $p ), 'isa_node' );
 	is( $h, undef, 'no homepage' );
 	is( $t, undef, 'no homepage title' );
+}
+
+{
+	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT	?person ?nick
+		WHERE	{
+					?person foaf:name "Lauren Bradford" .
+					OPTIONAL { ?person foaf:nick ?nick } .
+					FILTER BOUND(?nick) .
+				}
+END
+	my $stream	= $query->execute( $model );
+	isa_ok( $stream, 'RDF::Query::Stream' );
+	my $row		= $stream->current;
+	ok( not($row), 'no results: successful BOUND() filter' );
 }
 
