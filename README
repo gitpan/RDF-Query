@@ -20,6 +20,16 @@ INSTALLATION
 
 VERSION HISTORY
 
+  Version 1.030 (2006-01-13)
+
+     * Added support for SELECT * in SPARQL queries.
+     * Added support for default namespaces in SPARQL queries.
+     * Added tests for querying RDF collections in SPARQL (1 ?x 3)
+     * Added tests for triple patterns of the form { ?a ?a ?b . }
+     * Added tests for default namespaces in SPARQL.
+     * Added tests for SELECT * SPARQL queries.
+     * Bugfix where one of two identical triple variables would be ignored ({ ?a ?a ?b }).
+
   Version 1.028 (2005-11-18)
 
      * Added SPARQL functions: BOUND, isURI, isBLANK, isLITERAL.
@@ -172,4 +182,4 @@ AUTHOR
 
 	Gregory Williams <gwilliams@cpan.org>
 
-$Id: README,v 1.12 2005/11/19 01:46:02 greg Exp $
+$Id: README,v 1.13 2006/01/13 23:57:17 greg Exp $

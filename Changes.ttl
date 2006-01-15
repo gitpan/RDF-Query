@@ -1,0 +1,91 @@
+# -*-n3-*-
+
+@prefix dc:      <http://purl.org/dc/elements/1.1/> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix doap:    <http://usefulinc.com/ns/doap#> .
+@prefix asc:     <http://aaronland.info/ns/changefile/> .
+                                     
+<>
+        dc:identifier           "$Id: Changes.ttl,v 1.2 2006/01/13 23:57:17 greg Exp $" ;
+        dc:description          "Changes for RDF::Query" ;
+        dcterms:references      <http://kasei.us/code/rdf-query/> .
+
+<http://kasei.us/code/files/RDF-Query-1.030.tar.gz>
+        dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
+        dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.028.tar.gz> ;
+
+        doap:Version    [
+                        doap:revision     "1.030" ;
+                        doap:created      "2006-01-13" ;
+                        ];
+        asc:changes     [
+                        asc:addition      "Added support for SELECT * in SPARQL queries." ;
+                        asc:addition      "Added support for default namespaces in SPARQL queries." ;
+                        asc:addition      "Added tests for querying RDF collections in SPARQL (1 ?x 3)" ;
+                        asc:addition      "Added tests for triple patterns of the form { ?a ?a ?b . }" ;
+                        asc:addition      "Added tests for default namespaces in SPARQL." ;
+                        asc:addition      "Added tests for SELECT * SPARQL queries." ;
+                        asc:update        "Bugfix where one of two identical triple variables would be ignored ({ ?a ?a ?b })." ;
+                        ] .
+
+
+<http://kasei.us/code/files/RDF-Query-1.028.tar.gz>
+        dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
+        dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.027.tar.gz> ;
+
+        doap:Version    [
+                        doap:revision     "1.028" ;
+                        doap:created      "2005-11-18" ;
+                        ];
+        asc:changes     [
+                        asc:addition      "Added SPARQL functions: BOUND, isURI, isBLANK, isLITERAL." ;
+                        asc:addition      "Added SPARQL RDF Collections syntactic forms." ;
+                        asc:addition      "Added binding_value_by_name method to Query results stream class." ;
+                        asc:addition      "Added isa_blank methods to RDF::Redland and RDF::Core model classes." ;
+                        asc:addition      "Added <commit> directives to SPARQL grammar." ;
+                        asc:addition      "Updated SPARQL REGEX syntax." ;
+                        asc:update        "Updated SPARQL FILTER syntax." ;
+                        asc:update        "Fixed FILTER support in OPTIONAL queries." ;
+                        asc:update        "Fixed RDF literal datatyping when using Redland versions >= 1.00_02." ;
+                        asc:update        "Updated SPARQL grammar to make 'WHERE' token optional." ;
+                        asc:update        "Updated SPARQL 'ORDER BY' syntax to use parenthesis." ;
+                        asc:update        "Fixed SPARQL FILTER logical-and support for more than two operands." ;
+                        asc:update        "Fixed SPARQL FILTER equality operator syntax to use '=' instead of '=='." ;
+                        asc:update        "Now requires Test::More 0.52 because of changes to is_deeply()." ;
+                        ] .
+
+
+<http://kasei.us/code/files/RDF-Query-1.027.tar.gz>
+        dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
+        dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.026.tar.gz> ;
+
+        doap:Version    [
+                        doap:revision     "1.027" ;
+                        doap:created      "2005-07-28" ;
+                        ];
+        asc:changes     [
+                        asc:addition      "Added binding_value_by_name() method to query result streams." ;
+                        asc:update        "ORDER BY arguments now use parenthesis (SPARQL Draft 2005.07.21)." ;
+                        asc:update        "SPARQL parser now supports ORDER BY operands: variable, expression, or function call (SPARQL Draft 2005.07.21)." ;
+                        ] .
+
+
+<http://kasei.us/code/files/RDF-Query-1.026.tar.gz>
+        dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
+        dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.024.tar.gz> ;
+
+        doap:Version    [
+                        doap:revision     "1.026" ;
+                        doap:created      "2005-06-05" ;
+                        ];
+        asc:changes     [
+                        asc:addition      "Added new DBI model bridge (accesses Redland's mysql storage directly)." ;
+                        asc:addition      "Added built-in SPARQL functions and operators (not connected to grammar yet)." ;
+                        asc:addition      "Added bridge methods for accessing typed literal information." ;
+                        ] .
+
+
+<http://kasei.us/code/rdf-query/>
+        a doap:Project ;
+        doap:download-page      "http://search.cpan.org/dist/RDF-Query/" ;
+        doap:download-mirror    "http://kasei.us/code/rdf-query/" .

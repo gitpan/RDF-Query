@@ -31,6 +31,16 @@
 			make install<br />
 		</div>
 	<h2 id="changelog">Version History</h2>
+		<h3 id="v1_028">Version 1.030 (2006-01-13)</h3>
+			<ul>
+				<li>Added support for SELECT * in SPARQL queries.</li>
+				<li>Added support for default namespaces in SPARQL queries.</li>
+				<li>Added tests for querying RDF collections in SPARQL (1 ?x 3)</li>
+				<li>Added tests for triple patterns of the form { ?a ?a ?b . }</li>
+				<li>Added tests for default namespaces in SPARQL.</li>
+				<li>Added tests for SELECT * SPARQL queries.</li>
+				<li>Bugfix where one of two identical triple variables would be ignored ({ ?a ?a ?b }).</li>
+			</ul>
 		<h3 id="v1_028">Version 1.028 (2005-11-18)</h3>
 			<ul>
 				<li>Added SPARQL functions: BOUND, isURI, isBLANK, isLITERAL.</li>
@@ -174,5 +184,5 @@
 	<h2>Copyright</h2>
 		<p>Copyright &copy; 2005 Gregory Williams. All rights reserved. This program is free software; you can redistribute it and/or modify it under the same terms as Perl itself.</p>
 	
-	$Id: README.html,v 1.13 2005/11/19 01:46:02 greg Exp $
+	$Id: README.html,v 1.14 2006/01/13 23:57:17 greg Exp $
 </body></html>

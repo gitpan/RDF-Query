@@ -1,7 +1,7 @@
 # RDF::Query
 # -------------
-# $Revision: 1.28 $
-# $Date: 2005/11/19 00:58:07 $
+# $Revision: 1.30 $
+# $Date: 2006/01/13 23:55:48 $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -33,13 +33,13 @@ See L<http://www.w3.org/Submission/2004/SUBM-RDQL-20040109/> for more informatio
 
 =head1 REQUIRES
 
- L<RDF::Redland|RDF::Redland>
-  or
- L<RDF::Core|RDF::Core>
+L<RDF::Redland|RDF::Redland> or L<RDF::Core|RDF::Core>
 
- L<Parse::RecDescent|Parse::RecDescent>
- L<LWP::Simple|LWP::Simple>
- L<Sort::Naturally>
+L<Parse::RecDescent|Parse::RecDescent>
+
+L<LWP::Simple|LWP::Simple>
+
+L<DateTime::Format::W3CDTF>
 
 =cut
 
@@ -64,7 +64,7 @@ use RDF::Query::Parser::SPARQL;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.28 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
+	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.30 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
 }
 
 ######################################################################
@@ -276,6 +276,9 @@ sub fixup {
 	my $self		= shift;
 	my $parsed		= shift;
 	
+	
+	my %known_variables;
+	
 	## CONVERT URIs to Resources, and strings to Literals
 	my @triples	= @{ $parsed->{'triples'} || [] };
 	while (my $triple = shift(@triples)) {
@@ -285,9 +288,19 @@ sub fixup {
 			push(@triples, @{$triple->[1]});
 			push(@triples, @{$triple->[2]});
 		} else {
+			my @vars	= map { $_->[1] } grep { UNIVERSAL::isa($_,'ARRAY') and $_->[0] eq 'VAR' } @{ $triple };
+			foreach my $var (@vars) {
+				$known_variables{ $var }++
+			}
 			$self->fixup_triple_bridge_variables( $triple );
 		}
 	}
+	
+	## SELECT * implies selecting all known variables
+	if ($parsed->{variables}[0] eq '*') {
+		$parsed->{variables}	= [ map { ['VAR', $_] } (keys %known_variables) ];
+	}
+	
 	
 	## FULLY QUALIFY URIs IN CONSTRAINTS
 	if (ref($parsed->{'constraints'})) {
@@ -421,7 +434,7 @@ sub query_more {
 				if ($bridge->isa_node($val)) {
 					_debug( "${indent}-> already have value for $tmpvar: " . $bridge->as_string( $val ) . "\n" );
 					$triple[$idx]	= $val;
-				} elsif (++$vars > 1) {
+				} elsif (++$vars > 2) {
 					_debug( "${indent}-> we've seen $vars variables in this triple... punt\n" );
 					if (1 + $self->{punt} >= scalar(@{$self->{parsed}{triples}})) {
 						_debug( "${indent}-> we've punted too many times. binding on ?$tmpvar" );
@@ -462,13 +475,27 @@ sub query_more {
 				return undef;
 			}
 			if ($vars) {
+				my %private_bound;
 				foreach (0 .. $#vars) {
+					_debug( "looking at variable $_" );
 					next unless defined($vars[$_]);
 					my $var		= $vars[ $_ ];
 					my $method	= $methods[ $_ ];
 					_debug( "${indent}-> got variable $var = " . $bridge->as_string( $stmt->$method() ) . "\n" );
-					$bound->{ $var }	= $stmt->$method();
+					if (defined($private_bound{$var})) {
+						_debug( "${indent}-> uh oh. $var has been defined more than once.\n" );
+						if ($bridge->as_string( $stmt->$method() ) eq $bridge->as_string( $private_bound{$var} )) {
+							_debug( "${indent}-> the two values match. problem avoided.\n" );
+						} else {
+							_debug( "${indent}-> the two values don't match. this triple won't work.\n" );
+							_debug( "${indent}-> the existing value is" . $bridge->as_string( $private_bound{$var} ) . "\n" );
+							return ();
+						}
+					} else {
+						$private_bound{ $var }	= $stmt->$method();
+					}
 				}
+				@{ $bound }{ keys %private_bound }	= values %private_bound;
 			} else {
 				_debug( "${indent}-> triple with no variable. ignoring.\n" );
 			}
@@ -578,9 +605,8 @@ sub optional {
 			my $stream;
 			return sub {
 				while ($ostream and not $ostream->finished) {
-					if ($stream and not $stream->finished) {
-						my $data	= $stream->current;
-						$stream->next;
+					if (ref($stream)) {
+						my $data	= $stream->();
 						return $data;
 					}
 					
@@ -591,9 +617,8 @@ sub optional {
 							$bound->{ $name }	= $value;
 							_debug( "Setting $name = $value\n" );
 						}
-						$stream	= $self->query_more( { %{ $bound } }, @triples );
-						$stream->next;
 					}
+					$stream	= $self->query_more( { %{ $bound } }, @triples );
 				}
 				return undef;
 			};
@@ -1161,6 +1186,13 @@ __END__
 =head1 REVISION HISTORY
 
  $Log: Query.pm,v $
+ Revision 1.30  2006/01/13 23:55:48  greg
+ - Updated requirements POD formatting.
+
+ Revision 1.29  2006/01/11 06:16:19  greg
+ - Added support for SELECT * in SPARQL queries.
+ - Bugfix where one of two identical triple variables would be ignored ({ ?a ?a ?b })
+
  Revision 1.28  2005/11/19 00:58:07  greg
  - Fixed FILTER support in OPTIONAL queries.
 

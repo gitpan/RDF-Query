@@ -1,7 +1,7 @@
 # RDF::Query::Parser::RDQL
 # -------------
-# $Revision: 1.4 $
-# $Date: 2005/05/08 08:26:09 $
+# $Revision: 1.5 $
+# $Date: 2006/01/11 06:03:45 $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -16,7 +16,7 @@ use strict;
 use warnings;
 use Carp qw(carp croak confess);
 
-use Data::Dumper::Simple;
+use Data::Dumper;
 use LWP::Simple ();
 use Parse::RecDescent;
 use Digest::SHA1  qw(sha1_hex);
@@ -28,7 +28,7 @@ BEGIN {
 	$::RD_TRACE	= undef;
 	$::RD_HINT	= undef;
 	$debug		= 1;
-	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.4 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
+	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.5 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
 	$lang		= 'rdql';
 	$languri	= 'http://jena.hpl.hp.com/2003/07/query/RDQL';
 }
@@ -248,6 +248,9 @@ __END__
 =head1 REVISION HISTORY
 
  $Log: RDQL.pm,v $
+ Revision 1.5  2006/01/11 06:03:45  greg
+ - Removed use of Data::Dumper::Simple.
+
  Revision 1.4  2005/05/08 08:26:09  greg
  - Added initial support for SPARQL ASK, DESCRIBE and CONSTRUCT queries.
    - Added new test files for new query types.

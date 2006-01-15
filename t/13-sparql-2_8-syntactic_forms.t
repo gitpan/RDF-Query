@@ -10,7 +10,7 @@ my @files	= map { File::Spec->rel2abs( "data/$_" ) } qw(about.xrdf foaf.xrdf);
 my @models	= test_models( @files );
 
 use Test::More;
-plan tests => 1 + (10 * scalar(@models));
+plan tests => 1 + (12 * scalar(@models));
 
 use_ok( 'RDF::Query' );
 foreach my $model (@models) {
@@ -42,9 +42,6 @@ END
 
 	# - Collections: (1 ?x 3)
 	{
-#		local($::RD_TRACE)	= 1;
-#		local($::RD_HINT)	= 1;
-#		local($RDF::Query::debug)	= 1;
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 			SELECT	?x
 			WHERE	{
@@ -52,7 +49,21 @@ END
 					}
 END
 		my ($x)	= $query->get( $model );
-		ok( $x, 'got collection element' );
+		ok( $x, 'got collection triples' );
+		is( $query->bridge->as_string( $x ), 2 );
+	}
+
+	# - Collections: ?s ?p (1 ?x 3)
+	{
+		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+			PREFIX test: <http://kasei.us/e/ns/test#>
+			SELECT	?x
+			WHERE	{
+						<http://kasei.us/about/foaf.xrdf#greg> test:mycollection (1 ?x 3) .
+					}
+END
+		my ($x)	= $query->get( $model );
+		ok( $x, 'got object collection triples' );
 		is( $query->bridge->as_string( $x ), 2 );
 	}
 

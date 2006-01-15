@@ -1,7 +1,14 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use Test::More tests => 11;
+use Test::More;
+
+if (not exists $ENV{RDFQUERY_NO_NETWORK}) {
+	plan tests => 11;
+} else {
+	plan skip_all => 'No network. Unset RDFQUERY_NO_NETWORK to run these tests.';
+	return;
+}
 
 use_ok( 'RDF::Query' );
 

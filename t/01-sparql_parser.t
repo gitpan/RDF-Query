@@ -1,11 +1,12 @@
 #!/usr/bin/perl
 use strict;
-use Test::More tests => 31;
+use Test::More tests => 35;
 use Data::Dumper;
 
 use_ok( 'RDF::Query::Parser::SPARQL' );
 my $parser	= new RDF::Query::Parser::SPARQL (undef);
 isa_ok( $parser, 'RDF::Query::Parser::SPARQL' );
+
 
 {
 	my $rdql	= <<"END";
@@ -401,7 +402,29 @@ END
 					OPTIONAL { ?person foaf:mbox ?mbox }
 				}
 END
-	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI',['foaf','name']],['VAR','name']],['OPTIONAL',[[['VAR','person'],['URI',['foaf','mbox']],['VAR','mbox']]]]],'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','person'], ['VAR','name'], ['VAR','mbox']], 'constraints' => []};
+	my $correct	= {
+					'method'		=> 'SELECT',
+					'triples'		=> [
+										[
+											['VAR','person'],
+											['URI',['foaf','name']],
+											['VAR','name']
+										],
+										['OPTIONAL',
+											[
+												[
+													['VAR','person'],
+													['URI',['foaf','mbox']],
+													['VAR','mbox']
+												]
+											]
+										]
+									],
+					'namespaces'	=> {'foaf' => 'http://xmlns.com/foaf/0.1/'},
+					'sources'		=> undef,
+					'variables'		=> [['VAR','person'], ['VAR','name'], ['VAR','mbox']],
+					'constraints'	=> []
+				};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, "optional triple '{...}'" );
 }
@@ -566,5 +589,136 @@ END
 		};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, 'typed literal ^^qName' );
+}
+
+{
+	my $sparql	= <<"END";
+		SELECT	?x
+		WHERE	{ (1 ?x 3) }
+END
+	my $correct	= {
+		  'method'		=> 'SELECT',
+          'triples' => [
+                         [
+                           ['BLANK','a1'],
+                           ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#first'],
+                           ['LITERAL','1']
+                         ],
+                         [
+                           ['BLANK','a1'],
+                           ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#rest'],
+                           ['BLANK','a2']
+                         ],
+                         [
+                           ['BLANK','a2'],
+                           ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#first'],
+                           ['VAR','x']
+                         ],
+                         [
+                           ['BLANK','a2'],
+                           ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#rest'],
+                           ['BLANK','a3']
+                         ],
+                         [
+                           ['BLANK','a3'],
+                           ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#first'],
+                           ['LITERAL','3']
+                         ],
+                         [
+                           ['BLANK','a3'],
+                           ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#rest'],
+                           ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#nil']
+                         ]
+                       ],
+          'constraints' => [],
+          'sources' => undef,
+          'variables' => [
+                           ['VAR','x']
+                         ],
+          'namespaces' => {}
+        };
+	my $parsed	= $parser->parse( $sparql );
+	is_deeply( $parsed, $correct, 'subject collection syntax' );
+}
+
+{
+	my $sparql	= <<"END";
+		PREFIX test: <http://kasei.us/e/ns/test#>
+		SELECT	?x
+		WHERE	{
+					<http://kasei.us/about/foaf.xrdf#greg> test:mycollection (1 ?x 3) .
+				}
+END
+	my $correct	= {
+		  'method'		=> 'SELECT',
+          'triples' => [
+                         [
+                           ['URI','http://kasei.us/about/foaf.xrdf#greg'],
+                           ['URI',['test', 'mycollection']],
+                           ['BLANK','a1']
+                         ],
+                         [
+                           ['BLANK','a1'],
+                           ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#first'],
+                           ['LITERAL','1']
+                         ],
+                         [
+                           ['BLANK','a1'],
+                           ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#rest'],
+                           ['BLANK','a2']
+                         ],
+                         [
+                           ['BLANK','a2'],
+                           ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#first'],
+                           ['VAR','x']
+                         ],
+                         [
+                           ['BLANK','a2'],
+                           ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#rest'],
+                           ['BLANK','a3']
+                         ],
+                         [
+                           ['BLANK','a3'],
+                           ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#first'],
+                           ['LITERAL','3']
+                         ],
+                         [
+                           ['BLANK','a3'],
+                           ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#rest'],
+                           ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#nil']
+                         ]
+                       ],
+          'constraints' => [],
+          'sources' => undef,
+          'variables' => [
+                           ['VAR','x']
+                         ],
+          'namespaces' => { test => 'http://kasei.us/e/ns/test#' }
+        };
+	my $parsed	= $parser->parse( $sparql );
+	is_deeply( $parsed, $correct, 'object collection syntax' );
+}
+
+{
+	my $sparql	= <<"END";
+		SELECT *
+		WHERE { ?a ?a ?b . }
+END
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','a'],['VAR','a'],['VAR','b']]],'namespaces' => {}, 'sources' => undef,'variables' => ['*'], 'constraints' => []};
+	my $parsed	= $parser->parse( $sparql );
+	is_deeply( $parsed, $correct, "SELECT *" );
+}
+
+{
+	my $sparql	= <<"END";
+		PREFIX	: <http://xmlns.com/foaf/0.1/>
+		SELECT	?person
+		WHERE	{
+					?person :name "Gregory Todd Williams", "Greg Williams" .
+				}
+END
+	my $correct	= {'method' => 'SELECT', 'triples' => [[['VAR','person'],['URI',['__DEFAULT__','name']],['LITERAL','Gregory Todd Williams']],[['VAR','person'],['URI',['__DEFAULT__','name']],['LITERAL','Greg Williams']]],'namespaces' => {'__DEFAULT__' => 'http://xmlns.com/foaf/0.1/'},'sources' => undef,'variables' => [['VAR','person']], 'constraints' => []};
+	my $parsed	= $parser->parse( $sparql );
+	is_deeply( $parsed, $correct, "default prefix" );
 }
 

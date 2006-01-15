@@ -10,13 +10,14 @@ my @files	= map { File::Spec->rel2abs( "data/$_" ) } qw(about.xrdf foaf.xrdf);
 my @models	= test_models( @files );
 
 use Test::More;
-plan tests => 1 + (38 * scalar(@models));
+plan tests => 1 + (42 * scalar(@models));
 
 use_ok( 'RDF::Query' );
 foreach my $model (@models) {
 	print "\n#################################\n";
 	print "### Using model: $model\n";
-	
+
+
 	{
 		print "# using RDQL language URI\n";
 		my $query	= new RDF::Query ( <<"END", undef, 'http://jena.hpl.hp.com/2003/07/query/RDQL', undef );
@@ -270,5 +271,31 @@ END
 		my @results	= $query->execute( $model );
 		ok( scalar(@results), 'got result' );
 	}
+
+	{
+		print "# SPARQL query with SELECT *\n";
+		my $query	= new RDF::Query ( <<"END", undef, 'http://www.w3.org/TR/rdf-sparql-query/', undef );
+		SELECT *
+		WHERE { ?a ?a ?b . }
+END
+		my @results	= $query->execute( $model );
+		is( scalar(@results), 1, 'got one result' );
+		my $result	= $results[0];
+		is( $query->bridge->uri_value( $result->[0] ), 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type' );
+		is( $query->bridge->uri_value( $result->[1] ), 'http://www.w3.org/1999/02/22-rdf-syntax-ns#Property' );
+		
+	}
+	
+	{
+		print "# SPARQL query with default namespace\n";
+		my $query	= new RDF::Query ( <<"END", undef, 'http://www.w3.org/TR/rdf-sparql-query/', undef );
+			PREFIX	: <http://xmlns.com/foaf/0.1/>
+			SELECT	?person
+			WHERE	{ ?person :name "Gregory Todd Williams" }
+END
+		my @results	= $query->execute( $model );
+		ok( scalar(@results), 'got result' );
+	}
+
 }
 
