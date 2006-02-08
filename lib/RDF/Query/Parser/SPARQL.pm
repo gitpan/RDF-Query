@@ -1,7 +1,7 @@
 # RDF::Query::Parser::SPARQL
 # -------------
-# $Revision: 1.13 $
-# $Date: 2006/01/11 06:08:26 $
+# $Revision: 121 $
+# $Date: 2006-02-06 23:07:43 -0500 (Mon, 06 Feb 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -28,7 +28,7 @@ BEGIN {
 	$::RD_TRACE	= undef;
 	$::RD_HINT	= undef;
 	$debug		= 0;
-	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.13 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 121 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	$lang		= 'sparql';
 	$languri	= 'http://www.w3.org/TR/rdf-sparql-query/';
 }
@@ -37,16 +37,17 @@ our %blank_ids;
 our($SPARQL_GRAMMAR);
 BEGIN {
 	our $SPARQL_GRAMMAR	= <<'END';
-	query:			namespaces /SELECT|DESCRIBE/i <commit> OptDistinct(?) variables SourceClause(?) (/WHERE/i)(?) triplepatterns OptOrderBy(?) OptLimit(?) OptOffset(?)
+	query:			namespaces /SELECT|DESCRIBE/i <commit> OptDistinct(?) variables SourceClause(s?) (/WHERE/i)(?) triplepatterns OptOrderBy(?) OptLimit(?) OptOffset(?)
 																	{
 																		$return = {
 																			method		=> uc($item[2]),
 																			variables	=> $item{variables},
-																			sources		=> $item{SourceClause}[0],
+																			sources		=> $item[6],
 																			triples		=> $item{triplepatterns}[0] || [],
 																			constraints	=> $item{triplepatterns}[1] || [],
 																			namespaces	=> $item{namespaces}
 																		};
+																		
 																		$return->{options}{distinct}	= 1 if ($item{'OptDistinct(?)'}[0]);
 																		if (@{ $item{'OptOrderBy(?)'} }) {
 																			$return->{options}{orderby}	= $item{'OptOrderBy(?)'}[0];
@@ -61,13 +62,13 @@ BEGIN {
 	variables: '*'													{ $return = [ $item[1] ] }
 	variables: variable Comma(?) variables							{ $return = [ $item[1], @{ $item[3] } ] }
 	variables: variable												{ $return = [ $item[1] ] }
-	query:			namespaces /CONSTRUCT/i <commit> triplepatterns SourceClause(?) /WHERE/i triplepatterns OptOrderBy(?) OptLimit(?) OptOffset(?)
+	query:			namespaces /CONSTRUCT/i <commit> triplepatterns SourceClause(s?) /WHERE/i triplepatterns OptOrderBy(?) OptLimit(?) OptOffset(?)
 																	{
 																		$return = {
 																			method				=> 'CONSTRUCT',
 																			variables			=> [],
 																			construct_triples	=> $item[4][0] || [],
-																			sources				=> $item{SourceClause}[0],
+																			sources				=> $item[5],
 																			triples				=> $item[7][0] || [],
 																			constraints			=> $item[7][1] || [],
 																			namespaces			=> $item{namespaces}
@@ -83,12 +84,12 @@ BEGIN {
 																			$return->{options}{offset}	= $item{'OptOffset(?)'}[0];
 																		}
 																	}
-	query:			namespaces /ASK/i <commit> SourceClause(?) triplepatterns
+	query:			namespaces /ASK/i <commit> SourceClause(s?) triplepatterns
 																	{
 																		$return = {
 																			method		=> 'ASK',
 																			variables	=> [],
-																			sources		=> $item{SourceClause}[0],
+																			sources		=> $item[4],
 																			triples		=> $item{triplepatterns}[0] || [],
 																			constraints	=> $item{triplepatterns}[1] || [],
 																			namespaces	=> $item{namespaces}
@@ -102,28 +103,38 @@ BEGIN {
 					|			variable										{ $return = ['ASC', $item[1]] }
 					|			FunctionCall									{ $return = ['ASC', $item[1]] }
 					|			BrackettedExpression							{ $return = ['ASC', $item[1]] }
-	SourceClause:				(/SOURCE/i | /FROM/i) Source(s)					{ $return = $item[2] }
+	SourceClause:				/SOURCE|FROM/i Source							{ $return = $item[2] }
+	SourceClause:				/FROM NAMED/i Source							{ $return = [ @{ $item[2] }, 'NAMED' ] }
+	
 	Source:						URI												{ $return = $item[1] }
 	variable:					/[?\$]/ identifier								{ $return = [ 'VAR',$item{identifier} ] }
 	triplepatterns:				'{' triplepattern moretriple(s?) OptDot(?) '}'	{
 																					my @data	= (@{ $item[2] }, map { @{ $_ } } @{ $item[3] });
 																					my @filters	= map { $_->[1] } grep { $_->[0] eq 'FILTER' } @data;
 																					my @triples;
-#																					foreach my $data (@data) {
-#																					my $i	= 0;
-#																					while ($i <= $#data) {
-#																						my $data	= $data[ $i++ ];
 																					while (my $data = shift(@data)) {
 																						if ($data->[0] eq 'TRIPLE') {
+																							#############################################################################
+																							### XXX What the hell is this for? Need to figure out why this was written...
 																							if (ref($data->[1][2][0]) and eval { $data->[1][2][0][0] eq 'TRIPLE' } and not $@) {
 																								my @new	= @{ $data->[1][2] };
 																								push(@data, @new);
 																								$data->[1][2]	= $data->[1][2][0][1][0];
 																							}
+																							#############################################################################
 																							push(@triples, $data->[1]);
 																						} elsif ($data->[0] eq 'OPTIONAL') {
 																							push(@triples, $data);
 																						} elsif ($data->[0] eq 'UNION') {
+																							push(@triples, $data);
+																						} elsif ($data->[0] eq 'GRAPH') {
+																							#############################
+																							### XXX $data->[2][1] contains FILTERS...
+																							### XXX we're currently just ignoring them
+																							### we need to start respecting them.
+																							my $triples	= $data->[2][0];
+																							$data->[2]	= $triples;
+																							#############################
 																							push(@triples, $data);
 																						}
 																					}
@@ -144,8 +155,14 @@ BEGIN {
 																										(@{$item[5] || []}, map { [$item[2], $_] } @{$item[4] || []})
 																								];
 																				}
-	triplepattern:				/OPTIONAL/i triplepatterns						{ $return = [[ 'OPTIONAL', ($item[2][0] || []) ]] }
-	triplepattern:				triplepatterns /UNION/i triplepatterns			{ $return = [[ 'UNION', ($item[1][0] || []), ($item[3][0] || []) ]] }
+	triplepattern:				/OPTIONAL/i <commit> triplepatterns				{ $return = [[ 'OPTIONAL', ($item{triplepatterns}[0] || []) ]] }
+	triplepattern:				/GRAPH/i <commit> VarUri triplepatterns			{ $return = [ [ 'GRAPH', $item{VarUri}, $item{triplepatterns} ] ]; }
+	
+	
+	
+	
+	
+	triplepattern:				triplepatterns /UNION/i <commit> triplepatterns	{ $return = [[ 'UNION', ($item[1][0] || []), ($item[4][0] || []) ]] }
 	triplepattern:				constraints										{ $return = [[ 'FILTER', $item[1] ]] }
 	triplepattern:				blanktriple PredObj(?)							{
 																					my ($b,$t)	= @{ $item[1] };
@@ -333,7 +350,9 @@ BEGIN {
 	MoreArg:					"," VarUriConst									{ $return = $item[2] }
 	Literal:					(URI | CONST)									{ $return = $item[1] }
 	URL:						qURI											{ $return = $item[1] }
-	VarUri:						(variable | blankQName | URI)					{ $return = $item[1] }
+	VarUri:						variable <commit>								{ $return = $item[1] }
+	VarUri:						blankQName										{ $return = $item[1] }
+	VarUri:						URI												{ $return = $item[1] }
 	PredVarUri:					/a/i											{ $return = ['URI', 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type'] }
 							|	VarUri											{ $return = $item[1] }
 	VarUriConst:				(variable | CONST | URI)						{ $return = $item[1] }
@@ -440,7 +459,7 @@ __END__
 
 =head1 REVISION HISTORY
 
- $Log: SPARQL.pm,v $
+ $Log$
  Revision 1.13  2006/01/11 06:08:26  greg
  - Added support for SELECT * in SPARQL queries.
  - Added support for default namespaces in SPARQL queries.

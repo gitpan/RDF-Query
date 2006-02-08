@@ -22,7 +22,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.9 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 121 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
 ######################################################################
@@ -143,6 +143,12 @@ sub blank_identifier {
 sub add_uri {
 	my $self	= shift;
 	my $url		= shift;
+	my $named	= shift;
+	
+	if ($named and not $self->supports('named_graph')) {
+		die "This model does not support named graphs";
+	}
+	
 	my $rdf		= LWP::Simple::get($url);
 	my %options = (
 				Model		=> $self->{'model'},
@@ -171,6 +177,12 @@ sub get_statements {
 	};
 	
 	return RDF::Query::Stream->new( $stream, 'graph', undef, bridge => $self );
+}
+
+sub supports {
+	my $self	= shift;
+	my $feature	= shift;
+	return 0;
 }
 
 sub as_xml {

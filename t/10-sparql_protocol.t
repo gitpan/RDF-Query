@@ -69,11 +69,9 @@ END
 END
 		my $stream	= $query->execute( $model );
 		ok( $stream->is_graph, 'Graph result' );
-		
-		local($TODO)	= "XML Serialization of DBI models isn't supported yet." if (UNIVERSAL::isa($model, 'ARRAY'));
-		
+				
 		my $xml		= $stream->as_xml;
-		like( $xml, qr%:made\s+.*?rdf:resource="http://kasei\.us/pictures/2004/20040909-Ireland/images/DSC_5705\.jpg"%ms, 'XML Results formatting' );
 		like( $xml, qr%:name.*?>Greg Williams<%ms, 'XML Results formatting' );
+		like( $xml, qr%:made\s+.*?rdf:resource="http://kasei\.us/pictures/2004/20040909-Ireland/images/DSC_5705\.jpg"%ms, 'XML Results formatting' );
 	}
 }

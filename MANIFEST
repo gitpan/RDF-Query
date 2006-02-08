@@ -1,9 +1,16 @@
 README
 README.html
 Changes.ttl
+doap.rdf
 data/about.xrdf
 data/Flower-2.rdf
 data/foaf.xrdf
+data/named_graphs/alice.ttl
+data/named_graphs/meta.rdf
+data/named_graphs/bob.ttl
+data/named_graphs/alice.rdf
+data/named_graphs/meta.ttl
+data/named_graphs/bob.rdf
 lib/RDF/Query.pm
 lib/RDF/Query/Model/DBI.pm
 lib/RDF/Query/Model/DBI/Statement.pm
@@ -34,5 +41,6 @@ t/10-sparql_protocol.t
 t/11-resultforms.t
 t/12-literals.t
 t/13-sparql-2_8-syntactic_forms.t
+t/14-sparql-9_2-named_graphs.t
 t/models.pl
 META.yml                                 Module meta-data (added by MakeMaker)

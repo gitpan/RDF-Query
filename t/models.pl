@@ -9,7 +9,7 @@ sub test_models {
 	if (not $@ and not $ENV{RDFQUERY_NO_REDLAND}) {
 		require RDF::Query::Model::Redland;
 		my @data	= map { RDF::Redland::URI->new( 'file://' . $_ ) } @files;
-		my $storage	= new RDF::Redland::Storage("hashes", "test", "new='yes',hash-type='memory'");
+		my $storage	= new RDF::Redland::Storage("hashes", "test", "new='yes',hash-type='memory',contexts='yes'");
 		my $model	= new RDF::Redland::Model($storage, "");
 		my $parser	= new RDF::Redland::Parser("rdfxml");
 		$parser->parse_into_model($_, $_, $model) for (@data);

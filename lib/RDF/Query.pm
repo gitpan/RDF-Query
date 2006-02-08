@@ -1,16 +1,16 @@
 # RDF::Query
 # -------------
-# $Revision: 1.30 $
-# $Date: 2006/01/13 23:55:48 $
+# $Revision: 127 $
+# $Date: 2006-02-08 14:53:21 -0500 (Wed, 08 Feb 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
 
-RDF::Query - A SPARQL/RDQL implementation for RDF::Redland and RDF::Core
+RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF::Redland and RDF::Core.
 
-=cut
+=head1 VERSION
 
-package RDF::Query;
+This document describes RDF::Query version 1.031
 
 =head1 SYNOPSIS
 
@@ -43,6 +43,8 @@ L<DateTime::Format::W3CDTF>
 
 =cut
 
+package RDF::Query;
+
 use strict;
 use warnings;
 use Carp qw(carp croak confess);
@@ -61,10 +63,11 @@ use RDF::Query::Parser::SPARQL;
 
 ######################################################################
 
-our ($VERSION, $debug);
+our ($REVISION, $VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.30 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
+	$REVISION	= do { my $REV = (qw$Revision: 127 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= 1.031;
 }
 
 ######################################################################
@@ -132,25 +135,15 @@ context, returns an array of rows, otherwise returns an iterator.
 sub execute {
 	my $self	= shift;
 	my $model	= shift;
-	my $bridge;
 	
-	if (UNIVERSAL::isa($model, 'RDF::Redland::Model')) {
-		require RDF::Query::Model::Redland;
-		$bridge	= RDF::Query::Model::Redland->new( $model );
-	} elsif (UNIVERSAL::isa($model, 'ARRAY') and UNIVERSAL::isa($model->[0], 'DBI::db')) {
-		require RDF::Query::Model::DBI;
-		$bridge	= RDF::Query::Model::DBI->new( $model );
-	} else {
-		require RDF::Query::Model::RDFCore;
-		$bridge	= RDF::Query::Model::RDFCore->new( $model );
-	}
+	my $bridge	= $self->get_bridge( $model );
 	
 	$self->{model}		= $model;
 	$self->{bridge}		= $bridge;
 	
 	my $parser	= $self->{parser};
 	my $parsed	= $self->fixup( $self->{parsed} );
-	my $stream	= $self->query_more( {}, @{ $parsed->{'triples'} } );
+	my $stream	= $self->query_more( bound => {}, triples => [@{ $parsed->{'triples'} }] );
 	_debug( "got stream: $stream" );
 	$stream		= RDF::Query::Stream->new(
 					$self->sort_rows( $stream, $parsed ),
@@ -200,13 +193,14 @@ sub describe {
 	
 	my $ret	= sub {
 		while (@streams) {
-			while (@streams and $streams[0]->finished) {
-				shift(@streams);
-				return undef unless(@streams);
-			}
 			my $val	= $streams[0]->current;
-			$streams[0]->next;
-			return $val;
+			if (defined $val) {
+				$streams[0]->next;
+				return $val;
+			} else {
+				shift(@streams);
+				return undef unless (@streams);
+			}
 		}
 	};
 	return RDF::Query::Stream->new( $ret, 'graph', undef, bridge => $bridge );
@@ -252,14 +246,15 @@ sub construct {
 	
 	my $ret	= sub {
 		while (@streams) {
-			while (@streams and $streams[0]->finished) {
+			if ($streams[0]->open and $streams[0]->finished) {
 				shift(@streams);
-				return undef unless(@streams);
+			} else {
+				$streams[0]->next;
+				my $val	= $streams[0]->current;
+				return $val if (defined $val);
 			}
-			my $val	= $streams[0]->current;
-			$streams[0]->next;
-			return $val;
 		}
+		return undef;
 	};
 	return RDF::Query::Stream->new( $ret, 'graph', undef, bridge => $bridge );
 }
@@ -272,18 +267,102 @@ sub ask {
 
 ######################################################################
 
+sub supports {
+	my $self	= shift;
+	my $model	= shift;
+	my $bridge	= $self->get_bridge( $model );
+	return $bridge->supports( @_ );
+}
+
+sub set_named_graph_query {
+	my $self	= shift;
+	my $bridge	= $self->new_bridge();
+	_debug( "Replacing model bridge with a new (empty) one for a named graph query" );
+	$self->{bridge}	= $bridge;
+}
+
+sub new_bridge {
+	my $self	= shift;
+	
+	eval "use RDF::Redland;";
+	if (not $@) {
+		require RDF::Query::Model::Redland;
+		my $storage	= new RDF::Redland::Storage("hashes", "test", "new='yes',hash-type='memory',contexts='yes'");
+		my $model	= new RDF::Redland::Model($storage, "");
+		my $bridge	= RDF::Query::Model::Redland->new( $model );
+		return $bridge;
+	}
+	
+	eval "use RDF::Core;";
+	if (not $@) {
+		require RDF::Query::Model::RDFCore;
+		my $storage	= new RDF::Core::Storage::Memory;
+		my $model	= new RDF::Core::Model (Storage => $storage);
+		my $bridge	= RDF::Query::Model::RDFCore->new( $model );
+		return $bridge;
+	}
+	
+	return undef;
+}
+
+sub get_bridge {
+	my $self	= shift;
+	my $model	= shift;
+	
+	my $bridge;
+	
+	if (not $model) {
+		$bridge	= $self->new_bridge();
+	} elsif (UNIVERSAL::isa($model, 'RDF::Redland::Model')) {
+		require RDF::Query::Model::Redland;
+		$bridge	= RDF::Query::Model::Redland->new( $model );
+	} elsif (UNIVERSAL::isa($model, 'ARRAY') and UNIVERSAL::isa($model->[0], 'DBI::db')) {
+		require RDF::Query::Model::DBI;
+		$bridge	= RDF::Query::Model::DBI->new( $model );
+	} else {
+		require RDF::Query::Model::RDFCore;
+		$bridge	= RDF::Query::Model::RDFCore->new( $model );
+	}
+	
+	return $bridge;
+}
+
 sub fixup {
 	my $self		= shift;
 	my $parsed		= shift;
-	
+	my $bridge		= $self->{bridge};
 	
 	my %known_variables;
+	
+	## LOAD ANY EXTERNAL RDF FILES
+	my $sources	= $parsed->{'sources'};
+	if (UNIVERSAL::isa( $sources, 'ARRAY' )) { # and scalar(@{ $sources })) {
+		my $named_query	= 0;
+		foreach my $source (@{ $sources }) {
+			my $named_source	= (3 == @{$source} and $source->[2] eq 'NAMED');
+			if ($named_source and not $named_query) {
+				$named_query++;
+				$self->set_named_graph_query();
+				$bridge		= $self->{bridge};
+				unless ($bridge->supports( 'named_graph' )) {
+					die "This RDF model does not support named graphs.";
+				}
+			}
+			
+			$self->parse_url( $source->[1], $named_source );
+		}
+	}
 	
 	## CONVERT URIs to Resources, and strings to Literals
 	my @triples	= @{ $parsed->{'triples'} || [] };
 	while (my $triple = shift(@triples)) {
 		if ($triple->[0] eq 'OPTIONAL') {
 			push(@triples, @{$triple->[1]});
+		} elsif ($triple->[0] eq 'GRAPH') {
+			push(@triples, @{$triple->[2]});
+			if ($triple->[1][0] eq 'URI') {
+				$triple->[1]	= $bridge->new_resource( $triple->[1][1] );
+			}
 		} elsif ($triple->[0] eq 'UNION') {
 			push(@triples, @{$triple->[1]});
 			push(@triples, @{$triple->[2]});
@@ -297,6 +376,7 @@ sub fixup {
 	}
 	
 	## SELECT * implies selecting all known variables
+	no warnings 'uninitialized';
 	if ($parsed->{variables}[0] eq '*') {
 		$parsed->{variables}	= [ map { ['VAR', $_] } (keys %known_variables) ];
 	}
@@ -338,12 +418,6 @@ sub fixup {
 		}
 	}
 	
-	## LOAD ANY EXTERNAL RDF FILES
-	my $sources	= $parsed->{'sources'};
-	if (UNIVERSAL::isa( $sources, 'ARRAY' )) { # and scalar(@{ $sources })) {
-		$self->parse_urls( map { $_->[1] } @{ $sources } );
-	}
-
 	return $parsed;
 }
 
@@ -381,10 +455,9 @@ sub fixup_triple_bridge_variables {
 #	}
 }
 
-
 =for private
 
-=item C<query_more ( @triples )>
+=item C<query_more ( bound => $bound, triples => \@triples )>
 
 Internal recursive query function to bind pivot variables until only result
 variables are left and found from the RDF store. Called from C<query>.
@@ -394,13 +467,34 @@ variables are left and found from the RDF store. Called from C<query>.
 =cut
 sub query_more {
 	my $self	= shift;
-	my $bound	= shift;
-	my @triples	= @_;
-	warn 'query_more: ' . Dumper(\@triples, $bound) if ($debug > 0.1);
+	my %args	= @_;
+	
+	my $bound	= delete($args{bound});
+	my $triples	= delete($args{triples});
+	my $context	= $args{context};
+	
+	my @triples	= @{$triples};
+	if ($debug > 0.1) {
+		warn 'query_more: ' . Data::Dumper->Dump([\@triples, $bound], [qw(triples bound)]);
+		warn "with context: " . Dumper($context) if ($context);
+	}
 	our $indent;
 
 	my $parsed		= $self->parsed;
 	my $bridge		= $self->bridge;
+	
+	if ($triples[0][0] eq 'OPTIONAL') {
+		return $self->optional( bound => $bound, triples => \@triples, %args );
+	} elsif ($triples[0][0] eq 'GRAPH') {
+		if ($context) {
+			die "Can't use nested named graphs";
+		} else {
+			return $self->named_graph( bound => $bound, triples => \@triples );
+		}
+	} elsif ($triples[0][0] eq 'UNION') {
+		return $self->union( bound => $bound, triples => \@triples, %args );
+	}
+	
 	my $triple		= shift(@triples);
 	unless (ref($triple)) {
 		carp "Something went wrong. No triple passed to query_more";
@@ -408,16 +502,10 @@ sub query_more {
 	}
 	my @triple		= @{ $triple };
 	
-	if ($triple[0] eq 'OPTIONAL') {
-		return $self->optional( $bound, $triple, @triples );
-	} elsif ($triple[0] eq 'UNION') {
-		return $self->union( $bound, $triple, @triples );
-	}
-	
 	no warnings 'uninitialized';
-	_debug( "${indent}query_more: " . join(' ', map { $bridge->isa_node($_) ? '<' . $bridge->as_string($_) . '>' : $_->[1] } @triple) . "\n" );
+	_debug( "${indent}query_more: " . join(' ', map { (($bridge->isa_node($_)) ? '<' . $bridge->as_string($_) . '>' : $_->[1]) } @triple) . "\n" );
 	_debug( "${indent}-> with " . scalar(@triples) . " triples to go\n" );
-	_debug( "${indent}-> more: " . (($_->[0] eq 'OPTIONAL') ? 'OPTIONAL block' : join(' ', map { $bridge->isa_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
+	_debug( "${indent}-> more: " . (($_->[0] =~ m/^(OPTIONAL|GRAPH)$/) ? "$1 block" : join(' ', map { $bridge->isa_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
 	
 	my $vars	= 0;
 	my ($var, $method);
@@ -444,7 +532,7 @@ sub query_more {
 					} elsif (scalar(@triples)) {
 						$self->{punt}++;
 						push(@triples, $triple);
-						return $self->query_more( { %{ $bound } }, @triples );
+						return $self->query_more( bound => { %{ $bound } }, triples => [@triples] );
 					} else {
 						carp "Something went wrong. Not enough triples passed to query_more";
 						return undef;
@@ -460,20 +548,52 @@ sub query_more {
 	}
 	
 	_debug( "${indent}getting: " . join(', ', grep defined, @vars) . "\n" );
-	_debug( 'query_more triple: ' . Dumper([map { ($_) ? $bridge->as_string($_) : 'undef' } @triple]) );
+	_debug( 'query_more triple: ' . Dumper([map { ($_) ? $bridge->as_string($_) : 'undef' } (@triple, (($bridge->isa_node($context)) ? $context : ()))]) );
+	
 	my @streams;
 	my $stream;
-	my $statments	= $bridge->get_statements( @triple );
+	
+	my @graph;
+	if (UNIVERSAL::isa($context, 'ARRAY') and ($context->[0] eq 'VAR')) {
+		my $context_var	= $context->[1];
+		my $graph		= $bound->{ $context_var };
+		if ($graph) {
+			@graph	= $graph;
+		}
+	} elsif ($bridge->isa_node( $context )) {
+		@graph	= $context;
+	}
+	
+	
+	
+#	my @graph		= (($bridge->isa_node($context)) ? $context : ());
+	my $statments	= $bridge->get_statements( @triple, @graph );
 	if ($statments) {
 		push(@streams, sub {
 			my $result;
 			_debug_closure( $statments );
-			my $stmt	= $statments->();
+			my $stmt	= $statments->current();
 			unless ($stmt) {
 				_debug( 'no more statements' );
 				$statments	= undef;
 				return undef;
 			}
+			
+			my $context_var;
+			if (UNIVERSAL::isa($context, 'ARRAY') and ($context->[0] eq 'VAR')) {
+				warn "Trying to get context of current statement..." if ($debug);
+				my $graph	= $statments->context;
+				if ($graph) {
+					$context_var				= $context->[1];
+					$bound->{ $context_var }	= $graph;
+#					$context					= $graph;
+					warn "Got context ($context_var) from iterator: " . $bridge->as_string( $graph ) if ($debug);
+				} else {
+					warn "No context returned by iterator." if ($debug);
+				}
+			}
+			
+			$statments->next;
 			if ($vars) {
 				my %private_bound;
 				foreach (0 .. $#vars) {
@@ -499,13 +619,14 @@ sub query_more {
 			} else {
 				_debug( "${indent}-> triple with no variable. ignoring.\n" );
 			}
+			
 			if (scalar(@triples)) {
 				_debug( "${indent}-> now for more triples...\n" );
 				_debug( "${indent}-> more: " . (($_->[0] eq 'OPTIONAL') ? 'OPTIONAL block' : join(' ', map { $bridge->isa_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
 				_debug( "${indent}-> " . Dumper(\@triples) );
 				$indent	.= '  ';
 				_debug( 'adding a new stream for more triples' );
-				unshift(@streams, $self->query_more( { %{ $bound } }, @triples ) );
+				unshift(@streams, $self->query_more( bound => { %{ $bound } }, triples => [@triples], ($context ? (context => $context ) : ()) ) );
 			} else {
 				my @values	= map { $bound->{$_} } $self->variables();
 				_debug( "${indent}-> no triples left: result: " . join(', ', map {$bridge->as_string($_)} grep defined, @values) . "\n" );
@@ -516,12 +637,19 @@ sub query_more {
 					_debug( "${indent}-> failed constraints check\n" );
 				}
 			}
+			
 			foreach my $var (@vars) {
 				if (defined($var)) {
 					_debug( "deleting value for $var" );
 					delete $bound->{ $var };
 				}
 			}
+			
+			if ($context_var) {
+				_debug( "deleting value for $context_var" );
+				delete $bound->{ $context_var };
+			}
+			
 			if ($result) {
 				local($Data::Dumper::Indent)	= 0;
 				_debug( 'found a result: ' . Dumper($result) );
@@ -545,25 +673,36 @@ sub query_more {
 			_debug( '-> ' . (@val ? 'got' : 'no') . ' value' );
 			if (@val) {
 				_debug( '-> "' . $val[0] . '"', 1, 1);
-				return $val[0] if defined($val[0]);
+				if (defined $val[0]) {
+					return $val[0];
+				}
 			} else {
+				_debug( '-> no value returned from stream. using next stream.', 1);
 				next;
 			}
 			shift(@streams);
 		}
+
+		_debug( '-> no more streams.', 1);
 		return undef;
 	};	
 }
 
 sub union {
 	my $self		= shift;
-	my $bound		= shift;
-	my $triple		= shift;
-	my @triples		= @_;
+	my %args	= @_;
+	
+	my $bound	= delete($args{bound});
+	my $triples	= delete($args{triples});
+	my $context	= $args{context};
+	
+	my @triples	= @{$triples};
+	my $triple	= shift(@triples);
+	
 	my $parsed		= $self->parsed;
 	my @streams;
 	foreach my $u_triples (@{ $triple }[1 .. $#{$triple}]) {
-		my $stream	= $self->query_more( { %{ $bound } }, @{ $u_triples }, @triples );
+		my $stream	= $self->query_more( bound => { %{ $bound } }, triples => [@{ $u_triples }, @triples], %args );
 		push(@streams, $stream);
 	}
 	return sub {
@@ -583,15 +722,21 @@ sub union {
 
 sub optional {
 	my $self		= shift;
-	my $bound		= shift;
-	my $triple		= shift;
-	my @triples		= @_;
+	my %args	= @_;
+	
+	my $bound	= delete($args{bound});
+	my $triples	= delete($args{triples});
+	my $context	= $args{context};
+	
+	my @triples	= @{$triples};
+	my $triple	= shift(@triples);
+	
 	my $parsed		= $self->parsed;
 	
 	my @triple		= @{ $triple };
 	my @opt_triples	= @{ $triple[1] };
 	_debug( 'optional triples: ' . Dumper(\@opt_triples), 2 );
-	my $ostream	= $self->query_more( { %{ $bound } }, @opt_triples );
+	my $ostream	= $self->query_more( bound => { %{ $bound } }, triples => [@opt_triples], %args );
 	$ostream	= RDF::Query::Stream->new(
 					$ostream,
 					'bindings',
@@ -618,7 +763,7 @@ sub optional {
 							_debug( "Setting $name = $value\n" );
 						}
 					}
-					$stream	= $self->query_more( { %{ $bound } }, @triples );
+					$stream	= $self->query_more( bound => { %{ $bound } }, triples => [@triples] );
 				}
 				return undef;
 			};
@@ -639,7 +784,7 @@ sub optional {
 		_debug( "OPTIONAL block failed" );
 		if (@triples) {
 			_debug( "More triples. Re-dispatching" );
-			return $self->query_more( { %{ $bound } }, @triples );
+			return $self->query_more( bound => { %{ $bound } }, triples => [@triples] );
 		} else {
 			_debug( "No more triples. Returning empty results." );
 			my @vars	= $self->variables;
@@ -660,7 +805,95 @@ sub optional {
 		}
 	}
 }
+
+sub named_graph {
+	my $self		= shift;
+	my %args	= @_;
 	
+	my $bound	= { %{ delete($args{bound}) } };
+	my $triples	= delete($args{triples});
+	
+	my @triples	= @{$triples};
+	my $triple	= shift(@triples);
+	
+	my $parsed		= $self->parsed;
+	
+	my (undef, $context, $named_triples)	= @{ $triple };
+	my @named_triples	= @{ $named_triples };
+	
+#	local($debug)	= 1;
+	_debug( 'named triples: ' . Dumper(\@named_triples), 1 );
+	my $variables	= [ $self->variables ];
+	my $nstream	= $self->query_more( bound => $bound, triples => \@named_triples, context => $context );
+	
+	_debug( 'named stream: ' . $nstream, 1 );
+	_debug_closure( $nstream );
+	
+	if ($nstream) {
+		_debug( 'got named stream' );
+		if (@triples) {
+			_debug( "with more triples to match." );
+			my $stream;
+			return sub {
+				while ($nstream or $stream) {
+					if (ref($stream)) {
+						my $data	= $stream->();
+						if ($data) {
+							return $data;
+						} else {
+							undef $stream;
+						}
+					}
+					
+					if ($nstream) {
+						my $data	= $nstream->();
+						if ($data) {
+							foreach my $i (0 .. $#{ $variables }) {
+								my $name	= $variables->[ $i ];
+								my $value	= $data->[ $i ];
+								if (defined $value) {
+									$bound->{ $name }	= $value;
+									_debug( "Setting $name from named graph = $value\n" );
+								}
+							}
+							$stream	= $self->query_more( bound => $bound, triples => \@triples );
+						} else {
+							undef $nstream;
+						}
+					}
+				}
+				return undef;
+			};
+		} else {
+			_debug( "No more triples. Returning NAMED stream." );
+			return $nstream;
+		}
+	} else {
+		_debug( "NAMED block failed" );
+		if (@triples) {
+			_debug( "More triples. Re-dispatching" );
+			return $self->query_more( bound => $bound, triples => \@triples );
+		} else {
+			_debug( "No more triples. Returning empty results." );
+			my @vars	= $self->variables;
+			my @values	= map { $bound->{$_} } $self->variables();
+			my @results	= [@values];
+			my $stream;
+			$stream	= sub {
+						while (@results) {
+							my $result	= shift(@results);
+							my %bound;
+							@bound{ @vars }	= @$result;
+							if ($self->check_constraints( \%bound, $parsed->{'constraints'} )) {
+								return $result;
+							}
+						}
+					};
+			return $stream;
+		}
+	}
+}
+
 sub qualify_uri {
 	my $self	= shift;
 	my $data	= shift;
@@ -676,6 +909,7 @@ sub qualify_uri {
 	} else {
 		$uri	= $data->[1];
 	}
+	
 	return $uri;
 }
 
@@ -782,10 +1016,14 @@ sub sort_rows {
 	my $args		= $parsed->{options} || {};
 	my $limit		= $args->{'limit'};
 	my $unique		= $args->{'distinct'};
+	my $orderby		= $args->{'orderby'};
 	my $offset		= $args->{'offset'} || 0;
 	my @variables	= $self->variables;
 	my %colmap		= map { $variables[$_] => $_ } (0 .. $#variables);
-	_debug( 'sort_rows column map: ' . Dumper(\%colmap) );
+	
+	if ($unique or $orderby or $offset or $limit) {
+		_debug( 'sort_rows column map: ' . Dumper(\%colmap) );
+	}
 	
 	if ($unique) {
 		my %seen;
@@ -798,7 +1036,7 @@ sub sort_rows {
 		};
 	}
 	
-	if (exists $args->{'orderby'}) {
+	if ($orderby) {
 		my $cols		= $args->{'orderby'};
 		my ($dir, $col)	= @{ $cols->[0][1] };
 		_debug( "ordering by $col" );
@@ -837,21 +1075,21 @@ sub sort_rows {
 
 =for private
 
-=item C<parse_urls ( @urls )>
+=item C<parse_url ( $url, $named )>
 
-Retrieve a remote file by URL, and parse RDf into the RDF store.
+Retrieve a remote file by URL, and parse RDF into the RDF store.
+If $named is TRUE, associate all parsed triples with a named graph.
 
 =end private
 
 =cut
-sub parse_urls {
+sub parse_url {
 	my $self	= shift;
-	my @urls	= @_;
+	my $url		= shift;
+	my $named	= shift;
 	my $bridge	= $self->bridge;
 	
-	foreach my $url (@urls) {
-		$bridge->add_uri( $url );
-	}
+	$bridge->add_uri( $url, $named );
 }
 
 sub variables {
@@ -1185,7 +1423,7 @@ __END__
 
 =head1 REVISION HISTORY
 
- $Log: Query.pm,v $
+ $Log$
  Revision 1.30  2006/01/13 23:55:48  greg
  - Updated requirements POD formatting.
 

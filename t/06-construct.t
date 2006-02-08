@@ -37,7 +37,7 @@ END
 	isa_ok( $stream, 'CODE', 'stream' );
 	while (my $stmt = $stream->()) {
 		my $s	= $stmt->as_string;
-		like( $s, qr#foaf/0.1/(name|made)#, 'predicate looks good' );
+		like( $s, qr#foaf/0.1/(name|made)#, "predicate looks good: $s" );
 	}
 }
 

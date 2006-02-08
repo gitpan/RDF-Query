@@ -1,7 +1,7 @@
 # RDF::Query::Stream
 # -------------
-# $Revision: 1.4 $
-# $Date: 2005/07/27 00:30:29 $
+# $Revision: 121 $
+# $Date: 2006-02-06 23:07:43 -0500 (Mon, 06 Feb 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -32,6 +32,7 @@ sub new {
 	my $finished	= 0;
 	my $row;
 	my $self;
+	
 	$self	= bless(sub {
 		my $arg	= shift;
 		if ($arg) {
@@ -41,8 +42,13 @@ sub new {
 				return $args{ $1 };
 			} elsif ($arg eq 'next_result' or $arg eq 'next') {
 				$open	= 1;
-				$row	= $stream->();
-				unless ($row) {
+				$row	= $self->();
+				if ($args{named}) {
+					if ($args{bridge}->supports('named_graph') and my $bridge = $args{bridge}) {
+						$args{context}	= $bridge->get_context( $stream, %args );
+					}
+				}
+				unless (defined $row) {
 					$finished	= 1;
 				}
 			} elsif ($arg eq 'current') {
@@ -86,15 +92,22 @@ sub new {
 				return scalar( @{ $names } )if (scalar(@$names));
 				return 0 unless ref($row);
 				return scalar( @{ $row } );
+			} elsif ($arg eq 'open') {
+				return $open;
 			} elsif ($arg eq 'finished' or $arg eq 'end') {
 				unless ($open) {
 					$self->next_result;
 				}
 				return $finished;
+			} elsif ($arg eq 'context') {
+				my $bridge	= $args{bridge};
+				my $context	= $bridge->get_context( $stream, %args );
+				return $context;
 			}
 		} else {
 			RDF::Query::_debug_closure( $stream );
-			return $stream->();
+			my $data	= $stream->();
+			return $data;
 		}
 	}, $class);
 	return $self;
@@ -244,7 +257,7 @@ __END__
 
 =head1 REVISION HISTORY
 
- $Log: Stream.pm,v $
+ $Log$
  Revision 1.4  2005/07/27 00:30:29  greg
  - Added binding_value_by_name() method.
 

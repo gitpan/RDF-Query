@@ -6,9 +6,22 @@
 @prefix asc:     <http://aaronland.info/ns/changefile/> .
                                      
 <>
-        dc:identifier           "$Id: Changes.ttl,v 1.2 2006/01/13 23:57:17 greg Exp $" ;
+        dc:identifier           "$Id: Changes.ttl 127 2006-02-08 19:53:21Z samofool $" ;
         dc:description          "Changes for RDF::Query" ;
         dcterms:references      <http://kasei.us/code/rdf-query/> .
+
+<http://kasei.us/code/files/RDF-Query-v1.1.31.tar>
+        dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
+        dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.030.tar.gz> ;
+
+        doap:Version    [
+                        doap:revision     "1.031" ;
+                        doap:created      "2006-02-08" ;
+                        ];
+        asc:changes     [
+                        asc:addition      "Added support for NAMED graphs." ;
+                        ] .
+
 
 <http://kasei.us/code/files/RDF-Query-1.030.tar.gz>
         dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;

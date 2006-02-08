@@ -20,7 +20,7 @@ use RDF::Query::Model::DBI::Statement;
 our ($VERSION, $debug);
 BEGIN {
 	*debug		= \$RDF::Query::debug;
-	$VERSION	= do { my @REV = split(/\./, (qw$Revision: 1.2 $)[1]); sprintf("%0.3f", $REV[0] + ($REV[1]/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 121 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
 ######################################################################
