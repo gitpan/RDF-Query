@@ -9,6 +9,7 @@ use Carp qw(carp croak confess);
 use File::Spec;
 use RDF::Redland;
 use Data::Dumper;
+use Scalar::Util qw(blessed);
 use Encode;
 
 use RDF::Query::Stream;
@@ -18,17 +19,16 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 121 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 130 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
 ######################################################################
 
-sub base_ns { 'http://kasei.us/e/ns/base#' }
 sub new {
 	my $class	= shift;
 	my $model	= shift;
 	unless (UNIVERSAL::isa($model, 'RDF::Redland::Model')) {
-		my $storage	= RDF::Redland::Storage->new( "hashes", "test", "new='yes',hash-type='memory'" );
+		my $storage	= RDF::Redland::Storage->new( "hashes", "test", "new='yes',hash-type='memory',contexts='yes'" );
 		$model	= RDF::Redland::Model->new( $storage, '' );
 	}
 	my $self	= bless( {
@@ -41,11 +41,23 @@ sub model {
 	return $self->{'model'};
 }
 
+=item C<new_resource ( $uri )>
+
+Returns a new resource object.
+
+=cut
+
 sub new_resource {
 	my $self	= shift;
 	my $uri		= RDF::Redland::URI->new( shift );
 	return RDF::Redland::Node->new_from_uri( $uri );
 }
+
+=item C<new_literal ( $string, $language, $datatype )>
+
+Returns a new literal object.
+
+=cut
 
 sub new_literal {
 	my $self	= shift;
@@ -69,15 +81,33 @@ sub new_literal {
 	return RDF::Redland::Node->new_literal( @args );
 }
 
+=item C<new_blank ( $identifier )>
+
+Returns a new blank node object.
+
+=cut
+
 sub new_blank {
 	my $self	= shift;
 	return RDF::Redland::Node->new_from_blank_identifier(@_);
 }
 
+=item C<new_statement ( $s, $p, $o )>
+
+Returns a new statement object.
+
+=cut
+
 sub new_statement {
 	my $self	= shift;
 	return RDF::Redland::Statement->new(@_);
 }
+
+=item C<isa_node ( $node )>
+
+Returns true if C<$node> is a node object for the current model.
+
+=cut
 
 sub isa_node {
 	my $self	= shift;
@@ -85,17 +115,35 @@ sub isa_node {
 	return UNIVERSAL::isa($node,'RDF::Redland::Node');
 }
 
+=item C<isa_resource ( $node )>
+
+Returns true if C<$node> is a resource object for the current model.
+
+=cut
+
 sub isa_resource {
 	my $self	= shift;
 	my $node	= shift;
 	return (ref($node) and $node->is_resource);
 }
 
+=item C<isa_literal ( $node )>
+
+Returns true if C<$node> is a literal object for the current model.
+
+=cut
+
 sub isa_literal {
 	my $self	= shift;
 	my $node	= shift;
 	return (ref($node) and $node->is_literal);
 }
+
+=item C<isa_blank ( $node )>
+
+Returns true if C<$node> is a blank node object for the current model.
+
+=cut
 
 sub isa_blank {
 	my $self	= shift;
@@ -107,17 +155,36 @@ sub isa_blank {
 *RDF::Query::Model::Redland::is_literal		= \&isa_literal;
 *RDF::Query::Model::Redland::is_blank		= \&isa_blank;
 
+=item C<as_string ( $node )>
+
+Returns a string version of the node object.
+
+=cut
+
 sub as_string {
 	my $self	= shift;
 	my $node	= shift;
+	Carp:confess unless (blessed($node));
 	return $node->as_string;
 }
+
+=item C<literal_value ( $node )>
+
+Returns the string value of the literal object.
+
+=cut
 
 sub literal_value {
 	my $self	= shift;
 	my $node	= shift;
 	return decode('utf8', $node->literal_value);
 }
+
+=item C<literal_datatype ( $node )>
+
+Returns the datatype of the literal object.
+
+=cut
 
 sub literal_datatype {
 	my $self	= shift;
@@ -126,6 +193,12 @@ sub literal_datatype {
 	return $type->as_string;
 }
 
+=item C<literal_value_language ( $node )>
+
+Returns the language of the literal object.
+
+=cut
+
 sub literal_value_language {
 	my $self	= shift;
 	my $node	= shift;
@@ -133,11 +206,23 @@ sub literal_value_language {
 	return $lang;
 }
 
+=item C<uri_value ( $node )>
+
+Returns the URI string of the resource object.
+
+=cut
+
 sub uri_value {
 	my $self	= shift;
 	my $node	= shift;
 	return $node->uri->as_string;
 }
+
+=item C<blank_identifier ( $node )>
+
+Returns the identifier for the blank node object.
+
+=cut
 
 sub blank_identifier {
 	my $self	= shift;
@@ -145,25 +230,48 @@ sub blank_identifier {
 	return $node->blank_identifier;
 }
 
+=item C<add_uri ( $uri, $named )>
+
+Addsd the contents of the specified C<$uri> to the model.
+If C<$named> is true, the data is added to the model using C<$uri> as the
+named context.
+
+=cut
+
 sub add_uri {
 	my $self	= shift;
 	my $uri		= shift;
 	my $named	= shift;
 	
-	my $model	= $self->{model};
-	my $parser	= RDF::Redland::Parser->new();
+	my $model		= $self->{model};
+	my $parser		= RDF::Redland::Parser->new('guess');
 	my $redlanduri	= RDF::Redland::URI->new( $uri );
-	my $redlandns	= RDF::Redland::URI->new( $self->base_ns );
-	my $stream		= $parser->parse_as_stream(
-		$redlanduri,
-		$redlanduri,
-	);
-	$model->add_statements( $stream, ($named ? $redlanduri : ()) );
+	
+	if ($named) {
+		my $stream		= $parser->parse_as_stream($redlanduri, $redlanduri);
+		$model->add_statements( $stream, $redlanduri );
+	} else {
+		$parser->parse_into_model( $redlanduri, $redlanduri, $model );
+	}
 }
+
+=item C<statement_method_map ()>
+
+Returns an ordered list of method names that when called against a statement
+object will return the subject, predicate, and object objects, respectively.
+
+=cut
 
 sub statement_method_map {
 	return qw(subject predicate object);
 }
+
+=item C<get_statements ($subject, $predicate, $object)>
+
+Returns a stream object of all statements matching the specified subject,
+predicate and objects. Any of the arguments may be undef to match any value.
+
+=cut
 
 sub get_statements {
 	my $self	= shift;
@@ -260,6 +368,14 @@ sub get_statements {
 	return RDF::Query::Stream->new( $stream, 'graph', undef, %args );
 }
 
+=item C<get_context ($stream)>
+
+Returns the context node of the last statement retrieved from the specified
+C<$stream>. The stream object, in turn, calls the closure (that was passed to
+the stream constructor in C<get_statements>) with the argument 'context'.
+
+=cut
+
 sub get_context {
 	my $self	= shift;
 	my $stream	= shift;
@@ -275,12 +391,27 @@ sub get_context {
 	return $context;
 }
 
+=item C<supports ($feature)>
+
+Returns true if the underlying model supports the named C<$feature>.
+Possible features include:
+
+	* named_graph
+
+=cut
+
 sub supports {
 	my $self	= shift;
 	my $feature	= shift;
 	return 1 if ($feature eq 'named_graph');
 	return 0;
 }
+
+=item C<as_xml ($stream)>
+
+Returns an RDF/XML serialization of the results graph.
+
+=cut
 
 sub as_xml {
 	my $self	= shift;

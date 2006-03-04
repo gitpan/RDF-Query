@@ -1,7 +1,7 @@
 # RDF::Query::Parser::SPARQL
 # -------------
-# $Revision: 121 $
-# $Date: 2006-02-06 23:07:43 -0500 (Mon, 06 Feb 2006) $
+# $Revision: 130 $
+# $Date: 2006-03-03 14:50:45 -0500 (Fri, 03 Mar 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -14,389 +14,25 @@ package RDF::Query::Parser::SPARQL;
 
 use strict;
 use warnings;
-use Carp qw(carp croak confess);
+use base qw(RDF::Query::Parser);
+
+use RDF::Query::Error qw(:try);
 
 use Data::Dumper;
 use LWP::Simple ();
-use Parse::RecDescent;
 use Digest::SHA1  qw(sha1_hex);
+use Carp qw(carp croak confess);
 
 ######################################################################
 
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
-	$::RD_TRACE	= undef;
-	$::RD_HINT	= undef;
-	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 121 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$debug		= 1;
+	$VERSION	= do { my $REV = (qw$Revision: 130 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	$lang		= 'sparql';
 	$languri	= 'http://www.w3.org/TR/rdf-sparql-query/';
 }
 
-our %blank_ids;
-our($SPARQL_GRAMMAR);
-BEGIN {
-	our $SPARQL_GRAMMAR	= <<'END';
-	query:			namespaces /SELECT|DESCRIBE/i <commit> OptDistinct(?) variables SourceClause(s?) (/WHERE/i)(?) triplepatterns OptOrderBy(?) OptLimit(?) OptOffset(?)
-																	{
-																		$return = {
-																			method		=> uc($item[2]),
-																			variables	=> $item{variables},
-																			sources		=> $item[6],
-																			triples		=> $item{triplepatterns}[0] || [],
-																			constraints	=> $item{triplepatterns}[1] || [],
-																			namespaces	=> $item{namespaces}
-																		};
-																		
-																		$return->{options}{distinct}	= 1 if ($item{'OptDistinct(?)'}[0]);
-																		if (@{ $item{'OptOrderBy(?)'} }) {
-																			$return->{options}{orderby}	= $item{'OptOrderBy(?)'}[0];
-																		}
-																		if (@{ $item{'OptLimit(?)'} }) {
-																			$return->{options}{limit}	= $item{'OptLimit(?)'}[0];
-																		}
-																		if (@{ $item{'OptOffset(?)'} }) {
-																			$return->{options}{offset}	= $item{'OptOffset(?)'}[0];
-																		}
-																	}
-	variables: '*'													{ $return = [ $item[1] ] }
-	variables: variable Comma(?) variables							{ $return = [ $item[1], @{ $item[3] } ] }
-	variables: variable												{ $return = [ $item[1] ] }
-	query:			namespaces /CONSTRUCT/i <commit> triplepatterns SourceClause(s?) /WHERE/i triplepatterns OptOrderBy(?) OptLimit(?) OptOffset(?)
-																	{
-																		$return = {
-																			method				=> 'CONSTRUCT',
-																			variables			=> [],
-																			construct_triples	=> $item[4][0] || [],
-																			sources				=> $item[5],
-																			triples				=> $item[7][0] || [],
-																			constraints			=> $item[7][1] || [],
-																			namespaces			=> $item{namespaces}
-																		};
-																		$return->{options}{distinct}	= 1;
-																		if (@{ $item{'OptOrderBy(?)'} }) {
-																			$return->{options}{orderby}	= $item{'OptOrderBy(?)'}[0];
-																		}
-																		if (@{ $item{'OptLimit(?)'} }) {
-																			$return->{options}{limit}	= $item{'OptLimit(?)'}[0];
-																		}
-																		if (@{ $item{'OptOffset(?)'} }) {
-																			$return->{options}{offset}	= $item{'OptOffset(?)'}[0];
-																		}
-																	}
-	query:			namespaces /ASK/i <commit> SourceClause(s?) triplepatterns
-																	{
-																		$return = {
-																			method		=> 'ASK',
-																			variables	=> [],
-																			sources		=> $item[4],
-																			triples		=> $item{triplepatterns}[0] || [],
-																			constraints	=> $item{triplepatterns}[1] || [],
-																			namespaces	=> $item{namespaces}
-																		};
-																	}
-	OptDistinct:				/DISTINCT/i										{ $return = 1 }
-	OptLimit:					/LIMIT/i /(\d+)/								{ $return = $item[2] }
-	OptOffset:					/OFFSET/i /(\d+)/								{ $return = $item[2] }
-	OptOrderBy:					/ORDER BY/i OrderCondition(s)					{ $return = $item[2] }
-	OrderCondition:				/ASC|DESC/i <commit> BrackettedExpression		{ $return = [uc($item[1]), $item{BrackettedExpression}] }
-					|			variable										{ $return = ['ASC', $item[1]] }
-					|			FunctionCall									{ $return = ['ASC', $item[1]] }
-					|			BrackettedExpression							{ $return = ['ASC', $item[1]] }
-	SourceClause:				/SOURCE|FROM/i Source							{ $return = $item[2] }
-	SourceClause:				/FROM NAMED/i Source							{ $return = [ @{ $item[2] }, 'NAMED' ] }
-	
-	Source:						URI												{ $return = $item[1] }
-	variable:					/[?\$]/ identifier								{ $return = [ 'VAR',$item{identifier} ] }
-	triplepatterns:				'{' triplepattern moretriple(s?) OptDot(?) '}'	{
-																					my @data	= (@{ $item[2] }, map { @{ $_ } } @{ $item[3] });
-																					my @filters	= map { $_->[1] } grep { $_->[0] eq 'FILTER' } @data;
-																					my @triples;
-																					while (my $data = shift(@data)) {
-																						if ($data->[0] eq 'TRIPLE') {
-																							#############################################################################
-																							### XXX What the hell is this for? Need to figure out why this was written...
-																							if (ref($data->[1][2][0]) and eval { $data->[1][2][0][0] eq 'TRIPLE' } and not $@) {
-																								my @new	= @{ $data->[1][2] };
-																								push(@data, @new);
-																								$data->[1][2]	= $data->[1][2][0][1][0];
-																							}
-																							#############################################################################
-																							push(@triples, $data->[1]);
-																						} elsif ($data->[0] eq 'OPTIONAL') {
-																							push(@triples, $data);
-																						} elsif ($data->[0] eq 'UNION') {
-																							push(@triples, $data);
-																						} elsif ($data->[0] eq 'GRAPH') {
-																							#############################
-																							### XXX $data->[2][1] contains FILTERS...
-																							### XXX we're currently just ignoring them
-																							### we need to start respecting them.
-																							my $triples	= $data->[2][0];
-																							$data->[2]	= $triples;
-																							#############################
-																							push(@triples, $data);
-																						}
-																					}
-																					
-																					my $filters	= scalar(@filters) <= 1
-																								? $filters[0]
-																								: [ '&&', @filters ];
-																					$return = [ \@triples, $filters ];
-																				}
-	moretriple:					'.' triplepattern								{
-																					$return = $item[2];
-																				}
-	triplepattern:				(VarUri|blanknode) PredVarUri Object OptObj(s?) OptPredObj(s?)	{
-																					$return = [
-																								['TRIPLE',
-																									[@item[1,2,3]]],
-																									map { ['TRIPLE', [$item[1], @{$_}]] }
-																										(@{$item[5] || []}, map { [$item[2], $_] } @{$item[4] || []})
-																								];
-																				}
-	triplepattern:				/OPTIONAL/i <commit> triplepatterns				{ $return = [[ 'OPTIONAL', ($item{triplepatterns}[0] || []) ]] }
-	triplepattern:				/GRAPH/i <commit> VarUri triplepatterns			{ $return = [ [ 'GRAPH', $item{VarUri}, $item{triplepatterns} ] ]; }
-	
-	
-	
-	
-	
-	triplepattern:				triplepatterns /UNION/i <commit> triplepatterns	{ $return = [[ 'UNION', ($item[1][0] || []), ($item[4][0] || []) ]] }
-	triplepattern:				constraints										{ $return = [[ 'FILTER', $item[1] ]] }
-	triplepattern:				blanktriple PredObj(?)							{
-																					my ($b,$t)	= @{ $item[1] };
-																					$return = [ (map { ['TRIPLE', $_] } @$t), map { ['TRIPLE', [$b, @$_]] } @{ $item[2] } ];
-																				}
-	triplepattern:				triplepatterns									{ $return = $item[1] }
-	triplepattern:				Collection PredVarObj(?)						{
-																					my $collection	= $item[1][0][1];
-																					my @triples		= @{ $item[1] };
-																					foreach my $elem (@{ $item[2] || [] }) {
-																						my @triple	= [ $collection, @{ $elem } ];
-																						push(@triples, \@triple);
-																					}
-																					$return = \@triples;
-																				}
-	PredVarObj:					PredVarUri Object OptObj(s?) OptPredObj(s?)		{
-																					$return = [
-																						[@item[1,2]],
-																						map { [@{$_}] }
-																							(@{$item[4] || []}, map { [$item[1], $_] } @{$item[3] || []})
-																					];
-																				}
-	Object:						VarUriConst										{ $return = $item[1] }
-	Object:						Collection										{ $return = $item[1] }
-	Collection:					'('  <commit> Object(s) ')'						{
-																					my @triples;
-																					my $id		= 'a' . ++$RDF::Query::Parser::SPARQL::blank_ids{ $thisparser };
-																					my $count	= scalar(@{ $item[3] });
-																					foreach my $i (0 .. $#{ $item[3] }) {
-																						my $elem	= $item[3][ $i ];
-																						push(@triples, 
-																							[ 'TRIPLE',
-																								[
-																									[ 'BLANK', $id ],
-																									[ 'URI', 'http://www.w3.org/1999/02/22-rdf-syntax-ns#first' ],
-																									$elem
-																								]
-																							]
-																						);
-																						if ($i < $#{ $item[3] }) {
-																							my $oldid	= $id;
-																							$id			= 'a' . ++$RDF::Query::Parser::SPARQL::blank_ids{ $thisparser };
-																							push(@triples,
-																								[ 'TRIPLE',
-																									[
-																										[ 'BLANK', $oldid ],
-																										[ 'URI', 'http://www.w3.org/1999/02/22-rdf-syntax-ns#rest' ],
-																										[ 'BLANK', $id ],
-																									]
-																								]
-																							);
-																						} else {
-																							push(@triples,
-																								[ 'TRIPLE',
-																									[
-																										[ 'BLANK', $id ],
-																										[ 'URI', 'http://www.w3.org/1999/02/22-rdf-syntax-ns#rest' ],
-																										[ 'URI', 'http://www.w3.org/1999/02/22-rdf-syntax-ns#nil' ],
-																									]
-																								]
-																							);
-																						}
-																					} 
-																					$return = \@triples;
-																				}
-	blanknode:					'[' ']'											{ $return = ['BLANK', 'a' . ++$RDF::Query::Parser::SPARQL::blank_ids{ $thisparser }]; }
-	blanktriple:				'[' PredObj OptPredObj(s?) ']'					{ my $b = ['BLANK', 'a' . ++$RDF::Query::Parser::SPARQL::blank_ids{ $thisparser }]; $return = [$b, [ [$b, @{ $item[2] }], map { [$b, @$_] } @{ $item[3] } ] ] }
-	OptPredObj:					';' PredObj										{ $return = $item[2] }
-	PredObj:					PredVarUri Object OptObj(s?)					{ $return = [@item[1,2], map { [$item[1], @{$_}] } @{$item[3] || []}] }
-	OptObj:						',' Object										{ $return = $item[2] }
-	constraints:				/FILTER/i BrackettedExpression					{ $return = $item{'BrackettedExpression'} }
-	constraints:				/FILTER/i CallExpression						{ $return = $item{'CallExpression'} }
-	
-	OptDot:						'.'
-	OptExpression:				(',' | /AND/i | '&&') Expression				{
-																					$return = [ '&&', $item[2] ];
-																				}
-	BrackettedExpression:		'(' <commit> Expression ')'								{ $return = $item{'Expression'}; }
-	Expression:					CondOrExpr										{
-																					$return = $item[1]
-																				}
-	CondOrExpr:					CondAndExpr CondOrExprOrPart(?)					{
-																					if (scalar(@{ $item[2] })) {
-																						$return = [ $item[2][0][0], $item[1], $item[2][0][1] ];
-																					} else {
-																						$return	= $item[1];
-																					}
-																				}
-	CondOrExprOrPart:			'||' CondAndExpr								{ $return = [ @item[1,2] ] }
-	CondAndExpr:				ValueLogical CondAndExprAndPart(s?)				{
-																					if (scalar(@{ $item[2] })) {
-																						$return = [ '&&', $item[1], map { $_->[1] } @{ $item[2] } ];
-																					} else {
-																						$return	= $item[1];
-																					}
-																				}
-	CondAndExprAndPart:			'&&' <commit> ValueLogical						{ $return = [ '&&', $item{ValueLogical} ] }
-	ValueLogical:				StringEqualityExpression						{ $return = $item[1] }
-	StringEqualityExpression:	NumericalLogical StrEqExprPart(s?)				{
-																					if (scalar(@{ $item[2] })) {
-																						$return = [ $item[2][0][0], $item[1], $item[2][0][1] ];
-																					} else {
-																						$return	= $item[1];
-																					}
-																				}
-	StrEqExprPart:				('=' | '!=' | '=~' | '~~') NumericalLogical	{ $return = [ (($item[1] eq '=') ? '==' : $item[1]), $item[2] ] }
-	NumericalLogical:			InclusiveOrExpression							{ $return = $item[1] }
-	InclusiveOrExpression:		ExclusiveOrExpression InclusiveOrExprPart(s?)	{
-																					if (scalar(@{ $item[2] })) {
-																						$return = [ $item[2][0][0], $item[1], $item[2][0][1] ];
-																					} else {
-																						$return	= $item[1];
-																					}
-																				}
-	InclusiveOrExprPart:		'|' ExclusiveOrExpression						{ $return = [ @item[1,2] ] }
-	ExclusiveOrExpression:		AndExpression ExclusiveOrExprPart(s?)			{
-																					if (scalar(@{ $item[2] })) {
-																						$return = [ $item[2][0][0], $item[1], map { $_->[1] } @{ $item[2] } ];
-																					} else {
-																						$return = $item[1];
-																					}
-																				}
-	ExclusiveOrExprPart:		'^' AndExpression								{ $return = [ @item[1,2] ] }
-	AndExpression:				ArithmeticCondition AndExprPart(s?)				{
-																					if (scalar(@{ $item[2] })) {
-																						$return = [ $item[2][0][0], $item[1], map { $_->[1] } @{ $item[2] } ];
-																					} else {
-																						$return = $item[1];
-																					}
-																				}
-	AndExprPart:				'&' ArithmeticCondition							{ $return = [ @item[1,2] ] }
-	ArithmeticCondition:		EqualityExpression								{ $return = $item[1]; }
-	EqualityExpression:			RelationalExpression EqualityExprPart(?)		{
-																					if (scalar(@{ $item[2] })) {
-																						$return = [ $item[2][0][0], $item[1], $item[2][0][1] ];
-																					} else {
-																						$return	= $item[1];
-																					}
-																				}
-	EqualityExprPart:			/(!?=)/ RelationalExpression					{ $return = [ (($item[1] eq '=') ? '==' : $item[1]), $item[2] ] }
-	RelationalExpression:		NumericExpression RelationalExprPart(?)			{
-																					if (scalar(@{ $item[2] })) {
-																						$return = [ $item[2][0][0], $item[1], $item[2][0][1] ];
-																					} else {
-																						$return	= $item[1];
-																					}
-																				}
-	RelationalExprPart:			/(<|>|<=|>=)/ NumericExpression					{ $return = [ @item[1,2] ] }
-	NumericExpression:			MultiplicativeExpression NumericExprPart(s?)	{
-																					if (scalar(@{ $item[2] })) {
-																						$return = [ $item[2][0][0], $item[1], $item[2][0][1] ];
-																					} else {
-																						$return	= $item[1];
-																					}
-																				}
-	NumericExprPart:			/([-+])/ MultiplicativeExpression				{ $return = [ @item[1,2] ] }
-	MultiplicativeExpression:	UnaryExpression MultExprPart(s?)				{
-																					if (scalar(@{ $item[2] })) {
-																						$return = [ $item[2][0], $item[1], $item[2][1] ]
-																					} else {
-																						$return	= $item[1];
-																					}
-																				}
-	MultExprPart:				/([\/*])/ UnaryExpression						{ $return = [ @item[1,2] ] }
-	UnaryExpression:			UnaryExprNotPlusMinus							{ $return = $item[1] }
-							|	/([-+])/ UnaryExpression						{ $return = [ @item[1,2] ] }
-	UnaryExprNotPlusMinus:		PrimaryExpression								{ $return = $item[1] }
-							|	/([~!])/ UnaryExpression						{ $return = [ @item[1,2] ] }
-	PrimaryExpression:			BrackettedExpression							{ $return = $item[1] }
-							|	CallExpression									{ $return = $item[1] }
-							|	VarUriConst										{ $return = $item[1] }
-	CallExpression:				'REGEX' '(' <commit> Expression ',' Expression ')'	{ $return	= [ '~~', $item[4], $item[6]] }
-							|	FunctionCall									{ $return = $item[1] }
-							|	'BOUND' '(' <commit> variable ')'				{ $return = [ 'FUNCTION', ['URI', 'sop:isBound'], $item{'variable'} ] }
-							|	'isURI' '(' <commit> Expression ')'				{ $return = [ 'FUNCTION', ['URI', 'sop:isURI'], $item{'Expression'} ] }
-							|	'isBLANK' '(' <commit> Expression ')'			{ $return = [ 'FUNCTION', ['URI', 'sop:isBlank'], $item{'Expression'} ] }
-							|	'isLITERAL' '(' <commit> Expression ')'			{ $return = [ 'FUNCTION', ['URI', 'sop:isLiteral'], $item{'Expression'} ] }
-							
-	FunctionCall:				URI '(' <commit> ArgList ')'					{ $return = [ 'FUNCTION', $item[1], @{ $item[4] } ] }
-	ArgList:					VarUriConst MoreArg(s)							{ $return = [ $item[1], @{ $item[2] } ] }
-	
-	
-	
-	
-	MoreArg:					"," VarUriConst									{ $return = $item[2] }
-	Literal:					(URI | CONST)									{ $return = $item[1] }
-	URL:						qURI											{ $return = $item[1] }
-	VarUri:						variable <commit>								{ $return = $item[1] }
-	VarUri:						blankQName										{ $return = $item[1] }
-	VarUri:						URI												{ $return = $item[1] }
-	PredVarUri:					/a/i											{ $return = ['URI', 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type'] }
-							|	VarUri											{ $return = $item[1] }
-	VarUriConst:				(variable | CONST | URI)						{ $return = $item[1] }
-	namespaces:					morenamespace(s?)								{ $return = { map { %{ $_ } } (@{ $item[1] }) } }
-	morenamespace:				namespace										{ $return = $item[1] }
-	namespace:					/PREFIX/i <commit> identifier(?) ':' qURI		{
-																					my $ns;
-																					if (@{$item[3]}) {
-																						$ns	= $item[3][0];
-																					} else {
-																						$ns	= '__DEFAULT__';
-																					}
-																					$return = { $ns => $item{qURI}};
-																				}
-	OptComma:					',' | ''
-	Comma:						','
-	identifier:					/(([a-zA-Z0-9_.-])+)/							{ $return = $1 }
-	URI:						(qURI | QName)									{ $return = ['URI',$item[1]] }
-	qURI:						'<' /[A-Za-z0-9_.!~*'()%;\/?:@&=+,#\$-]+/ '>'	{ $return = $item[2] }
-	blankQName:					'_:' /([^ \t\r\n<>();,]+)/						{ $return = ['BLANK', $item[2] ] }
-	QName:						identifier(?) ':' /([^ \t\r\n<>();,]+)/			{
-																					my $ns;
-																					if (@{$item[1]}) {
-																						$ns	= $item[1][0];
-																					} else {
-																						$ns	= '__DEFAULT__';
-																					}
-																					$return = [ $ns, $item[3] ];
-																				}
-	CONST:						Number											{ $return = [ 'LITERAL', $item[1] ] }
-	CONST:						Text											{ $return = [ 'LITERAL', @{ $item[1] } ] }
-	Number:						/([+-]?[0-9]+(\.[0-9]+)?)/						{ $return = $item[1] }
-	Text:						Quoted StrLang									{ $return = [ $item[1], $item[2], undef ] }
-	Text:						Quoted StrType									{ $return = [ $item[1], undef, $item[2] ] }
-	Text:						Quoted											{ $return = [ $item[1] ] }
-	Text:						Pattern											{ $return = [ $item[1] ] }
-	StrLang:					'@' /[A-Za-z]+(-[A-Za-z]+)*/					{ $return = $item[2] }
-	StrType:					'^^' URI										{ $return = $item[2] }
-	Quoted:						(dQText | sQText)								{ $return = $item[1] }
-	sQText:						"'" /([^']+)/ '"'								{ $return = $item[2] }
-	dQText:						'"' /([^"]+)/ '"'								{ $return = $item[2] }
-	Pattern:					'/' /([^\/]+(?:\\.[^\/]*)*)/ '/'				{ $return = $item[2] }
-END
-}
 
 ######################################################################
 
@@ -409,146 +45,1057 @@ END
 Returns a new RDF::Query object.
 
 =cut
-{ my $parser;
 sub new {
 	my $class	= shift;
-	$parser		||= new Parse::RecDescent ($SPARQL_GRAMMAR);
-	my $self 	= bless( {
-					parser		=> $parser
-				}, $class );
+	my $self 	= bless( {}, $class );
 	return $self;
-} }
+}
 
 
 sub parse {
 	my $self	= shift;
 	my $query	= shift;
-	my $parser	= $self->parser;
-	my $parsed	= $parser->query( $query );
-	delete $blank_ids{ $parser };
-	return $parsed;
-}
-
-sub AUTOLOAD {
-	my $self	= $_[0];
-	my $class	= ref($_[0]) || return undef;
-	our $AUTOLOAD;
-	return if ($AUTOLOAD =~ /DESTROY$/);
-	my $method		= $AUTOLOAD;
-	$method			=~ s/^.*://;
+	$self->set_input( $query );
 	
-	if (exists($self->{ $method })) {
-		no strict 'refs';
-		*$AUTOLOAD	= sub {
-			my $self        = shift;
-			my $class       = ref($self);
-			return $self->{ $method };
-		};
-		goto &$method;
+	my $error;
+	my $parsed;
+	try {
+		$parsed	= $self->parse_query;
+		$self->whitespace;
+	} catch RDF::Query::Error::ParseError with {
+		$error	= $self->error;
+	};
+	
+	if ($error) {
+		$self->unset_commit;
+		return $self->fail( $error );
 	} else {
-		croak qq[Can't locate object method "$method" via package $class];
+		my $text	= $self->{remaining};
+		if (length($text)) {
+			$self->unset_commit;
+			return $self->fail( "Remaining input: '$text'" );
+		} else {
+			$self->clear_error( undef );
+			delete $self->{blank_ids};
+			return $parsed;
+		}
 	}
 }
 
+# query
+sub parse_query {
+	my $self	= shift;
+	
+	my $namespaces	= $self->parse_namespaces;
+	my $type;
+	if ($type = $self->match_pattern(qr/SELECT|DESCRIBE/i)) {
+		my $distinct	= ($self->match_literal('DISTINCT', 1));
+		my $vars		= $self->parse_variables;
+		my $sources		= $self->parse_sources;
+		
+		$self->match_literal('WHERE', 1);
+		my $triples	= $self->parse_triple_patterns;
+		
+		my $order	= $self->parse_order_by;
+		my $limit	= $self->parse_limit;
+		my $offset	= $self->parse_offset;
+		
+		my %options;
+		
+		my $data	= {
+			method		=> uc($type),
+			variables	=> $vars,
+			sources		=> $sources,
+			triples		=> $triples,
+			namespaces	=> $namespaces,
+		};
+		
+		if (my $options = $self->get_options( $distinct, $order, $limit, $offset )) {
+			$data->{options}	= $options;
+		}
+		return $data;
+	} elsif ($type = $self->match_literal('CONSTRUCT', 1)) {
+		my $construct	= $self->parse_triple_patterns;
+		my $sources		= $self->parse_sources;
+		
+		$self->set_commit;
+		$self->match_literal('WHERE', 1);
+		$self->unset_commit;
+		
+		my $triples	= $self->parse_triple_patterns;
+		
+		my $order	= $self->parse_order_by;
+		my $limit	= $self->parse_limit;
+		my $offset	= $self->parse_offset;
+		
+		my $data	= {
+			method				=> uc($type),
+			variables			=> [],
+			sources				=> $sources,
+			triples				=> $triples,
+			namespaces			=> $namespaces,
+			construct_triples	=> $construct,
+		};
+		
+		if (my $options = $self->get_options( 1, $order, $limit, $offset )) {
+			$data->{options}	= $options;
+		}
+		return $data;
+	} elsif ($type = $self->match_literal('ASK', 1)) {
+		my $sources		= $self->parse_sources;
+		my $triples	= $self->parse_triple_patterns;
+		
+		my $data	= {
+			method		=> uc($type),
+			variables	=> [],
+			sources		=> $sources,
+			triples		=> $triples,
+			namespaces	=> $namespaces,
+		};
+		return $data;
+	} else {
+		$self->set_commit;
+		return $self->fail('Expecting query type');
+	}
+}
+
+# namespaces
+sub parse_namespaces {
+	my $self	= shift;
+	
+	my %namespaces;
+	while ($self->match_literal('PREFIX', 1)) {
+		my $id	= $self->parse_identifier;
+		
+		$self->set_commit;
+		$self->match_literal(':');
+		my $uri	= $self->parse_qURI;
+		$self->unset_commit;
+		
+		my $ns	= $id || '__DEFAULT__';
+		$namespaces{ $ns }	= $uri;
+	}
+	return \%namespaces;
+}
+
+# identifier
+sub parse_identifier {
+	my $self	= shift;
+	return $self->match_pattern(qr/(([a-zA-Z0-9_.-])+)/);
+}
+
+sub parse_qURI {
+	my $self	= shift;
+	
+	if ($self->match_literal('<')) {
+		$self->set_commit;
+		my $uri	= $self->match_pattern(qr/[A-Za-z0-9_.!~*'()%;\/?:@&=+,#\$-]+/);
+		$self->match_literal('>');
+		$self->unset_commit;
+		return $uri;
+	} else {
+		return $self->fail('Expecting a qualified URI');
+	}
+}
+
+# variables
+sub parse_variables {
+	my $self	= shift;
+	
+	my @variables;
+	my $fail	= 0;
+	
+	if ($self->match_literal('*')) {
+		push(@variables, '*');
+	} else {
+		while (my $variable = $self->parse_variable) {
+			push(@variables, $variable);
+		}
+	}
+	
+	return \@variables;
+}
+
+sub parse_variable {
+	my $self	= shift;
+	
+#	local($debug)	= 3 if ($debug > 1);
+	if ($self->match_pattern(qr/[?\$]/)) {
+		$self->set_commit;
+		my $var	= $self->parse_identifier;
+		$self->unset_commit;
+		return $self->new_variable( $var );
+	} else {
+		return $self->fail('Expecting variable');
+	}
+}
+
+# SourceClause
+sub parse_sources {
+	my $self	= shift;
+	
+	my @sources;
+	while (my $type = $self->match_pattern(qr/SOURCE|(FROM( NAMED)?)/i)) {
+		my $uri	= $self->parse_uri;
+		if ($type =~ /NAMED/i) {
+			push(@sources, [ @$uri, 'NAMED' ]);
+		} else {
+			push(@sources, $uri);
+		}
+	}
+	return \@sources;
+}
+
+# URI
+sub parse_uri {
+	my $self	= shift;
+	if (my $uri = $self->parse_qURI) {
+		return $self->new_uri( $uri );
+	} elsif (my $qname = $self->parse_QName) {
+		return $qname;
+	} else {
+		return $self->fail( 'Expecting a URI' );
+	}
+}
+
+sub parse_ncname_prefix {
+	my $self		= shift;
+	my $ncchar1p	= qr/[A-Za-z\x{00C0}-\x{00D6}\x{00D8}-\x{00F6}\x{00F8}-\x{02FF}\x{0370}-\x{037D}\x{037F}-\x{1FFF}\x{200C}-\x{200D}\x{2070}-\x{218F}\x{2C00}-\x{2FEF}\x{3001}-\x{D7FF}\x{F900}-\x{FDCF}\x{FDF0}-\x{FFFD}\x{10000}-\x{EFFFF}]/x;
+	my $ncchar		= qr/${ncchar1p}|_|[0-9]|\x{00B7}|[\x{0300}-\x{036F}]|[\x{203F}-\x{2040}]/x;
+	my $ncchar_p	= qr/${ncchar1p}((${ncchar}|[.])*${ncchar})?/x;
+	return $self->match_pattern(qr/${ncchar_p}/);
+}
+
+sub parse_QName {
+	my $self	= shift;
+	
+	my $ns;
+	if ($self->match_literal(':')) {
+		$ns	= '__DEFAULT__';
+	} elsif ($ns = $self->parse_ncname_prefix) {
+	#	warn "identifier: $id";
+	#	Carp::cluck($id) if ($id eq '_');
+		$self->set_commit;
+		$self->match_literal(':');
+	} else {
+		return $self->fail( 'Expecting a QName' );
+	}
+	
+	my $localpart	= $self->match_pattern(qr/([^ \t\r\n<>();,]+)/);
+	$self->unset_commit;
+	return $self->new_qname( $ns, $localpart );
+}
+
+# blankQName
+sub parse_blankQName {
+	my $self	= shift;
+	if ($self->match_literal('_:')) {
+		my $id	= $self->match_pattern(qr/([^ \t\r\n<>();,]+)/);
+		return $self->new_blank($id);
+	} else {
+		return $self->fail( 'Expecting a blank identifier (QName)' );
+	}
+}
+
+# triplepatterns
+sub parse_triple_patterns {
+	my $self	= shift;
+	
+	my $triples	= [];
+	
+	if ($self->match_literal('{')) {
+		while (my $triple = $self->parse_triplepattern) {
+			if ($self->match_literal('UNION', 1)) {
+				if (my $unionpart = $self->parse_triple_patterns) {
+					$triples		= [ $self->new_union($triple, $unionpart) ];
+				} else {
+					$self->set_commit;
+					return $self->fail('Expecting triple pattern in second position of UNION');
+				}
+			} else {
+				push(@$triples, @$triple);
+			}
+			
+			last unless $self->match_literal('.');
+		}
+		
+		$self->set_commit;
+		$self->match_literal('}');
+		$self->unset_commit;
+		
+		# put filters at the end
+		my @triples;
+		my @filters;
+		foreach my $data (@$triples) {
+			if ($data->[0] eq 'FILTER') {
+				push(@filters, $data);
+			} else {
+				push(@triples, $data);
+			}
+		}
+		
+		if (@filters) {
+			my @data	= map { $_->[1] } @filters;
+			if (1 < @data) {
+				@filters	= [ 'FILTER', $self->new_logical_expression('&&', @data) ];
+			} else {
+				@filters	= [ 'FILTER', $data[0] ];
+			}
+		}
+		
+		return [ @triples, @filters ];
+	} else {
+		return $self->fail('Expecting triple patterns');
+	}
+}
+
+# triplepattern
+sub parse_triplepattern {
+	my $self	= shift;
+	
+#	local($debug)	= 2;
+	if ($self->match_literal('OPTIONAL', 1)) {
+		my $triples	= $self->parse_triple_patterns;
+		return [ $self->new_optional( $triples ) ];
+#		triplepattern:				/OPTIONAL/i <commit> triplepatterns				{ $return = [[ 'OPTIONAL', ($item{triplepatterns}[0] || []) ]] }
+	} elsif ($self->match_literal('GRAPH', 1)) {
+		my $varuri	= $self->parse_variable_or_uri;
+		my $triples	= $self->parse_triple_patterns;
+		return [ $self->new_named_graph( $varuri, $triples ) ];
+	} elsif (my $filter = $self->parse_filter) {
+		return [$filter];
+	} elsif (my $data = $self->parse_triple_patterns) {
+		return $data;
+	} else {
+		my $subj;
+		my $triples	= [];
+		
+		if (my $collection = $self->parse_collection) {
+			($subj, $triples)	= @$collection;
+		} elsif ($subj = $self->parse_variable_or_uri) {
+		} elsif (my $data = $self->parse_blanknode) {
+			($subj, $triples)	= @$data;
+		} else {
+			return $self->fail('Expecting triple pattern');
+		}
+		
+		my ($pred, $obj, $optobjs);
+		if (scalar(@$triples)) {
+			try {
+				$pred		= $self->parse_predicate;
+				if (my $data = $self->parse_collection) {
+					($obj, my $collection_triples)	= @$data;
+					push(@$triples, @{ $collection_triples });
+				} else {
+					$obj		= $self->parse_object;
+				}
+				$optobjs	= $self->parse_optional_objects;
+				
+				# triples from the subject position come before the main triple
+				if ($pred and $obj) {
+					push( @$triples, $self->new_triple($subj, $pred, $obj) );
+				}
+			} catch RDF::Query::Error::ParseError with {
+				$self->unset_commit;
+			};
+		} else {
+			$pred		= $self->parse_predicate;
+			if (my $data = $self->parse_collection) {
+				($obj, my $collection_triples)	= @$data;
+				push(@$triples, @{ $collection_triples });
+			} else {
+				$obj		= $self->parse_object;
+			}
+			$optobjs	= $self->parse_optional_objects;
+			
+			# triples from the object position get bumped after the main triple
+			if ($pred and $obj) {
+				unshift( @$triples, $self->new_triple($subj, $pred, $obj) );
+			}
+		}
+		
+		my $optpredobjs;
+		if ($self->match_literal(';')) {
+			$optpredobjs	= $self->parse_optional_predicate_objects;
+		}
+		
+		my @predobjs	= (@{ $optpredobjs || [] }, map { [$pred, $_] } @{ $optobjs || [] });
+		push(@$triples,
+			map {
+				$self->new_triple( $subj, @$_ )
+			} @predobjs
+		);
+		return $triples;
+	}
+	
+# 	triplepattern:				constraints										{ $return = [[ 'FILTER', $item[1] ]] }
+# 	triplepattern:				blanktriple PredObj(?)							{
+# 																					my ($b,$t)	= @{ $item[1] };
+# 																					$return = [ (map { ['TRIPLE', $_] } @$t), map { ['TRIPLE', [$b, @$_]] } @{ $item[2] } ];
+# 																				}
+# 	triplepattern:				triplepatterns									{ $return = $item[1] }
+# 	triplepattern:				Collection PredVarObj(?)						{
+# 																					my $collection	= $item[1][0][1];
+# 																					my @triples		= @{ $item[1] };
+# 																					foreach my $elem (@{ $item[2] || [] }) {
+# 																						my @triple	= [ $collection, @{ $elem } ];
+# 																						push(@triples, \@triple);
+# 																					}
+# 																					$return = \@triples;
+# 																				}
+}
+
+# Object
+sub parse_object {
+	my $self	= shift;
+	if (my $object = $self->parse_variable_or_uri_or_constant) {
+		return $object;
+	} else {
+		return $self->parse_collection;
+	}
+}
+
+# OptObj
+sub parse_optional_objects {
+	my $self	= shift;
+	
+	my @objects;
+	while ($self->match_literal(',')) {
+		push(@objects, $self->parse_object);
+	}
+	return \@objects;
+}
+
+# OptPredObj
+sub parse_optional_predicate_objects {
+	my $self	= shift;
+	
+	my @pred_objs;
+	while (my $data = $self->parse_predicate_object) {
+		push(@pred_objs, @{ $data });
+		last unless $self->match_literal(';');
+	}
+	return \@pred_objs;
+}
+
+# PredObj
+sub parse_predicate_object {
+	my $self	= shift;
+	my $pred	= $self->parse_predicate;
+	my $object	= $self->parse_object;
+	if ($pred and $object) {
+		my $optobj	= $self->parse_optional_objects;
+		return [[$pred, $object], map { [$pred, @{$_}] } @{ $optobj }];
+	} else {
+		return [];
+	}
+}
+
+# Collection
+sub parse_collection {
+	my $self	= shift;
+	if ($self->match_literal('(')) {
+		my @objects	= $self->parse_object;
+		while (my $obj = $self->parse_object) {
+			push(@objects, $obj);
+		}
+		$self->match_literal(')');
+	
+		my @triples;
+		my $id		= 'a' . ++$self->{blank_ids};
+		my $subj	= $self->new_blank( $id );
+		my $count	= scalar(@objects);
+		foreach my $i (0 .. $#objects) {
+			my $elem	= $objects[ $i ];
+			push(@triples,
+				[
+					$self->new_blank( $id ),
+					$self->new_uri('http://www.w3.org/1999/02/22-rdf-syntax-ns#first'),
+					$elem
+				]
+			);
+			
+			if ($i < $#objects) {
+				my $oldid	= $id;
+				$id			= 'a' . ++$self->{blank_ids};
+				push(@triples,
+					[
+						$self->new_blank( $oldid ),
+						$self->new_uri('http://www.w3.org/1999/02/22-rdf-syntax-ns#rest'),
+						$self->new_blank( $id ),
+					]
+				);
+			} else {
+				push(@triples,
+					[
+						$self->new_blank( $id ),
+						$self->new_uri('http://www.w3.org/1999/02/22-rdf-syntax-ns#rest'),
+						$self->new_uri('http://www.w3.org/1999/02/22-rdf-syntax-ns#nil'),
+					]
+				);
+			}
+		}
+		
+		return [ $subj, \@triples ];
+	} else {
+		return $self->fail('Expecting Collection definition');
+	}
+}
+
+# blanknode
+sub parse_blanknode {
+	my $self	= shift;
+	if ($self->match_literal('[')) {
+		my $predobj	= $self->parse_optional_predicate_objects;
+		
+		my $id		= 'a' . ++$self->{blank_ids};
+		my $subj	= $self->new_blank( $id );
+		my $triples	= $predobj ? [ map { $self->new_triple($subj, @$_) } (@$predobj) ] : [];
+		
+		$self->set_commit;
+		$self->match_literal(']');
+		$self->unset_commit;
+		
+		return [ $subj, $triples ];
+	} else {
+		return $self->fail( 'Expecting a Blank node []' );
+	}
+}
+
+# constraints
+sub parse_filter {
+	my $self	= shift;
+	if ($self->match_literal('FILTER', 1)) {
+		my $func	= $self->parse_bracketted_expression || $self->parse_built_in_call_expression || $self->parse_function_call;
+		if ($func) {
+			return [ 'FILTER', $func ];
+		} else {
+			$self->set_commit;
+			return $self->fail( 'Expecting FILTER declaration' );
+		}
+	} else {
+		return $self->fail( 'Expecting FILTER declaration' );
+	}
+}
+
+# Expression
+sub parse_expression {
+	my $self	= shift;
+	
+	my @expressions;
+	while (my $expr = $self->parse_conditional_and_expression) {
+		push(@expressions, $expr);
+		last unless $self->match_literal('||');
+	}
+	
+	if (1 < @expressions) {
+		return $self->new_logical_expression('||', @expressions);
+	} else {
+		return $expressions[0];
+	}
+}
+
+sub parse_conditional_and_expression {
+	my $self	= shift;
+	
+	my @expressions;
+	while (my $expr = $self->parse_value_logical) {
+		push(@expressions, $expr);
+		last unless $self->match_literal('&&');
+	}
+	
+	if (1 < @expressions) {
+		return $self->new_logical_expression('&&', @expressions);
+	} else {
+		return $expressions[0];
+	}
+}
+
+sub parse_value_logical {
+	my $self	= shift;
+	my $expr1	= $self->parse_numeric_expression;
+	
+	if (my $op = $self->match_pattern(qr/(=|!=|<|>|<=|>=)/)) {
+#		local($debug)	= 3;
+		if (my $expr2 = $self->parse_numeric_expression) {
+			$op		= '==' if ($op eq '=');
+			return $self->new_binary_expression( $op, $expr1, $expr2 );
+		} else {
+			$self->set_commit;
+			return $self->fail("Expecting numeric expression after '$op'");
+		}
+	} else {
+		return $expr1;
+	}
+}
+
+sub parse_numeric_expression {
+	my $self	= shift;
+	my $expr1	= $self->parse_multiplicative_expression;
+	
+	if (my $op = $self->match_pattern(qr/[-+]/)) {
+		if (my $expr2 = $self->parse_multiplicative_expression) {
+			return $self->new_binary_expression( $op, $expr1, $expr2 );
+		} else {
+			$self->set_commit;
+			return $self->fail("Expecting multiplicative expression after '$op'");
+		}
+	} else {
+		return $expr1;
+	}
+}
+
+sub parse_multiplicative_expression {
+	my $self	= shift;
+	my $expr1	= $self->parse_unary_expression;
+	
+	if (my $op = $self->match_pattern(qr#[*/]#)) {
+		if (my $expr2 = $self->parse_unary_expression) {
+			return $self->new_binary_expression( $op, $expr1, $expr2 );
+		} else {
+			$self->set_commit;
+			return $self->fail("Expecting unary expression after '$op'");
+		}
+	} else {
+		return $expr1;
+	}
+}
+
+sub parse_unary_expression {
+	my $self	= shift;
+	
+	if (my $op = $self->match_pattern(qr/[-!+]/)) {
+		if (my $expr = $self->parse_primary_expression) {
+			if ($op eq '+') {
+				return $expr;
+			} else {
+				return $self->new_unary_expression( $op, $expr );
+			}
+		} else {
+			$self->set_commit;
+			return $self->fail("Expecting primary expression after '$op'");
+		}
+	} else {
+		my $expr	= $self->parse_primary_expression;
+		return $expr;
+	}
+}
+
+sub parse_primary_expression {
+	my $self	= shift;
+	
+	my $expr;
+	if ($expr = $self->parse_bracketted_expression) {
+	} elsif ($expr = $self->parse_built_in_call_expression) {
+	} elsif ($expr = $self->parse_blankQName) {
+	} elsif ($expr = $self->parse_constant) {
+	} elsif (my $data = $self->parse_blanknode) {
+		(undef, $expr)	= @$data;
+	} elsif ($expr = $self->parse_variable) {
+	} elsif ($expr = $self->parse_iriref_or_function) {
+	}
+	
+	unless ($expr) {
+		return $self->fail('Expecting a primary expression');
+	}
+	
+	warn "got primary expr: " . Dumper($expr) if ($debug > 1);
+	return $expr;
+}
+
+# CallExpression
+sub parse_built_in_call_expression {
+	my $self	= shift;
+	if ($self->match_literal('REGEX', 1)) {
+		$self->set_commit;
+		$self->match_literal('(');
+		$self->unset_commit;
+		
+		my $string	= $self->parse_expression;
+		
+		$self->set_commit;
+		$self->match_literal(',');
+		$self->unset_commit;
+		
+		my $pattern	= $self->parse_expression;
+		
+		$self->set_commit;
+		$self->match_literal(')');
+		$self->unset_commit;
+		return $self->new_binary_expression( '~~', $string, $pattern );
+	} elsif ($self->match_literal('LANGMATCHES', 1)) {
+		$self->set_commit;
+		$self->match_literal('(');
+		$self->unset_commit;
+		my $str		= $self->parse_expression;
+		$self->set_commit;
+		$self->match_literal(',');
+		$self->unset_commit;
+		my $match	= $self->parse_expression;
+		$self->set_commit;
+		$self->match_literal(')');
+		$self->unset_commit;
+		return $self->new_function_expression( $self->new_uri('sparql:langmatches'), $str, $match );
+	} elsif ($self->match_literal('LANG', 1)) {
+		$self->set_commit;
+		$self->match_literal('(');
+		$self->unset_commit;
+		my $str	= $self->parse_expression;
+		$self->set_commit;
+		$self->match_literal(')');
+		$self->unset_commit;
+		return $self->new_function_expression( $self->new_uri('sparql:lang'), $str );
+	} elsif ($self->match_literal('DATATYPE', 1)) {
+		$self->set_commit;
+		$self->match_literal('(');
+		$self->unset_commit;
+		my $str		= $self->parse_expression;
+		$self->set_commit;
+		$self->match_literal(')');
+		$self->unset_commit;
+		return $self->new_function_expression( $self->new_uri('XXX DATATYPE'), $str );
+	} elsif ($self->match_literal('BOUND', 1)) {
+		$self->set_commit;
+		$self->match_literal('(');
+		$self->unset_commit;
+		my $var	= $self->parse_variable;
+		$self->set_commit;
+		$self->match_literal(')');
+		$self->unset_commit;
+		return $self->new_function_expression( $self->new_uri('sop:isBound'), $var );
+	} elsif ($self->match_literal('isIRI', 1)) {
+		$self->set_commit;
+		$self->match_literal('(');
+		$self->unset_commit;
+		my $node	= $self->parse_expression;
+		$self->set_commit;
+		$self->match_literal(')');
+		$self->unset_commit;
+		return $self->new_function_expression( $self->new_uri('XXX IS IRI'), $node );
+	} elsif ($self->match_literal('isURI', 1)) {
+		$self->set_commit;
+		$self->match_literal('(');
+		$self->unset_commit;
+		my $node	= $self->parse_expression;
+		$self->set_commit;
+		$self->match_literal(')');
+		$self->unset_commit;
+		return $self->new_function_expression( $self->new_uri('sop:isURI'), $node );
+	} elsif ($self->match_literal('isBLANK', 1)) {
+		$self->set_commit;
+		$self->match_literal('(');
+		$self->unset_commit;
+		my $node	= $self->parse_expression;
+		$self->set_commit;
+		$self->match_literal(')');
+		$self->unset_commit;
+		return $self->new_function_expression( $self->new_uri('sop:isBlank'), $node );
+	} elsif ($self->match_literal('isLITERAL', 1)) {
+		$self->set_commit;
+		$self->match_literal('(');
+		$self->unset_commit;
+		my $node	= $self->parse_expression;
+		$self->set_commit;
+		$self->match_literal(')');
+		$self->unset_commit;
+		return $self->new_function_expression( $self->new_uri('sop:isLiteral'), $node );
+	}
+}
+
+sub parse_iriref_or_function {
+	my $self	= shift;
+#	Carp::cluck;
+	if (my $iri = $self->parse_qURI) {
+		my $uri		= $self->new_uri($iri);
+		if ($self->match_literal('(')) {
+			my $args	= $self->parse_arguments;
+			$self->match_literal(')');
+			$self->unset_commit;
+			return $self->new_function_expression( $uri, @$args );
+		} else {
+			return $uri;
+		}
+	} elsif (my $uri = $self->parse_uri) {
+		if ($self->match_literal('(')) {
+			my $args	= $self->parse_arguments;
+			$self->match_literal(')');
+			$self->unset_commit;
+			return $self->new_function_expression( $uri, @$args );
+		} else {
+			return $uri;
+		}
+	} else {
+		return $self->fail( 'Expecting IRIRef or function call' );
+	}
+}
+
+sub parse_function_call {
+	my $self	= shift;
+	
+	my $func	= $self->parse_uri;
+	if ($func) {
+		$self->set_commit;
+		$self->match_literal('(');
+		my $args	= $self->parse_arguments;
+		$self->match_literal(')');
+		$self->unset_commit;
+		return $self->new_function_expression( $func, @$args );
+	} else {
+		return $self->fail( 'Expecting qURI of function' );
+	}
+}
+
+sub parse_bracketted_expression {
+	my $self	= shift;
+	if ($self->match_literal('(')) {
+		
+		my $expr	= $self->parse_expression;
+		
+		$self->set_commit;
+		$self->match_literal(')');
+		$self->unset_commit;
+		
+		return $expr;
+	} else {
+		return $self->fail( 'Expecting a bracketted expression' );
+	}
+}
+
+# ArgList
+sub parse_arguments {
+	my $self	= shift;
+	
+	my @args;
+	while (my $arg = $self->parse_variable_or_uri_or_constant) {
+		push(@args, $arg);
+		last unless $self->match_literal(',');
+	}
+	return \@args;
+}
+
+# PredVarUri
+sub parse_predicate {
+	my $self	= shift;
+	if ($self->match_literal('a', 1)) {
+		return $self->new_uri('http://www.w3.org/1999/02/22-rdf-syntax-ns#type');
+	} else {
+		return $self->parse_variable_or_uri;
+	}
+}
+
+# VarUri
+sub parse_variable_or_uri {
+	my $self	= shift;
+	return $self->parse_variable || $self->parse_blankQName || $self->parse_uri;
+}
+
+# VarUriConst
+sub parse_variable_or_uri_or_constant {
+	my $self	= shift;
+	return $self->parse_variable || $self->parse_constant || $self->parse_uri;
+}
+
+# CONST
+sub parse_constant {
+	my $self	= shift;
+	
+	if (my $quot = $self->match_pattern(qr/['"]/)) {
+		my $str;
+		if ($quot eq "'") {
+			$str	= $self->match_pattern(qr/([^\'\x0a\x0d]|(\\[tbnrf\"'])|(\\[uU][0-9a-fA-F]{4}))*/);
+			$self->match_literal("'")
+		} else {
+			$str	= $self->match_pattern(qr/([^\"\x0a\x0d]|(\\[tbnrf\"'])|(\\[uU][0-9a-fA-F]{4}))*/);
+			$self->match_literal('"')
+		}
+		
+		my ($lang, $dt);
+		if ($self->match_literal('@')) {
+			$lang	= $self->match_pattern(qr/[A-Za-z]+(-[A-Za-z]+)*/);
+		} elsif ($self->match_literal('^^')) {
+			$dt		= $self->parse_uri;
+		}
+		
+		if ($lang) {
+			return $self->new_literal( $str, $lang, undef );
+		} elsif ($dt) {
+			return $self->new_literal( $str, undef, $dt );
+		} else {
+			return $self->new_literal( $str );
+		}
+	} elsif (my $num = $self->match_pattern(qr/ [-+]?
+												(
+													(
+														([0-9]+)
+														([.][0-9]*)?
+													)
+													| ([.][0-9]+)
+												)
+												
+												([eE] [-+]? [0-9]+)?
+											/x)) {
+		$num	=~ s/^[+]//;
+		return $self->new_literal( $num );
+	}
+}
+
+# OptOrderBy
+sub parse_order_by {
+	my $self	= shift;
+	if ($self->match_literal('ORDER BY', 1)) {
+		if (my $dir = $self->match_pattern(qr/ASC|DESC/i)) {
+			if (my $expr = $self->parse_bracketted_expression) {
+				return [ uc($dir), $expr ];
+			} else {
+				return $self->fail( 'Expecting ORDER BY expression' );
+			}
+		} else {
+			my $expr	= $self->parse_variable || $self->parse_function_call || $self->parse_bracketted_expression;
+			return [ 'ASC', $expr ];
+		}
+	} else {
+		return $self->fail( 'Expecting ORDER BY clause' );
+	}
+}
+
+# OptLimit
+sub parse_limit {
+	my $self	= shift;
+	if ($self->match_literal('LIMIT', 1)) {
+		my $count	= $self->match_pattern(qr/\d+/);
+		return $count;
+	} else {
+		return $self->fail( 'Expecting LIMIT clause' );
+	}
+}
+
+# OptOffset
+sub parse_offset {
+	my $self	= shift;
+	if ($self->match_literal('OFFSET', 1)) {
+		my $count	= $self->match_pattern(qr/\d+/);
+		return $count;
+	} else {
+		return $self->fail( 'Expecting OFFSET clause' );
+	}
+}
+
+
+
+######################################################################
+
+sub match_literal {
+	my $self	= shift;
+	my $literal	= shift;
+	my $casei	= shift || 0;
+	$self->whitespace;
+	
+	if ($debug > 2) {
+		my $remaining	= substr($self->{remaining}, 0, 20);
+		print STDERR "literal match: $literal (remaining: '$remaining...') ... ";
+	}
+	
+	my $length	= length($literal);
+	
+	my $match	= substr($self->{remaining}, 0, $length);
+	if ($casei) {
+		$literal	= lc($literal);
+		$match		= lc($match);
+	}
+	
+	if ($match eq $literal) {
+		$self->{position}	+= $length;
+		my $match	= substr($self->{remaining}, 0, $length, '');
+		
+		warn "ok\n" if ($debug > 2);
+		return $match;
+	} else {
+		my $error	= qq'Expecting "$literal"';
+		$error		.= ' (case insensitive)' if ($casei);
+		
+		warn "failed\n" if ($debug > 2);
+		return $self->fail($error);
+	}
+}
+
+sub match_pattern {
+	my $self	= shift;
+	my $pattern	= shift;
+	
+	if ($debug > 2) {
+		my $remaining	= substr($self->{remaining}, 0, 20);
+		print STDERR "pattern match: $pattern (remaining: '$remaining...') ... ";
+	}
+	
+	$self->whitespace;
+	if ($self->{remaining} =~ m#^(${pattern})#xsm) {
+		my $length	= length($1);
+		$self->{position}	+= $length;
+		my $match	= substr($self->{remaining}, 0, $length, '');
+		
+		warn "ok\n" if ($debug > 2);
+		return $match;
+	} else {
+		warn "failed\n" if ($debug > 2);
+#		Carp::cluck if ($debug > 2);
+		return $self->fail(qq'Expecting pattern match /$pattern/');
+	}
+}
+
+sub whitespace {
+	my $self	= shift;
+	if ($self->{remaining} =~ m#^(\s*)#xsm) {
+		my $length	= length($1);
+		substr($self->{remaining}, 0, $length, '');
+		$self->{position}	+= $length;
+	}
+}
+
+######################################################################
+
+sub set_input {
+	my $self				= shift;
+	my $query				= shift;
+	$self->{input}			= $query;
+	$self->{remaining}		= $query;
+	$self->{position}		= 0;
+	return 1;
+}
+
+		
+sub get_options {
+	my $self	= shift;
+	my $distinct	= shift;
+	my $order		= shift;
+	my $limit		= shift;
+	my $offset		= shift;
+	my %options;
+	
+	if ($distinct) {
+		$options{distinct}	= 1;
+	}
+	if ($order) {
+		$options{orderby}	= [$order];
+	}
+	if ($limit) {
+		$options{limit}		= $limit;
+	}
+	if ($offset) {
+		$options{offset}	= $offset;
+	}
+	
+	if (%options) {
+		return \%options;
+	} else {
+		return;
+	}
+}
 
 1;
 
 __END__
 
 =back
-
-=head1 REVISION HISTORY
-
- $Log$
- Revision 1.13  2006/01/11 06:08:26  greg
- - Added support for SELECT * in SPARQL queries.
- - Added support for default namespaces in SPARQL queries.
-
- Revision 1.12  2005/11/19 00:56:38  greg
- - Added SPARQL functions: BOUND, isURI, isBLANK, isLITERAL.
- - Updated SPARQL REGEX syntax.
- - Updated SPARQL FILTER syntax.
- - Added SPARQL RDF Collections syntactic forms.
- - Updated SPARQL grammar to make 'WHERE' token optional.
- - Added <commit> directives to SPARQL grammar.
- - Updated SPARQL 'ORDER BY' syntax to use parenthesis.
- - Fixed SPARQL FILTER logical-and support for more than two operands.
- - Fixed SPARQL FILTER equality operator syntax to use '=' instead of '=='.
-
- Revision 1.11  2005/07/27 00:35:59  greg
- - Added commit directives to some top-level non-terminals.
- - Started using the %item hash for more flexibility in parse rules.
-
- Following SPARQL Draft 2005.07.21:
- - ORDER BY arguments now use parenthesis.
- - ORDER BY operand may now be a variable, expression, or function call.
-
- Revision 1.10  2005/06/04 07:27:13  greg
- - Added support for typed literals.
-   - (Redland support for datatypes is currently broken, however.)
-
- Revision 1.9  2005/06/02 19:36:22  greg
- - Added missing OFFSET grammar rules.
-
- Revision 1.8  2005/06/01 05:06:33  greg
- - Added SPARQL UNION support.
- - Broke OPTIONAL handling code off into a seperate method.
- - Added new debugging code to trace errors in the twisty web of closures.
-
- Revision 1.7  2005/05/18 23:05:53  greg
- - Added support for SPARQL OPTIONAL graph patterns.
- - Added binding_values and binding_names methods to Streams.
-
- Revision 1.6  2005/05/08 08:26:09  greg
- - Added initial support for SPARQL ASK, DESCRIBE and CONSTRUCT queries.
-   - Added new test files for new query types.
- - Added methods to bridge classes for creating statements and blank nodes.
- - Added as_string method to bridge classes for getting string versions of nodes.
- - Broke out triple fixup code into fixup_triple_bridge_variables().
- - Updated FILTER test to use new Geo::Distance API.
-
- Revision 1.5  2005/04/26 04:22:13  greg
- - added constraints tests
- - URIs in constraints are now part of the fixup
- - parser is removed from the Redland bridge in DESTROY
- - SPARQL FILTERs are now properly part of the triple patterns (within the braces)
- - added FILTER tests
-
- Revision 1.4  2005/04/26 02:54:40  greg
- - added core support for custom function constraints support
- - added initial SPARQL support for custom function constraints
- - SPARQL variables may now begin with the '$' sigil
- - broke out URL fixups into its own method
- - added direction support for ORDER BY (ascending/descending)
- - added 'next', 'current', and 'end' to Stream API
-
- Revision 1.3  2005/04/25 00:59:29  greg
- - streams are now objects usinig the Redland QueryResult API
- - RDF namespace is now always available in queries
- - row() now uses a stream when calling execute()
- - check_constraints() now copies args for recursive calls (instead of pass-by-ref)
- - added ORDER BY support to RDQL parser
- - SPARQL constraints now properly use the 'FILTER' keyword
- - SPARQL constraints can now use '&&' as an operator
- - SPARQL namespace declaration is now optional
-
- Revision 1.2  2005/04/21 05:24:54  greg
- - execute now returns an iterator
- - added core support for DISTINCT, LIMIT, OFFSET
- - added initial core support for ORDER BY (only works on one column right now)
- - added SPARQL support for DISTINCT and ORDER BY
- - added stress test for large queries and sorting on local scutter model
-
- Revision 1.1  2005/04/21 02:21:44  greg
- - major changes (resurecting the project)
- - broke out the query parser into it's own RDQL class
- - added initial support for a SPARQL parser
-   - added support for blank nodes
-   - added lots of syntactic sugar (with blank nodes, multiple predicates and objects)
- - moved model-specific code into RDF::Query::Model::*
- - cleaned up the model-bridge code
- - moving over to redland's query API (pass in the model when query is executed)
-
 
 =head1 AUTHOR
 

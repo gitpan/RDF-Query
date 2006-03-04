@@ -22,12 +22,17 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 121 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 130 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
 ######################################################################
 
-sub base_ns { 'http://kasei.us/e/ns/' }
+=item C<new ( $model )>
+
+Returns a new bridge object for the specified C<$model>.
+
+=cut
+
 sub new {
 	my $class	= shift;
 	my $model	= shift;
@@ -44,20 +49,44 @@ sub new {
 				}, $class );
 }
 
+=item C<new ()>
+
+Returns the underlying model object.
+
+=cut
+
 sub model {
 	my $self	= shift;
 	return $self->{'model'};
 }
+
+=item C<new_resource ( $uri )>
+
+Returns a new resource object.
+
+=cut
 
 sub new_resource {
 	my $self	= shift;
 	return RDF::Core::Resource->new(@_);
 }
 
+=item C<new_literal ( $string, $language, $datatype )>
+
+Returns a new literal object.
+
+=cut
+
 sub new_literal {
 	my $self	= shift;
 	return RDF::Core::Literal->new(@_);
 }
+
+=item C<new_blank ( $identifier )>
+
+Returns a new blank node object.
+
+=cut
 
 sub new_blank {
 	my $self	= shift;
@@ -68,10 +97,22 @@ sub new_blank {
 	return $self->{'factory'}->newResource("_:${id}");
 }
 
+=item C<new_statement ( $s, $p, $o )>
+
+Returns a new statement object.
+
+=cut
+
 sub new_statement {
 	my $self	= shift;
 	return RDF::Core::Statement->new(@_);
 }
+
+=item C<isa_node ( $node )>
+
+Returns true if C<$node> is a node object for the current model.
+
+=cut
 
 sub isa_node {
 	my $self	= shift;
@@ -79,11 +120,23 @@ sub isa_node {
 	return UNIVERSAL::isa($node,'RDF::Core::Node');
 }
 
+=item C<isa_resource ( $node )>
+
+Returns true if C<$node> is a resource object for the current model.
+
+=cut
+
 sub isa_resource {
 	my $self	= shift;
 	my $node	= shift;
 	return UNIVERSAL::isa($node,'RDF::Core::Resource');
 }
+
+=item C<isa_literal ( $node )>
+
+Returns true if C<$node> is a literal object for the current model.
+
+=cut
 
 sub isa_literal {
 	my $self	= shift;
@@ -91,10 +144,15 @@ sub isa_literal {
 	return UNIVERSAL::isa($node,'RDF::Core::Literal');
 }
 
+=item C<isa_blank ( $node )>
+
+Returns true if C<$node> is a blank node object for the current model.
+
+=cut
+
 sub isa_blank {
 	my $self	= shift;
 	my $node	= shift;
-	warn Data::Dumper::Dumper($node);
 	return (UNIVERSAL::isa($node,'RDF::Core::Resource') and $node->getURI =~ /^_:/);
 }
 *RDF::Query::Model::RDFCore::is_node		= \&isa_node;
@@ -102,17 +160,35 @@ sub isa_blank {
 *RDF::Query::Model::RDFCore::is_literal		= \&isa_literal;
 *RDF::Query::Model::RDFCore::is_blank		= \&isa_blank;
 
+=item C<as_string ( $node )>
+
+Returns a string version of the node object.
+
+=cut
+
 sub as_string {
 	my $self	= shift;
 	my $node	= shift;
 	return $node->getLabel;
 }
 
+=item C<literal_value ( $node )>
+
+Returns the string value of the literal object.
+
+=cut
+
 sub literal_value {
 	my $self	= shift;
 	my $node	= shift;
 	return $node->getLabel;
 }
+
+=item C<literal_datatype ( $node )>
+
+Returns the datatype of the literal object.
+
+=cut
 
 sub literal_datatype {
 	my $self	= shift;
@@ -121,6 +197,12 @@ sub literal_datatype {
 	return $type;
 }
 
+=item C<literal_value_language ( $node )>
+
+Returns the language of the literal object.
+
+=cut
+
 sub literal_value_language {
 	my $self	= shift;
 	my $node	= shift;
@@ -128,11 +210,23 @@ sub literal_value_language {
 	return $lang;
 }
 
+=item C<uri_value ( $node )>
+
+Returns the URI string of the resource object.
+
+=cut
+
 sub uri_value {
 	my $self	= shift;
 	my $node	= shift;
 	return $node->getLabel;
 }
+
+=item C<blank_identifier ( $node )>
+
+Returns the identifier for the blank node object.
+
+=cut
 
 sub blank_identifier {
 	my $self	= shift;
@@ -140,30 +234,52 @@ sub blank_identifier {
 	return $node->getLabel;
 }
 
+=item C<add_uri ( $uri, $named )>
+
+Addsd the contents of the specified C<$uri> to the model.
+If C<$named> is true, the data is added to the model using C<$uri> as the
+named context.
+
+=cut
+
+{ my $counter	= 0;
 sub add_uri {
 	my $self	= shift;
 	my $url		= shift;
 	my $named	= shift;
 	
-	if ($named and not $self->supports('named_graph')) {
-		die "This model does not support named graphs";
-	}
+	die "This model does not support named graphs" if ($named);
 	
 	my $rdf		= LWP::Simple::get($url);
 	my %options = (
 				Model		=> $self->{'model'},
 				Source		=> $rdf,
 				SourceType	=> 'string',
-				BaseURI		=> $self->base_ns,
-				BNodePrefix	=> "genid"
+				BaseURI		=> $url,
+				BNodePrefix	=> "genid" . $counter++,
 			);
 	my $parser	= new RDF::Core::Model::Parser (%options);
 	$parser->parse;
 }
+}
+
+=item C<statement_method_map ()>
+
+Returns an ordered list of method names that when called against a statement
+object will return the subject, predicate, and object objects, respectively.
+
+=cut
 
 sub statement_method_map {
 	return qw(getSubject getPredicate getObject);
 }
+
+=item C<get_statements ($subject, $predicate, $object)>
+
+Returns a stream object of all statements matching the specified subject,
+predicate and objects. Any of the arguments may be undef to match any value.
+
+=cut
 
 sub get_statements {
 	my $self	= shift;
@@ -179,11 +295,26 @@ sub get_statements {
 	return RDF::Query::Stream->new( $stream, 'graph', undef, bridge => $self );
 }
 
+=item C<supports ($feature)>
+
+Returns true if the underlying model supports the named C<$feature>.
+Possible features include:
+
+	* named_graph
+
+=cut
+
 sub supports {
 	my $self	= shift;
 	my $feature	= shift;
 	return 0;
 }
+
+=item C<as_xml ($stream)>
+
+Returns an RDF/XML serialization of the results graph.
+
+=cut
 
 sub as_xml {
 	my $self	= shift;
@@ -198,7 +329,7 @@ sub as_xml {
 	my $serializer	= RDF::Core::Model::Serializer->new(
 						Model	=> $model,
 						Output	=> \$xml,
-						BaseURI => $self->base_ns,
+#						BaseURI => $self->base_ns,
 					);
 	$serializer->serialize;
 	return $xml;

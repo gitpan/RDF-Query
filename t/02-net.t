@@ -4,7 +4,7 @@ use warnings;
 use Test::More;
 
 if (not exists $ENV{RDFQUERY_NO_NETWORK}) {
-	plan tests => 11;
+	plan tests => 16;
 } else {
 	plan skip_all => 'No network. Unset RDFQUERY_NO_NETWORK to run these tests.';
 	return;
@@ -53,6 +53,25 @@ END
 			foaf FOR <http://xmlns.com/foaf/0.1/>
 END
 	my @results	= $query->execute( $model );
+	is( scalar(@results), 1, 'Got one result' );
+	isa_ok( $results[0], 'ARRAY' );
+	is( scalar(@{$results[0]}), 1, 'Got one field' );
+	ok( $query->bridge->isa_resource( $results[0][0] ), 'Resource' );
+	is( $results[0][0]->getLabel, 'http://kasei.us/', 'Got homepage url' );
+}
+
+{
+	print "# No model\n";
+	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT	?page
+		FROM	<http://kasei.us/about/foaf.xrdf>
+		WHERE {
+				?person foaf:name "Gregory Todd Williams" ;
+					foaf:homepage ?page .
+		}
+END
+	my @results	= $query->execute();
 	is( scalar(@results), 1, 'Got one result' );
 	isa_ok( $results[0], 'ARRAY' );
 	is( scalar(@{$results[0]}), 1, 'Got one field' );

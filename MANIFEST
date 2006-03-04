@@ -12,10 +12,10 @@ data/named_graphs/alice.rdf
 data/named_graphs/meta.ttl
 data/named_graphs/bob.rdf
 lib/RDF/Query.pm
-lib/RDF/Query/Model/DBI.pm
-lib/RDF/Query/Model/DBI/Statement.pm
+lib/RDF/Query/Error.pm
 lib/RDF/Query/Model/RDFCore.pm
 lib/RDF/Query/Model/Redland.pm
+lib/RDF/Query/Parser.pm
 lib/RDF/Query/Parser/RDQL.pm
 lib/RDF/Query/Parser/SPARQL.pm
 lib/RDF/Query/Stream.pm

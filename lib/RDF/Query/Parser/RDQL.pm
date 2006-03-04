@@ -1,7 +1,7 @@
 # RDF::Query::Parser::RDQL
 # -------------
-# $Revision: 121 $
-# $Date: 2006-02-06 23:07:43 -0500 (Mon, 06 Feb 2006) $
+# $Revision: 129 $
+# $Date: 2006-02-27 18:03:04 -0500 (Mon, 27 Feb 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -14,12 +14,13 @@ package RDF::Query::Parser::RDQL;
 
 use strict;
 use warnings;
-use Carp qw(carp croak confess);
+use base qw(RDF::Query::Parser);
 
 use Data::Dumper;
 use LWP::Simple ();
 use Parse::RecDescent;
 use Digest::SHA1  qw(sha1_hex);
+use Carp qw(carp croak confess);
 
 ######################################################################
 
@@ -28,7 +29,7 @@ BEGIN {
 	$::RD_TRACE	= undef;
 	$::RD_HINT	= undef;
 	$debug		= 1;
-	$VERSION	= do { my $REV = (qw$Revision: 121 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 129 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	$lang		= 'rdql';
 	$languri	= 'http://jena.hpl.hp.com/2003/07/query/RDQL';
 }
@@ -38,11 +39,16 @@ BEGIN {
 	our $RDQL_GRAMMAR	= <<'END';
 	query:			'SELECT' variable(s) SourceClause(?) 'WHERE' triplepattern(s) constraints(?) OptOrderBy(?) 'USING' namespaces
 																	{
+																		my $triples	= $item[5];
+																		my $filter	= ($item[6][0] || []);
+																		if (scalar(@$filter)) {
+																			push(@$triples, ['FILTER', $filter]);
+																		}
+																		
 																		$return = {
 																			variables	=> $item[2],
 																			sources		=> $item[3][0],
-																			triples		=> $item[5],
-																			constraints	=> ($item[6][0] || []),
+																			triples		=> $triples,
 																			namespaces	=> $item[9]
 																		};
 																		if (@{ $item[7] }) {

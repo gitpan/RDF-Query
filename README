@@ -20,6 +20,17 @@ INSTALLATION
 
 VERSION HISTORY
 
+  Version 1.032 (2006-03-03)
+
+     * Replaced the Parse::RecDescent SPARQL parser with a much faster hand-written one.
+     * Updated SPARQL parsing rules to be better about URI and QName character sets.
+     * FILTER equality operator now '=', not '==' (to match SPARQL spec).
+     * Initial support for FILTER constraints as part of the triple pattern structure (Will allow for nested FILTERs).
+     * Implemented support for ordering query results by an expression.
+     * Fixed bug in expresion handling of unary minus.
+     * Fixed bug in Redland NAMED GRAPH parsing.
+     * Fixed bug in RDF::Core parsing code where blank nodes would be accidentally smushed.
+
   Version 1.031 (2006-02-08)
 
      * Added support for NAMED graphs.
@@ -186,4 +197,4 @@ AUTHOR
 
 	Gregory Williams <gwilliams@cpan.org>
 
-$Id: README 127 2006-02-08 19:53:21Z samofool $
+$Id: README 134 2006-03-03 23:06:03Z samofool $

@@ -10,13 +10,23 @@ my @files	= map { File::Spec->rel2abs( "data/$_" ) } qw(about.xrdf foaf.xrdf);
 my @models	= test_models( @files );
 
 use Test::More;
-plan tests => 1 + (42 * scalar(@models));
+plan tests => 1 + (55 * scalar(@models));
 
 use_ok( 'RDF::Query' );
 foreach my $model (@models) {
 	print "\n#################################\n";
 	print "### Using model: $model\n";
-
+	
+	{
+		print "# bridge object accessors\n";
+		my $query	= new RDF::Query ( <<"END", undef, 'http://jena.hpl.hp.com/2003/07/query/RDQL', undef );
+			SELECT ?person
+			WHERE (?person foaf:name "Gregory Todd Williams")
+			USING foaf FOR <http://xmlns.com/foaf/0.1/>
+END
+		my $stream	= $query->execute( $model );
+		is( $model, $query->bridge->model, 'model accessor' );
+	}
 
 	{
 		print "# using RDQL language URI\n";
@@ -295,6 +305,65 @@ END
 END
 		my @results	= $query->execute( $model );
 		ok( scalar(@results), 'got result' );
+	}
+
+	{
+		print "# SPARQL query; blank node results\n";
+		my $query	= new RDF::Query ( <<"END", undef, 'http://www.w3.org/TR/rdf-sparql-query/', undef );
+			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+			PREFIX	wn: <http://xmlns.com/wordnet/1.6/>
+			SELECT	?thing
+			WHERE	{
+				?image a foaf:Image ;
+					foaf:depicts ?thing .
+				?thing a wn:Flower-2 .
+			}
+END
+		my $stream	= $query->execute( $model );
+		my $count	= 0;
+		while (my $row = $stream->()) {
+			my $thing	= $row->[0];
+			ok( $query->bridge->isa_blank( $thing ) );
+			
+			my $id		= $query->bridge->blank_identifier( $thing );
+			ok( length($id), 'blank identifier' );
+			$count++;
+		}
+		is( $count, 3, '3 result' );
+	}
+
+	{
+		print "# SPARQL query; language-typed literal\n";
+		my $query	= new RDF::Query ( <<"END", undef, 'http://www.w3.org/TR/rdf-sparql-query/', undef );
+			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+			SELECT	?name
+			WHERE	{
+				?p a foaf:Person ;
+					foaf:mbox_sha1sum "2057969209f1dfdad832de387cf13e6ff8c93b12" ;
+					foaf:name ?name .
+			}
+END
+		my ($name)	= $query->get( $model );
+		my $bridge	= $query->bridge;
+		my $lang	= $bridge->literal_value_language( $name );
+		is ($lang, 'en', 'language');
+	}
+
+	{
+		print "# SPARQL query; Stream accessors\n";
+		my $query	= new RDF::Query ( <<"END", undef, 'http://www.w3.org/TR/rdf-sparql-query/', undef );
+			PREFIX	: <http://xmlns.com/foaf/0.1/>
+			SELECT	?person
+			WHERE	{ ?person :name "Gregory Todd Williams" }
+END
+		my $stream	= $query->execute( $model );
+		my $value	= $stream->binding_value_by_name('person');
+		is( $value, $stream->binding_value( 0 ), 'binding_value' );
+		ok( $query->bridge->isa_node( $value ), 'binding_value_by_name' );
+		is_deeply( ['person'], [$stream->binding_names], 'binding_names' );
+		my @values	= $stream->binding_values;
+		ok( $query->bridge->isa_node( $values[0] ), 'binding_value_by_name' );
+		
 	}
 
 }

@@ -31,6 +31,17 @@
 			make install<br />
 		</div>
 	<h2 id="changelog">Version History</h2>
+		<h3 id="v1_032">Version 1.032 (2006-03-03)</h3>
+			<ul>
+				<li>Replaced the Parse::RecDescent SPARQL parser with a much faster hand-written one.</li>
+				<li>Updated SPARQL parsing rules to be better about URI and QName character sets.</li>
+				<li>FILTER equality operator now '=', not '==' (to match SPARQL spec).</li>
+				<li>Initial support for FILTER constraints as part of the triple pattern structure (Will allow for nested FILTERs).</li>
+				<li>Implemented support for ordering query results by an expression.</li>
+				<li>Fixed bug in expresion handling of unary minus.</li>
+				<li>Fixed bug in Redland NAMED GRAPH parsing.</li>
+				<li>Fixed bug in RDF::Core parsing code where blank nodes would be accidentally smushed.</li>
+			</ul>
 		<h3 id="v1_031">Version 1.031 (2006-02-08)</h3>
 			<ul>
 				<li>Added support for NAMED graphs.</li>
@@ -188,5 +199,5 @@
 	<h2>Copyright</h2>
 		<p>Copyright &copy; 2005 Gregory Williams. All rights reserved. This program is free software; you can redistribute it and/or modify it under the same terms as Perl itself.</p>
 	
-	$Id: README.html 127 2006-02-08 19:53:21Z samofool $
+	$Id: README.html 134 2006-03-03 23:06:03Z samofool $
 </body></html>

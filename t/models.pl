@@ -22,12 +22,15 @@ sub test_models {
 		require RDF::Query::Model::RDFCore;
 		my $storage	= new RDF::Core::Storage::Memory;
 		my $model	= new RDF::Core::Model (Storage => $storage);
+		my $counter	= 0;
 		foreach my $file (@files) {
+			my $prefix	= 'r' . $counter++ . 'a';
 			my $parser	= new RDF::Core::Model::Parser (
 							Model		=> $model,
 							Source		=> $file,
 							SourceType	=> 'file',
-							BaseURI		=> 'http://example.com/'
+							BaseURI		=> 'http://example.com/',
+							BNodePrefix	=> $prefix,
 						);
 			$parser->parse;
 		}

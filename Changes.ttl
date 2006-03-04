@@ -6,9 +6,29 @@
 @prefix asc:     <http://aaronland.info/ns/changefile/> .
                                      
 <>
-        dc:identifier           "$Id: Changes.ttl 127 2006-02-08 19:53:21Z samofool $" ;
+        dc:identifier           "$Id: Changes.ttl 134 2006-03-03 23:06:03Z samofool $" ;
         dc:description          "Changes for RDF::Query" ;
         dcterms:references      <http://kasei.us/code/rdf-query/> .
+
+<http://kasei.us/code/files/RDF-Query-v1.1.32.tar>
+        dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
+        dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.031.tar.gz> ;
+
+        doap:Version    [
+                        doap:revision     "1.032" ;
+                        doap:created      "2006-03-03" ;
+                        ];
+        asc:changes     [
+                        asc:update        "Replaced the Parse::RecDescent SPARQL parser with a much faster hand-written one." ;
+                        asc:update        "Updated SPARQL parsing rules to be better about URI and QName character sets." ;
+                        asc:update        "FILTER equality operator now '=', not '==' (to match SPARQL spec)." ;
+                        asc:update        "Initial support for FILTER constraints as part of the triple pattern structure (Will allow for nested FILTERs)." ;
+                        asc:addition      "Implemented support for ordering query results by an expression." ;
+                        asc:update        "Fixed bug in expresion handling of unary minus." ;
+                        asc:update        "Fixed bug in Redland NAMED GRAPH parsing." ;
+                        asc:update        "Fixed bug in RDF::Core parsing code where blank nodes would be accidentally smushed." ;
+                        ] .
+
 
 <http://kasei.us/code/files/RDF-Query-v1.1.31.tar>
         dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;

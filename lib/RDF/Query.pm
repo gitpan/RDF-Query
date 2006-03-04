@@ -1,7 +1,7 @@
 # RDF::Query
 # -------------
-# $Revision: 127 $
-# $Date: 2006-02-08 14:53:21 -0500 (Wed, 08 Feb 2006) $
+# $Revision: 134 $
+# $Date: 2006-03-03 18:06:03 -0500 (Fri, 03 Mar 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -10,7 +10,7 @@ RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF
 
 =head1 VERSION
 
-This document describes RDF::Query version 1.031
+This document describes RDF::Query version 1.032
 
 =head1 SYNOPSIS
 
@@ -51,10 +51,10 @@ use Carp qw(carp croak confess);
 
 use Data::Dumper;
 use LWP::Simple ();
+use Scalar::Util qw(blessed reftype);
 
 use RDF::Query::Stream;
 
-use RDF::Query::Model::DBI;
 use RDF::Query::Model::Redland;
 use RDF::Query::Model::RDFCore;
 
@@ -66,8 +66,8 @@ use RDF::Query::Parser::SPARQL;
 our ($REVISION, $VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$REVISION	= do { my $REV = (qw$Revision: 127 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
-	$VERSION	= 1.031;
+	$REVISION	= do { my $REV = (qw$Revision: 134 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= 1.032;
 }
 
 ######################################################################
@@ -95,13 +95,8 @@ sub new {
 	$self->{parser}	= $parser;
 	my $parsed		= $parser->parse( $query );
 	$self->{parsed}	= $parsed;
-	unless ($parsed->{'triples'} and scalar(@{ $parsed->{'triples'} })) {
-		if ($debug) {
-			warn "*** Failed to parse. Parse trace follows:\n\n";
-			local($::RD_TRACE)	= 1;
-			local($::RD_HINT)	= 1;
-			$parser->parse( $query );
-		}
+	unless ($parsed->{'triples'}) {
+		warn $parser->error if ($debug);
 		return undef;
 	}
 	$self->{parsed}{namespaces}{rdf}	= 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
@@ -117,13 +112,12 @@ and returns the first row found.
 sub get {
 	my $self	= shift;
 	my $stream	= $self->execute( @_ );
-	if ($stream) {
-		my $row		= $stream->();
-		if (ref($row)) {
-			return @{ $row };
-		}
+	my $row		= $stream->();
+	if (ref($row)) {
+		return @{ $row };
+	} else {
+		return undef;
 	}
-	return undef;
 }
 
 =item C<execute ( $model )>
@@ -166,6 +160,16 @@ sub execute {
 	}
 }
 
+=for private
+
+=item C<describe ( $stream )>
+
+Takes a stream of matching statements and constructs a DESCRIBE graph.
+
+=end for
+
+=cut
+
 sub describe {
 	my $self	= shift;
 	my $stream	= shift;
@@ -175,9 +179,7 @@ sub describe {
 	while ($stream and not $stream->finished) {
 		my $row	= $stream->current;
 		foreach my $node (@$row) {
-			unless ($seen{ $bridge->as_string( $node ) }++) {
-				push(@nodes, $node);
-			}
+			push(@nodes, $node) unless ($seen{ $bridge->as_string( $node ) }++);
 		}
 	} continue {
 		$stream->next;
@@ -199,12 +201,23 @@ sub describe {
 				return $val;
 			} else {
 				shift(@streams);
-				return undef unless (@streams);
+				return undef if (not @streams);
 			}
 		}
 	};
 	return RDF::Query::Stream->new( $ret, 'graph', undef, bridge => $bridge );
 }
+
+=for private
+
+=item C<construct ( $stream )>
+
+Takes a stream of matching statements and constructs a result graph matching the
+uery's CONSTRUCT graph patterns.
+
+=end for
+
+=cut
 
 sub construct {
 	my $self	= shift;
@@ -225,7 +238,7 @@ sub construct {
 		foreach my $triple (@{ $self->parsed->{'construct_triples'} }) {
 			my @triple	= @{ $triple };
 			for my $i (0 .. 2) {
-				if (UNIVERSAL::isa($triple[$i], 'ARRAY')) {
+				if (reftype($triple[$i]) eq 'ARRAY') {
 					if ($triple[$i][0] eq 'VAR') {
 						$triple[$i]	= $row->[ $variable_map{ $triple[$i][1] } ];
 					} elsif ($triple[$i][0] eq 'BLANK') {
@@ -259,6 +272,16 @@ sub construct {
 	return RDF::Query::Stream->new( $ret, 'graph', undef, bridge => $bridge );
 }
 
+=for private
+
+=item C<ask ( $stream )>
+
+Takes a stream of matching statements and returns a boolean query result stream.
+
+=end for
+
+=cut
+
 sub ask {
 	my $self	= shift;
 	my $stream	= shift;
@@ -267,12 +290,33 @@ sub ask {
 
 ######################################################################
 
+=for private
+
+=item C<supports ( $model, $feature )>
+
+Returns a boolean value representing the support of $feature for the given model.
+
+=end for
+
+=cut
+
 sub supports {
 	my $self	= shift;
 	my $model	= shift;
 	my $bridge	= $self->get_bridge( $model );
 	return $bridge->supports( @_ );
 }
+
+=for private
+
+=item C<set_named_graph_query ()>
+
+Makes appropriate changes for the current query to use named graphs.
+This entails creating a new context-aware bridge (and model) object.
+
+=end for
+
+=cut
 
 sub set_named_graph_query {
 	my $self	= shift;
@@ -281,29 +325,45 @@ sub set_named_graph_query {
 	$self->{bridge}	= $bridge;
 }
 
+=for private
+
+=item C<new_bridge ()>
+
+Returns a new bridge object representing a new, empty model.
+
+=end for
+
+=cut
+
 sub new_bridge {
 	my $self	= shift;
 	
 	eval "use RDF::Redland;";
 	if (not $@) {
 		require RDF::Query::Model::Redland;
-		my $storage	= new RDF::Redland::Storage("hashes", "test", "new='yes',hash-type='memory',contexts='yes'");
-		my $model	= new RDF::Redland::Model($storage, "");
-		my $bridge	= RDF::Query::Model::Redland->new( $model );
+		my $bridge	= RDF::Query::Model::Redland->new();
 		return $bridge;
 	}
 	
 	eval "use RDF::Core;";
 	if (not $@) {
 		require RDF::Query::Model::RDFCore;
-		my $storage	= new RDF::Core::Storage::Memory;
-		my $model	= new RDF::Core::Model (Storage => $storage);
-		my $bridge	= RDF::Query::Model::RDFCore->new( $model );
+		my $bridge	= RDF::Query::Model::RDFCore->new();
 		return $bridge;
 	}
 	
 	return undef;
 }
+
+=for private
+
+=item C<get_bridge ( $model )>
+
+Returns a bridge object for the specified model object.
+
+=end for
+
+=cut
 
 sub get_bridge {
 	my $self	= shift;
@@ -313,12 +373,12 @@ sub get_bridge {
 	
 	if (not $model) {
 		$bridge	= $self->new_bridge();
-	} elsif (UNIVERSAL::isa($model, 'RDF::Redland::Model')) {
+	} elsif (blessed($model) and $model->isa('RDF::Redland::Model')) {
 		require RDF::Query::Model::Redland;
 		$bridge	= RDF::Query::Model::Redland->new( $model );
-	} elsif (UNIVERSAL::isa($model, 'ARRAY') and UNIVERSAL::isa($model->[0], 'DBI::db')) {
-		require RDF::Query::Model::DBI;
-		$bridge	= RDF::Query::Model::DBI->new( $model );
+#	} elsif (reftype($model) eq 'ARRAY' and blessed($model->[0]) and $model->[0]->isa('DBI::db')) {
+#		require RDF::Query::Model::DBI;
+#		$bridge	= RDF::Query::Model::DBI->new( $model );
 	} else {
 		require RDF::Query::Model::RDFCore;
 		$bridge	= RDF::Query::Model::RDFCore->new( $model );
@@ -326,6 +386,20 @@ sub get_bridge {
 	
 	return $bridge;
 }
+
+=for private
+
+=item C<fixup ()>
+
+Does last-minute fix-up on the parse tree. This involves:
+
+	* Loading any external files into the model.
+	* Converting URIs and strings to model-specific objects.
+	* Fixing variable list in the case of 'SELECT *' queries.
+
+=end for
+
+=cut
 
 sub fixup {
 	my $self		= shift;
@@ -336,7 +410,7 @@ sub fixup {
 	
 	## LOAD ANY EXTERNAL RDF FILES
 	my $sources	= $parsed->{'sources'};
-	if (UNIVERSAL::isa( $sources, 'ARRAY' )) { # and scalar(@{ $sources })) {
+	if (ref($sources) and reftype($sources) eq 'ARRAY') {
 		my $named_query	= 0;
 		foreach my $source (@{ $sources }) {
 			my $named_source	= (3 == @{$source} and $source->[2] eq 'NAMED');
@@ -366,8 +440,22 @@ sub fixup {
 		} elsif ($triple->[0] eq 'UNION') {
 			push(@triples, @{$triple->[1]});
 			push(@triples, @{$triple->[2]});
+		} elsif ($triple->[0] eq 'FILTER') {
+			my @constraints	= ($triple->[1]);
+			while (my $data = shift @constraints) {
+				_debug( "FIXING CONSTRAINT DATA: " . Dumper($data), 2 );
+				if (reftype($data) eq 'ARRAY') {
+					my ($op, $rest)	= @$data;
+					if ($op eq 'URI') {
+						$data->[1]	= $self->qualify_uri( $data );
+						_debug( "FIXED: " . $data->[1], 2 );
+					} elsif ($op !~ /^(VAR|LITERAL)$/) {
+						push(@constraints, @{ $data }[1 .. $#{ $data }]);
+					}
+				}
+			}
 		} else {
-			my @vars	= map { $_->[1] } grep { UNIVERSAL::isa($_,'ARRAY') and $_->[0] eq 'VAR' } @{ $triple };
+			my @vars	= map { $_->[1] } grep { reftype($_) eq 'ARRAY' and $_->[0] eq 'VAR' } @{ $triple };
 			foreach my $var (@vars) {
 				$known_variables{ $var }++
 			}
@@ -382,23 +470,6 @@ sub fixup {
 	}
 	
 	
-	## FULLY QUALIFY URIs IN CONSTRAINTS
-	if (ref($parsed->{'constraints'})) {
-		my @constraints	= $parsed->{'constraints'};
-		while (my $data = shift @constraints) {
-			_debug( "FIXING CONSTRAINT DATA: " . Dumper($data), 2 );
-			if (UNIVERSAL::isa($data, 'ARRAY')) {
-				my ($op, $rest)	= @{ $data };
-				if ($op and $op eq 'URI') {
-					$data->[1]	= $self->qualify_uri( $data );
-					_debug( "FIXED: " . $data->[1], 2 );
-				}
-				push(@constraints, @{ $data }[1 .. $#{ $data }]);
-			}
-		}
-		_debug( 'filters: ' . Dumper($parsed->{'constraints'}), 2 );
-	}
-	
 	## DEFAULT METHOD TO 'SELECT'
 	$parsed->{'method'}	||= 'SELECT';
 	
@@ -411,7 +482,7 @@ sub fixup {
 		foreach my $triple (@{ $parsed->{triples} }) {
 			my @nodes	= @{ $triple };
 			foreach my $node (@nodes) {
-				if (UNIVERSAL::isa($node, 'ARRAY') and $node->[0] eq 'VAR') {
+				if (reftype($node) eq 'ARRAY' and $node->[0] eq 'VAR') {
 					push(@{ $parsed->{'variables'} }, ['VAR', $node->[1]]) unless ($seen{$node->[1]}++);
 				}
 			}
@@ -421,16 +492,26 @@ sub fixup {
 	return $parsed;
 }
 
+=for private
+
+=item C<fixup_triple_bridge_variables ()>
+
+Called by C<fixup()> to replace URIs and strings with model-specific objects.
+
+=end for
+
+=cut
+
 sub fixup_triple_bridge_variables {
 	my $self	= shift;
 	my $triple	= shift;
 	my ($sub,$pred,$obj)	= @{ $triple };
-	if (UNIVERSAL::isa($pred, 'ARRAY') and $pred->[0] eq 'URI') {
+	if (reftype($pred) eq 'ARRAY' and $pred->[0] eq 'URI') {
 		my $preduri		= $self->qualify_uri( $pred );
 		$triple->[1]	= $self->bridge->new_resource($preduri);
 	}
 	
-	if (UNIVERSAL::isa($sub, 'ARRAY') and $sub->[0] eq 'URI') {
+	if (reftype($sub) eq 'ARRAY' and $sub->[0] eq 'URI') {
 		my $resource	= $self->qualify_uri( $sub );
 		$triple->[0]	= $self->bridge->new_resource($resource);
 # 	} elsif ($sub->[0] eq 'LITERAL') {
@@ -440,13 +521,14 @@ sub fixup_triple_bridge_variables {
 	
 # XXX THIS CONDITIONAL SHOULD ALWAYS BE TRUE ... ? (IT IS IN ALL TEST CASES)
 #	if (ref($obj)) {
-		if (UNIVERSAL::isa($obj, 'ARRAY') and $obj->[0] eq 'LITERAL') {
-			if (UNIVERSAL::isa($obj->[3], 'ARRAY') and $obj->[3][0] eq 'URI') {
+		if (reftype($obj) eq 'ARRAY' and $obj->[0] eq 'LITERAL') {
+			no warnings 'uninitialized';
+			if (reftype($obj->[3]) eq 'ARRAY' and $obj->[3][0] eq 'URI') {
 				$obj->[3]	= $self->qualify_uri( $obj->[3] );
 			}
 			my $literal		= $self->bridge->new_literal(@{$obj}[ 1 .. $#{$obj} ]);
 			$triple->[2]	= $literal;
-		} elsif (UNIVERSAL::isa($obj, 'ARRAY') and $obj->[0] eq 'URI') {
+		} elsif (reftype($obj) eq 'ARRAY' and $obj->[0] eq 'URI') {
 			my $resource	= $self->qualify_uri( $obj );
 			$triple->[2]	= $self->bridge->new_resource($resource);
 		}
@@ -491,6 +573,20 @@ sub query_more {
 		} else {
 			return $self->named_graph( bound => $bound, triples => \@triples );
 		}
+	} elsif ($triples[0][0] eq 'FILTER') {
+		my $data	= shift(@triples);
+		my $filter	= $data->[1];
+		if ($self->check_constraints( $bound, $filter )) {
+			if (@triples) {
+				return $self->query_more( bound => $bound, triples => \@triples );
+			} else {
+				my @values	= map { $bound->{$_} } $self->variables();
+				my @rows	= [@values];
+				return sub { shift(@rows) };
+			}
+		} else {
+			return sub { undef };
+		}
 	} elsif ($triples[0][0] eq 'UNION') {
 		return $self->union( bound => $bound, triples => \@triples, %args );
 	}
@@ -503,9 +599,9 @@ sub query_more {
 	my @triple		= @{ $triple };
 	
 	no warnings 'uninitialized';
-	_debug( "${indent}query_more: " . join(' ', map { (($bridge->isa_node($_)) ? '<' . $bridge->as_string($_) . '>' : $_->[1]) } @triple) . "\n" );
+	_debug( "${indent}query_more: " . join(' ', map { (($bridge->isa_node($_)) ? '<' . $bridge->as_string($_) . '>' : (reftype($_) eq 'ARRAY') ? $_->[1] : Dumper($_)) } @triple) . "\n" );
 	_debug( "${indent}-> with " . scalar(@triples) . " triples to go\n" );
-	_debug( "${indent}-> more: " . (($_->[0] =~ m/^(OPTIONAL|GRAPH)$/) ? "$1 block" : join(' ', map { $bridge->isa_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
+	_debug( "${indent}-> more: " . (($_->[0] =~ m/^(OPTIONAL|GRAPH|FILTER)$/) ? "$1 block" : join(' ', map { $bridge->isa_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
 	
 	my $vars	= 0;
 	my ($var, $method);
@@ -515,7 +611,7 @@ sub query_more {
 	for my $idx (0 .. 2) {
 		_debug( "looking at triple " . $methodmap[ $idx ] );
 		my $data	= $triple[$idx];
-		if (UNIVERSAL::isa($data, 'ARRAY')) {	# and $data->[0] eq 'VAR'
+		if (reftype($data) eq 'ARRAY') {	# and $data->[0] eq 'VAR'
 			if ($data->[0] eq 'VAR' or $data->[0] eq 'BLANK') {
 				my $tmpvar	= ($data->[0] eq 'VAR') ? $data->[1] : '_' . $data->[1];
 				my $val		= $bound->{ $tmpvar };
@@ -548,7 +644,7 @@ sub query_more {
 	}
 	
 	_debug( "${indent}getting: " . join(', ', grep defined, @vars) . "\n" );
-	_debug( 'query_more triple: ' . Dumper([map { ($_) ? $bridge->as_string($_) : 'undef' } (@triple, (($bridge->isa_node($context)) ? $context : ()))]) );
+	_debug( 'query_more triple: ' . Dumper([map { blessed($_) ? $bridge->as_string($_) : ($_) ? Dumper($_) : 'undef' } (@triple, (($bridge->isa_node($context)) ? $context : ()))]) );
 	
 	my @streams;
 	my $stream;
@@ -563,7 +659,6 @@ sub query_more {
 	} elsif ($bridge->isa_node( $context )) {
 		@graph	= $context;
 	}
-	
 	
 	
 #	my @graph		= (($bridge->isa_node($context)) ? $context : ());
@@ -622,7 +717,7 @@ sub query_more {
 			
 			if (scalar(@triples)) {
 				_debug( "${indent}-> now for more triples...\n" );
-				_debug( "${indent}-> more: " . (($_->[0] eq 'OPTIONAL') ? 'OPTIONAL block' : join(' ', map { $bridge->isa_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
+				_debug( "${indent}-> more: " . (($_->[0] =~ m/^(OPTIONAL|GRAPH|FILTER)$/) ? "$1 block" : join(' ', map { $bridge->isa_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
 				_debug( "${indent}-> " . Dumper(\@triples) );
 				$indent	.= '  ';
 				_debug( 'adding a new stream for more triples' );
@@ -630,12 +725,7 @@ sub query_more {
 			} else {
 				my @values	= map { $bound->{$_} } $self->variables();
 				_debug( "${indent}-> no triples left: result: " . join(', ', map {$bridge->as_string($_)} grep defined, @values) . "\n" );
-				if ($self->check_constraints( $bound, $parsed->{'constraints'} )) {
-					my @values	= map { $bound->{$_} } $self->variables();
-					$result	= [@values];
-				} else {
-					_debug( "${indent}-> failed constraints check\n" );
-				}
+				$result	= [@values];
 			}
 			
 			foreach my $var (@vars) {
@@ -688,6 +778,17 @@ sub query_more {
 	};	
 }
 
+=for private
+
+=item C<union ( bound => \%bound, triples => \@triples )>
+
+Called by C<query_more()> to handle UNION queries.
+Calls C<query_more()> with each UNION branch, and returns an aggregated data stream.
+
+=end for
+
+=cut
+
 sub union {
 	my $self		= shift;
 	my %args	= @_;
@@ -719,6 +820,18 @@ sub union {
 		return undef;
 	};	
 }
+
+=for private
+
+=item C<optional ( bound => \%bound, triples => \@triples )>
+
+Called by C<query_more()> to handle OPTIONAL query patterns.
+Calls C<query_more()> with the OPTIONAL pattern, binding variables if the
+pattern succeeds. Returns by calling C<query_more()> with any remaining triples.
+
+=end for
+
+=cut
 
 sub optional {
 	my $self		= shift;
@@ -769,16 +882,12 @@ sub optional {
 			};
 		} else {
 			_debug( "No more triples. Returning OPTIONAL stream." );
-			if ($self->check_constraints( $bound, $parsed->{'constraints'} )) {
-				return sub {
-					return undef unless ($ostream and not $ostream->finished);
-					my $data	= $ostream->current;
-					$ostream->next;
-					return $data;
-				};
-			} else {
-				_debug( "failed constraints check\n" );
-			}
+			return sub {
+				return undef unless ($ostream and not $ostream->finished);
+				my $data	= $ostream->current;
+				$ostream->next;
+				return $data;
+			};
 		}
 	} else {
 		_debug( "OPTIONAL block failed" );
@@ -796,15 +905,25 @@ sub optional {
 							my $result	= shift(@results);
 							my %bound;
 							@bound{ @vars }	= @$result;
-							if ($self->check_constraints( \%bound, $parsed->{'constraints'} )) {
-								return $result;
-							}
+							return $result;
 						}
 					};
 			return $stream;
 		}
 	}
 }
+
+=for private
+
+=item C<named_graph ( bound => \%bound, triples => \@triples )>
+
+Called by C<query_more()> to handle NAMED graph query patterns.
+Matches graph context (binding the graph to a variable if applicable).
+Returns by calling C<query_more()> with any remaining triples.
+
+=end for
+
+=cut
 
 sub named_graph {
 	my $self		= shift;
@@ -829,70 +948,60 @@ sub named_graph {
 	_debug( 'named stream: ' . $nstream, 1 );
 	_debug_closure( $nstream );
 	
-	if ($nstream) {
-		_debug( 'got named stream' );
-		if (@triples) {
-			_debug( "with more triples to match." );
-			my $stream;
-			return sub {
-				while ($nstream or $stream) {
-					if (ref($stream)) {
-						my $data	= $stream->();
-						if ($data) {
-							return $data;
-						} else {
-							undef $stream;
-						}
-					}
-					
-					if ($nstream) {
-						my $data	= $nstream->();
-						if ($data) {
-							foreach my $i (0 .. $#{ $variables }) {
-								my $name	= $variables->[ $i ];
-								my $value	= $data->[ $i ];
-								if (defined $value) {
-									$bound->{ $name }	= $value;
-									_debug( "Setting $name from named graph = $value\n" );
-								}
-							}
-							$stream	= $self->query_more( bound => $bound, triples => \@triples );
-						} else {
-							undef $nstream;
-						}
+	_debug( 'got named stream' );
+	if (@triples) {
+		_debug( "with more triples to match." );
+		my $stream;
+		return sub {
+			while ($nstream or $stream) {
+				if (ref($stream)) {
+					my $data	= $stream->();
+					if ($data) {
+						return $data;
+					} else {
+						undef $stream;
 					}
 				}
-				return undef;
-			};
-		} else {
-			_debug( "No more triples. Returning NAMED stream." );
-			return $nstream;
-		}
-	} else {
-		_debug( "NAMED block failed" );
-		if (@triples) {
-			_debug( "More triples. Re-dispatching" );
-			return $self->query_more( bound => $bound, triples => \@triples );
-		} else {
-			_debug( "No more triples. Returning empty results." );
-			my @vars	= $self->variables;
-			my @values	= map { $bound->{$_} } $self->variables();
-			my @results	= [@values];
-			my $stream;
-			$stream	= sub {
-						while (@results) {
-							my $result	= shift(@results);
-							my %bound;
-							@bound{ @vars }	= @$result;
-							if ($self->check_constraints( \%bound, $parsed->{'constraints'} )) {
-								return $result;
+				
+				if ($nstream) {
+					my $data	= $nstream->();
+					if ($data) {
+						foreach my $i (0 .. $#{ $variables }) {
+							my $name	= $variables->[ $i ];
+							my $value	= $data->[ $i ];
+							if (defined $value) {
+								$bound->{ $name }	= $value;
+								_debug( "Setting $name from named graph = $value\n" );
 							}
 						}
-					};
-			return $stream;
-		}
+						$stream	= $self->query_more( bound => $bound, triples => \@triples );
+					} else {
+						undef $nstream;
+					}
+				}
+			}
+			return undef;
+		};
+	} else {
+		_debug( "No more triples. Returning NAMED stream." );
+		return $nstream;
 	}
 }
+
+=for private
+
+=item C<qualify_uri ( [ 'URI', [ $prefix, $localPart ] ] )>
+
+=item C<qualify_uri ( [ 'URI', $uri )>
+
+Returns a full URI given the URI data structure passed as an argument.
+For already-qualified URIs, simply returns the URI.
+For QNames, looks up the QName prefix in the parse-tree namespaces, and
+concatenates with the QName local part.
+
+=end for
+
+=cut
 
 sub qualify_uri {
 	my $self	= shift;
@@ -913,6 +1022,17 @@ sub qualify_uri {
 	return $uri;
 }
 
+=for private
+
+=item C<check_constraints ( \%bound, \@data )>
+
+Returns the value returned by evaluating the expression structures in C<@data>
+with the bound variables in C<%bound>.
+
+=end for
+
+=cut
+
 {
 no warnings 'numeric';
 my %dispatch	= (
@@ -931,7 +1051,15 @@ my %dispatch	= (
 					'*'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return $operands[0] * $operands[1] },
 					'/'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return $operands[0] / $operands[1] },
 					'+'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return $operands[0] + $operands[1] },
-					'-'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return $operands[0] - $operands[1] },
+					'-'		=> sub {
+								my ($self, $values, $data) = @_;
+								my @operands	= map { $self->check_constraints( $values, $_ ) } @{ $data };
+								if (1 == @operands) {
+									return -1 * $operands[0];
+								} else {
+									return $operands[0] - $operands[1]
+								}
+							},
 					'FUNCTION'	=> sub {
 						our %functions;
 						my ($self, $values, $data) = @_;
@@ -976,6 +1104,17 @@ sub check_constraints {
 }
 }
 
+=for private
+
+=item C<get_value ( $value )>
+
+Returns the scalar value (string literal, URI value, or blank node identifier)
+for the specified model-specific node object.
+
+=end for
+
+=cut
+
 sub get_value {
 	my $self	= shift;
 	my $value	= shift;
@@ -989,6 +1128,13 @@ sub get_value {
 	}
 }
 
+=item C<add_function ( $uri, $function )>
+
+Associates the custom function C<$function> (a CODE reference) with the
+specified URI, allowing the function to be called by query FILTERs.
+
+=cut
+
 sub add_function {
 	my $self	= shift;
 	my $uri		= shift;
@@ -1001,12 +1147,36 @@ sub add_function {
 	}
 }
 
+=for private
+
+=item C<ncmp ( $value )>
+
+General-purpose sorting function for both numbers and strings.
+
+=end for
+
+=cut
+
 sub ncmp ($$) {
 	my ($a, $b)	= @_;
 	return ($a =~ /^[-+]?[0-9.]+$/ and $b =~ /^[-+]?[0-9.]+$/)
 		? ($a <=> $b)
 		: ($a cmp $b)
 }
+
+=for private
+
+=item C<sort_rows ( $nodes, $parsed )>
+
+Called by C<execute> to handle result forms including:
+	* Sorting results
+	* Distinct results
+	* Limiting result count
+	* Offset in result set
+	
+=end for
+
+=cut
 
 sub sort_rows {
 	my $self	= shift;
@@ -1038,19 +1208,33 @@ sub sort_rows {
 	
 	if ($orderby) {
 		my $cols		= $args->{'orderby'};
-		my ($dir, $col)	= @{ $cols->[0][1] };
+		my ($dir, $data)	= @{ $cols->[0] };
+#		warn Dumper($data);
+		if ($dir ne 'ASC' and $dir ne 'DESC') {
+			warn "Direction of sort not recognized: $dir";
+		}
+		
+		my $col				= $data;
+		my $colmap_value	= $colmap{$col};
 		_debug( "ordering by $col" );
+		
 		my @nodes;
 		while (my $node = $nodes->()) {
 			_debug( "node for sorting: " . Dumper($node) );
 			push(@nodes, $node);
 		}
+		
 		no warnings 'numeric';
-		@nodes	= map { $_->[0] }
-					sort { ncmp($a->[1], $b->[1]) }
-						map { [$_, $bridge->as_string( $_->[$colmap{$col}] )] }
-							@nodes;
+		@nodes	= map {
+					my $node	= $_;
+					[ $node, $self->check_constraints( {map { $_ => $node->[ $colmap{$_} ] } (keys %colmap)}, $data ) ]
+				} @nodes;
+		@nodes	= sort { ncmp($a->[1], $b->[1]) }
+						@nodes;
+						
 		@nodes	= reverse @nodes if ($dir eq 'DESC');
+		
+		@nodes	= map { $_->[0] } @nodes;
 		$nodes	= sub {
 			my $row	= shift(@nodes);
 			return $row;
@@ -1092,12 +1276,32 @@ sub parse_url {
 	$bridge->add_uri( $url, $named );
 }
 
+=for private
+
+=item C<variables ()>
+
+Returns a list of the ordered variables the query is selecting.
+	
+=end for
+
+=cut
+
 sub variables {
 	my $self	= shift;
 	my $parsed	= $self->parsed;
 	my @vars	= map { $_->[1] } @{ $parsed->{'variables'} };
 	return @vars;
 }
+
+=for private
+
+=item C<_debug_closure ( $code )>
+
+Debugging function to print out a deparsed (textual) version of a closure.
+	
+=end for
+
+=cut
 
 sub _debug_closure {
 	return unless ($debug > 1);
@@ -1108,6 +1312,17 @@ sub _debug_closure {
 	warn "--- --- CLOSURE --- ---\n";
 	carp $body;
 }
+
+=for private
+
+=item C<_debug ( $message, $level, $trace )>
+
+Debugging function to print out C<$message> at or above the specified debugging
+C<$level>, with an optional stack C<$trace>.
+	
+=end for
+
+=cut
 
 sub _debug {
 	my $mesg	= shift;

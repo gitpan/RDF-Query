@@ -12,6 +12,8 @@ my $parser	= new RDF::Redland::Parser("rdfxml");
 $parser->parse_into_model($_, $_, $model) for (@data);
 
 my %seen;
+
+
 {
 	print "# foaf:Person ORDER BY name with LIMIT\n";
 	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
@@ -137,9 +139,6 @@ END
 	is( $count, 1, "Good DISTINCT with LIMIT" );
 }
 
-TODO: {
-	local($TODO)	= "Sorting of expressions is not yet implemented.";
-
 {
 	print "# foaf:Image with ORDER BY ASC(expression) [1]\n";
 	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
@@ -159,11 +158,21 @@ END
 	my $stream	= $query->execute( $model );
 	isa_ok( $stream, 'RDF::Query::Stream' );
 	my $count	= 0;
-	my @images	= qw(http://kasei.us/pictures/2004/20040909-Ireland/images/DSC_5705.jpg http://kasei.us/pictures/2005/20050422-WCCS_Dinner/images/DSC_8055.jpg);
 	
+	my $min;
 	while (my $row = $stream->()) {
 		my ($i, $l)	= @{ $row };
-		is( $query->bridge->uri_value( $i ), shift(@images) );
+		my $image	= $query->bridge->uri_value($i);
+		my $long	= $query->bridge->literal_value($l);
+		if (defined($min)) {
+			cmp_ok( $long, '<=', $min, "decreasing longitude $long on $image" );
+			if ($long <= $min) {
+				$min	= $long;
+			}
+		} else {
+			is( $image, 'http://kasei.us/pictures/2004/20040909-Ireland/images/DSC_5705.jpg' );
+			$min	= $long;
+		}
 	} continue { last if ++$count == 2 };
 	is( $count, 2, "Good ORDER BY ASC(expression) [1]" );
 }
@@ -187,13 +196,21 @@ END
 	my $stream	= $query->execute( $model );
 	isa_ok( $stream, 'RDF::Query::Stream' );
 	my $count	= 0;
-	my @images	= qw(http://kasei.us/pictures/2005/20050422-WCCS_Dinner/images/DSC_8055.jpg http://kasei.us/pictures/2004/20040909-Ireland/images/DSC_5705.jpg);
 	
+	my $max;
 	while (my $row = $stream->()) {
 		my ($i, $l)	= @{ $row };
-		is( $query->bridge->uri_value( $i ), shift(@images) );
+		my $image	= $query->bridge->uri_value($i);
+		my $long	= $query->bridge->literal_value($l);
+		if (defined($max)) {
+			cmp_ok( $long, '>=', $max, "increasing longitude $long on $image" );
+			if ($long >= $max) {
+				$max	= $long;
+			}
+		} else {
+			cmp_ok( $long, '==', -71.3924 );
+			$max	= $long;
+		}
 	} continue { last if ++$count == 2 };
 	is( $count, 2, "Good ORDER BY DESC(expression) [2]" );
 }
-
-} # END TODO

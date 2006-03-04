@@ -8,7 +8,7 @@ BEGIN { require "models.pl"; }
 
 use Test::More;
 
-my $tests	= 34;
+my $tests	= 36;
 my @models	= test_models();
 plan tests => 1 + ($tests * scalar(@models));
 
@@ -38,6 +38,36 @@ END
 			ok( $name, 'got name' );		
 			is( $query->bridge->uri_value( $src ), $alice, 'graph uri' );
 			is( $query->bridge->as_string( $name ), 'Alice', 'name literal' );
+		}
+		
+		{
+			print "# uri named graph (fail: graph)\n";
+			my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+				PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+				SELECT ?name
+				FROM NAMED <${alice}>
+				WHERE {
+					GRAPH <foo:bar> { ?x foaf:name ?name }
+				}
+END
+			my $stream	= $query->execute( $model );
+			my $row		= $stream->();
+			is( $row, undef, 'no results' );
+		}
+		
+		{
+			print "# uri named graph (fail: pattern)\n";
+			my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+				PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+				SELECT ?src ?name
+				FROM NAMED <${alice}>
+				WHERE {
+					GRAPH ?src { ?x <foo:bar> ?name }
+				}
+END
+			my $stream	= $query->execute( $model );
+			my $row		= $stream->();
+			is( $row, undef, 'no results' );
 		}
 		
 		{

@@ -10,5 +10,7 @@ WriteMakefile(
 										'LWP::Simple'				=> 0,
 										'Test::More'				=> 0.61,
 										'DateTime::Format::W3CDTF'	=> 0,
+										'Scalar::Util'				=> 0,
+										'Error'						=> 0,
 								}
 			);

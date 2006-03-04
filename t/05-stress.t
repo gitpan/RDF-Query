@@ -43,9 +43,10 @@ foreach my $model (@models) {
 		WHERE	{
 					?point geo:lat ?lat .
 					?image ?pred ?point .
-					FILTER	(?pred == <http://purl.org/dc/terms/spatial> || ?pred == <http://xmlns.com/foaf/0.1/based_near>)
+					FILTER(	(?pred = <http://purl.org/dc/terms/spatial> || ?pred = <http://xmlns.com/foaf/0.1/based_near>)
 						&&	?lat > 52
 						&&	?lat < 53
+					) .
 				}
 END
 		my ($image, $point, $lat)	= $query->get( $model );

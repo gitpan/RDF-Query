@@ -31,6 +31,7 @@ $parser->parse_into_model($_, $_, $model) for (@data);
 				}
 END
 	my $query	= RDF::Query->new( $sparql, undef, undef, 'sparql' );
+	
 	my $count	= 0;
 	my $stream	= $query->execute( $model );
 	while (my $row = $stream->()) {
@@ -44,7 +45,6 @@ END
 	}
 	is( $count, 3, "3 object depictions found" );
 }
-
 
 {
 	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
@@ -67,7 +67,6 @@ END
 	}
 }
 
-
 {
 	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
@@ -88,9 +87,6 @@ END
 		like( $query->bridge->as_string( $n ), qr/^(Greg|Liz|Lauren)/, 'name' );
 	}
 }
-
-
-
 
 SKIP: {
 	eval "use Geo::Distance 0.09;";
@@ -187,7 +183,6 @@ END
 	}
 	is( $count, 3, "3 object depictions found" );
 }
-
 
 ######################################################################
 
