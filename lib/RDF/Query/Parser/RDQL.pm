@@ -1,7 +1,7 @@
 # RDF::Query::Parser::RDQL
 # -------------
-# $Revision: 129 $
-# $Date: 2006-02-27 18:03:04 -0500 (Mon, 27 Feb 2006) $
+# $Revision: 137 $
+# $Date: 2006-03-08 00:17:28 -0500 (Wed, 08 Mar 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -21,6 +21,8 @@ use LWP::Simple ();
 use Parse::RecDescent;
 use Digest::SHA1  qw(sha1_hex);
 use Carp qw(carp croak confess);
+use RDF::Query::Error qw(:try);
+use Scalar::Util qw(blessed);
 
 ######################################################################
 
@@ -29,7 +31,7 @@ BEGIN {
 	$::RD_TRACE	= undef;
 	$::RD_HINT	= undef;
 	$debug		= 1;
-	$VERSION	= do { my $REV = (qw$Revision: 129 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 137 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	$lang		= 'rdql';
 	$languri	= 'http://jena.hpl.hp.com/2003/07/query/RDQL';
 }
@@ -205,27 +207,38 @@ END
 Returns a new RDF::Query object.
 
 =cut
+
 { my $parser;
 sub new {
 	my $class	= shift;
-	$parser		||= new Parse::RecDescent ($RDQL_GRAMMAR);
+	unless ($parser) {
+		$parser	= new Parse::RecDescent ($RDQL_GRAMMAR);
+	}
 	my $self 	= bless( {
 					parser		=> $parser
 				}, $class );
 	return $self;
 } }
 
+=item C<parse ( $query ) >
+
+Parses the supplied RDQL query string, returning a parse tree.
+
+=cut
 
 sub parse {
 	my $self	= shift;
 	my $query	= shift;
 	my $parser	= $self->parser;
 	my $parsed	= $parser->query( $query );
+	return $parsed;
 }
 
 sub AUTOLOAD {
 	my $self	= $_[0];
-	my $class	= ref($_[0]) || return undef;
+	throw RDF::Query::Error::MethodInvocationError unless (blessed($self));
+	
+	my $class	= ref($_[0]);
 	our $AUTOLOAD;
 	return if ($AUTOLOAD =~ /DESTROY$/);
 	my $method		= $AUTOLOAD;
@@ -240,7 +253,7 @@ sub AUTOLOAD {
 		};
 		goto &$method;
 	} else {
-		croak qq[Can't locate object method "$method" via package $class];
+		throw RDF::Query::Error::MethodError ( -text => qq[Can't locate object method "$method" via package $class] );
 	}
 }
 

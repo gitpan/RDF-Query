@@ -42,5 +42,6 @@ t/11-resultforms.t
 t/12-literals.t
 t/13-sparql-2_8-syntactic_forms.t
 t/14-sparql-9_2-named_graphs.t
+t/15-functions.t
 t/models.pl
 META.yml                                 Module meta-data (added by MakeMaker)

@@ -1,7 +1,7 @@
 # RDF::Query
 # -------------
-# $Revision: 134 $
-# $Date: 2006-03-03 18:06:03 -0500 (Fri, 03 Mar 2006) $
+# $Revision: 137 $
+# $Date: 2006-03-08 00:17:28 -0500 (Wed, 08 Mar 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -10,7 +10,7 @@ RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF
 
 =head1 VERSION
 
-This document describes RDF::Query version 1.032
+This document describes RDF::Query version 1.033
 
 =head1 SYNOPSIS
 
@@ -35,11 +35,13 @@ See L<http://www.w3.org/Submission/2004/SUBM-RDQL-20040109/> for more informatio
 
 L<RDF::Redland|RDF::Redland> or L<RDF::Core|RDF::Core>
 
-L<Parse::RecDescent|Parse::RecDescent>
+L<Parse::RecDescent|Parse::RecDescent> (for RDF::Core)
 
 L<LWP::Simple|LWP::Simple>
 
-L<DateTime::Format::W3CDTF>
+L<DateTime::Format::W3CDTF|DateTime::Format::W3CDTF>
+
+L<Scalar::Util|Scalar::Util>
 
 =cut
 
@@ -52,12 +54,9 @@ use Carp qw(carp croak confess);
 use Data::Dumper;
 use LWP::Simple ();
 use Scalar::Util qw(blessed reftype);
+use DateTime::Format::W3CDTF;
 
 use RDF::Query::Stream;
-
-use RDF::Query::Model::Redland;
-use RDF::Query::Model::RDFCore;
-
 use RDF::Query::Parser::RDQL;
 use RDF::Query::Parser::SPARQL;
 
@@ -66,8 +65,8 @@ use RDF::Query::Parser::SPARQL;
 our ($REVISION, $VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$REVISION	= do { my $REV = (qw$Revision: 134 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
-	$VERSION	= 1.032;
+	$REVISION	= do { my $REV = (qw$Revision: 137 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= 1.033;
 }
 
 ######################################################################
@@ -87,16 +86,22 @@ the query defaults to SPARQL.
 sub new {
 	my $class	= shift;
 	my ($query, $baseuri, $languri, $lang)	= @_;
-	my $self 	= bless( {}, $class );
+	
+	my $f	= DateTime::Format::W3CDTF->new;
 	no warnings 'uninitialized';
 	my $parser	= ($lang eq 'rdql' or $languri eq 'http://jena.hpl.hp.com/2003/07/query/RDQL')
 				? RDF::Query::Parser::RDQL->new()
 				: RDF::Query::Parser::SPARQL->new();
-	$self->{parser}	= $parser;
 	my $parsed		= $parser->parse( $query );
-	$self->{parsed}	= $parsed;
+	
+	my $self 	= bless( {
+					dateparser	=> $f,
+					parser		=> $parser,
+					parsed		=> $parsed,
+				}, $class );
+	
 	unless ($parsed->{'triples'}) {
-		warn $parser->error if ($debug);
+#		warn $parser->error if ($debug);
 		return undef;
 	}
 	$self->{parsed}{namespaces}{rdf}	= 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
@@ -338,16 +343,14 @@ Returns a new bridge object representing a new, empty model.
 sub new_bridge {
 	my $self	= shift;
 	
-	eval "use RDF::Redland;";
-	if (not $@) {
-		require RDF::Query::Model::Redland;
+	eval "use RDF::Query::Model::Redland;";
+	if (RDF::Query::Model::Redland->can('new')) {
 		my $bridge	= RDF::Query::Model::Redland->new();
 		return $bridge;
 	}
 	
-	eval "use RDF::Core;";
-	if (not $@) {
-		require RDF::Query::Model::RDFCore;
+	eval "use RDF::Query::Model::RDFCore;";
+	if (RDF::Query::Model::RDFCore->can('new')) {
 		my $bridge	= RDF::Query::Model::RDFCore->new();
 		return $bridge;
 	}
@@ -419,7 +422,7 @@ sub fixup {
 				$self->set_named_graph_query();
 				$bridge		= $self->{bridge};
 				unless ($bridge->supports( 'named_graph' )) {
-					die "This RDF model does not support named graphs.";
+					throw RDF::Query::Error::ModelError ( -text => "This RDF model does not support named graphs." );
 				}
 			}
 			
@@ -445,12 +448,17 @@ sub fixup {
 			while (my $data = shift @constraints) {
 				_debug( "FIXING CONSTRAINT DATA: " . Dumper($data), 2 );
 				if (reftype($data) eq 'ARRAY') {
-					my ($op, $rest)	= @$data;
+					my ($op, @rest)	= @$data;
 					if ($op eq 'URI') {
 						$data->[1]	= $self->qualify_uri( $data );
 						_debug( "FIXED: " . $data->[1], 2 );
+					} elsif ($op eq 'LITERAL') {
+						no warnings 'uninitialized';
+						if (reftype($data->[3]) eq 'ARRAY' and $data->[3][0] eq 'URI') {
+							$data->[3][1]	= $self->qualify_uri( $data->[3] );
+						}
 					} elsif ($op !~ /^(VAR|LITERAL)$/) {
-						push(@constraints, @{ $data }[1 .. $#{ $data }]);
+						push(@constraints, @rest);
 					}
 				}
 			}
@@ -479,7 +487,7 @@ sub fixup {
 		foreach my $triple (@{ $parsed->{'construct_triples'} }) {
 			$self->fixup_triple_bridge_variables( $triple );
 		}
-		foreach my $triple (@{ $parsed->{triples} }) {
+		foreach my $triple (@{ $parsed->{'triples'} }) {
 			my @nodes	= @{ $triple };
 			foreach my $node (@nodes) {
 				if (reftype($node) eq 'ARRAY' and $node->[0] eq 'VAR') {
@@ -556,10 +564,10 @@ sub query_more {
 	my $context	= $args{context};
 	
 	my @triples	= @{$triples};
-	if ($debug > 0.1) {
-		warn 'query_more: ' . Data::Dumper->Dump([\@triples, $bound], [qw(triples bound)]);
-		warn "with context: " . Dumper($context) if ($context);
-	}
+# 	if ($debug > 0.1) {
+# 		warn 'query_more: ' . Data::Dumper->Dump([\@triples, $bound], [qw(triples bound)]);
+# 		warn "with context: " . Dumper($context) if ($context);
+# 	}
 	our $indent;
 
 	my $parsed		= $self->parsed;
@@ -569,7 +577,7 @@ sub query_more {
 		return $self->optional( bound => $bound, triples => \@triples, %args );
 	} elsif ($triples[0][0] eq 'GRAPH') {
 		if ($context) {
-			die "Can't use nested named graphs";
+			throw RDF::Query::Error::QueryPatternError ( -text => "Can't use nested named graphs" );
 		} else {
 			return $self->named_graph( bound => $bound, triples => \@triples );
 		}
@@ -682,9 +690,9 @@ sub query_more {
 					$context_var				= $context->[1];
 					$bound->{ $context_var }	= $graph;
 #					$context					= $graph;
-					warn "Got context ($context_var) from iterator: " . $bridge->as_string( $graph ) if ($debug);
+					_debug( "Got context ($context_var) from iterator: " . $bridge->as_string( $graph ) );
 				} else {
-					warn "No context returned by iterator." if ($debug);
+					_debug( "No context returned by iterator." );
 				}
 			}
 			
@@ -1038,12 +1046,30 @@ no warnings 'numeric';
 my %dispatch	= (
 					VAR		=> sub { my ($self, $values, $data) = @_; return $self->get_value( $values->{ $data->[0] } ) },
 					URI		=> sub { my ($self, $values, $data) = @_; return $data->[0] },
-					LITERAL	=> sub { my ($self, $values, $data) = @_; return $data->[0] },
+					LITERAL	=> sub {
+								my ($self, $values, $data) = @_;
+								if (defined($data->[2])) {
+									my $uri		= $data->[2];
+									my $literal	= $data->[0];
+									my $func	= [ 'FUNCTION', $uri, [ 'LITERAL', $literal ] ];
+									return $self->check_constraints( $values, $func );
+								} else {
+									return $data->[0]
+								}
+							},
 					'~~'	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return ($operands[0] =~ /$operands[1]/) },
-					'=='	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return ncmp($operands[0], $operands[1]) == 0 },
+					'=='	=> sub {
+								my ($self, $values, $data) = @_;
+								my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data };
+								return ncmp($operands[0], $operands[1]) == 0;
+							},
 					'!='	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return ncmp($operands[0], $operands[1]) != 0 },
 					'<'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return ncmp($operands[0], $operands[1]) == -1 },
-					'>'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return ncmp($operands[0], $operands[1]) == 1 },
+					'>'		=> sub {
+								my ($self, $values, $data) = @_;
+								my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data };
+								return ncmp($operands[0], $operands[1]) == 1;
+							},
 					'<='	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return ncmp($operands[0], $operands[1]) != 1 },
 					'>='	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return ncmp($operands[0], $operands[1]) != -1 },
 					'&&'	=> sub { my ($self, $values, $data) = @_; foreach my $part (@{ $data }) { return 0 unless $self->check_constraints( $values, $part ); } return 1 },
@@ -1076,7 +1102,9 @@ my %dispatch	= (
 													: $self->check_constraints( $values, $_ )
 											} @{ $data }[1..$#{ $data }]
 										);
-							_debug( "function <$uri> -> $value" );
+							{ no warnings 'uninitialized';
+								_debug( "function <$uri> -> $value" );
+							}
 							return $value;
 						} else {
 							warn "No function defined for <${uri}>\n";
@@ -1159,9 +1187,13 @@ General-purpose sorting function for both numbers and strings.
 
 sub ncmp ($$) {
 	my ($a, $b)	= @_;
-	return ($a =~ /^[-+]?[0-9.]+$/ and $b =~ /^[-+]?[0-9.]+$/)
-		? ($a <=> $b)
-		: ($a cmp $b)
+	no warnings 'uninitialized';
+	my $numeric	= sub { (blessed($_[0])) ? $_[0]->isa('DateTime') : $_[0] =~ /^[-+]?[0-9.]+$/;};
+	my $num_cmp	= ($numeric->($a) and $numeric->($b));
+	my $cmp		= ($num_cmp)
+				? ($a <=> $b)
+				: ($a cmp $b);
+	return $cmp;
 }
 
 =for private
@@ -1212,6 +1244,7 @@ sub sort_rows {
 #		warn Dumper($data);
 		if ($dir ne 'ASC' and $dir ne 'DESC') {
 			warn "Direction of sort not recognized: $dir";
+			$dir	= 'ASC';
 		}
 		
 		my $col				= $data;
@@ -1292,6 +1325,54 @@ sub variables {
 	my @vars	= map { $_->[1] } @{ $parsed->{'variables'} };
 	return @vars;
 }
+
+
+=item C<error ()>
+
+Returns the last error the parser experienced.
+
+=cut
+
+sub error {
+	my $self	= shift;
+	if (defined $self->{error}) {
+		return $self->{error};
+	} else {
+		return '';
+	}
+}
+
+=for private
+
+=item C<set_error ( $error )>
+
+Sets the object's error variable.
+
+=end for
+
+=cut
+
+sub set_error {
+	my $self	= shift;
+	my $error	= shift;
+	$self->{error}	= $error;
+}
+
+=for private
+
+=item C<clear_error ()>
+
+Clears the object's error variable.
+
+=end for
+
+=cut
+
+sub clear_error {
+	my $self	= shift;
+	$self->{error}	= undef;
+}
+
 
 =for private
 
@@ -1410,8 +1491,11 @@ $functions{"sop:str"}	= sub {
 		return $value;
 	} elsif ($bridge->is_resource($node)) {
 		return $bridge->uri_value($node);
+	} elsif (not defined reftype($node)) {
+		return $node;
+	} else {
+		return '';
 	}
-	return '';
 };
 
 $functions{"sop:lang"}	= sub {
@@ -1436,12 +1520,16 @@ $functions{"sop:datatype"}	= sub {
 	return '';
 };
 
-use DateTime::Format::W3CDTF;
-my $f = DateTime::Format::W3CDTF->new;
-$functions{"sop:date"}	= sub {
+$functions{"sop:date"}	= 
+$functions{"http://www.w3.org/2001/XMLSchema#dateTime"}	= sub {
 	my $query	= shift;
 	my $node	= shift;
-	my $dt		= eval { $f->parse_datetime( $functions{'sop:str'}->( $node ) ) };
+	my $f		= $query->{dateparser};
+	my $date	= $functions{'sop:str'}->( $query, $node );
+	my $dt		= eval { $f->parse_datetime( $date ) };
+	if ($@) {
+		warn $@;
+	}
 	return $dt;
 };
 
@@ -1452,7 +1540,7 @@ $functions{"sop:logical-or"}	= sub {
 	my $nodea	= shift;
 	my $nodeb	= shift;
 	my $cast	= 'sop:boolean';
-	return ($functions{$cast}->($nodea) || $functions{$cast}->($nodeb));
+	return ($functions{$cast}->( $query, $nodea ) || $functions{$cast}->( $query, $nodeb ));
 };
 
 # sop:logical-and
@@ -1461,7 +1549,7 @@ $functions{"sop:logical-and"}	= sub {
 	my $nodea	= shift;
 	my $nodeb	= shift;
 	my $cast	= 'sop:boolean';
-	return ($functions{$cast}->($nodea) && $functions{$cast}->($nodeb));
+	return ($functions{$cast}->( $query, $nodea ) && $functions{$cast}->( $query, $nodeb ));
 };
 
 # sop:isBound
@@ -1495,13 +1583,41 @@ $functions{"sop:isLiteral"}	= sub {
 	return $bridge->is_literal( $node );
 };
 
+
+$functions{"sparql:lang"}	= sub {
+	my $query	= shift;
+	my $node	= shift;
+	my $bridge	= $query->bridge;
+	my $lang	= $bridge->literal_value_language( $node ) || '';
+	return $lang;
+};
+
+$functions{"sparql:langmatches"}	= sub {
+	my $query	= shift;
+	my $node	= shift;
+	my $match	= shift;
+	my $bridge	= $query->bridge;
+	my $lang	= $bridge->literal_value_language( $node );
+	return unless ($lang);
+	return (lc($lang) eq lc($match));
+};
+
+$functions{"sparql:datatype"}	= sub {
+	my $query	= shift;
+	my $node	= shift;
+	my $bridge	= $query->bridge;
+	return $bridge->literal_datatype( $node );
+};
+
+
+
 # op:dateTime-equal
 $functions{"op:dateTime-equal"}	= sub {
 	my $query	= shift;
 	my $nodea	= shift;
 	my $nodeb	= shift;
 	my $cast	= 'sop:date';
-	return ($functions{$cast}->($nodea) == $functions{$cast}->($nodeb));
+	return ($functions{$cast}->( $query, $nodea ) == $functions{$cast}->( $query, $nodeb ));
 };
 
 # op:dateTime-less-than
@@ -1510,7 +1626,7 @@ $functions{"op:dateTime-less-than"}	= sub {
 	my $nodea	= shift;
 	my $nodeb	= shift;
 	my $cast	= 'sop:date';
-	return ($functions{$cast}->($nodea) < $functions{$cast}->($nodeb));
+	return ($functions{$cast}->( $query, $nodea ) < $functions{$cast}->( $query, $nodeb ));
 };
 
 # op:dateTime-greater-than
@@ -1636,7 +1752,46 @@ __END__
 
 =back
 
-=head1 REVISION HISTORY
+=head1 Supported Built-in Operators and Functions
+
+=over 4
+
+=item * REGEX, BOUND, ISURI, ISBLANK, ISLITERAL
+
+=item * Data-typed literals: DATATYPE(string)
+
+=item * Language-typed literals: LANG(string), LANGMATCHES(string, lang)
+
+=item * Casting functions: xsd:dateTime, xsd:string
+
+=item * dateTime-equal, dateTime-greater-than
+
+=back
+
+=head1 TODO
+
+=over 4
+
+=item * Built-in Operators and Functions
+
+L<http://www.w3.org/TR/rdf-sparql-query/#StandardOperations>
+
+Casting functions: xsd:{boolean,double,float,decimal,integer}, rdf:{URIRef,Literal}, STR
+
+XPath functions: numeric-equal, numeric-less-than, numeric-greater-than, numeric-multiply, numeric-divide, numeric-add, numeric-subtract, not, matches
+
+SPARQL operators: sop:RDFterm-equal, sop:bound, sop:isURI, sop:isBlank, sop:isLiteral, sop:str, sop:lang, sop:datatype, sop:logical-or, sop:logical-and
+
+=back
+
+=head1 AUTHOR
+
+ Gregory Todd Williams <greg@evilfunhouse.com>
+
+=cut
+
+
+REVISION HISTORY
 
  $Log$
  Revision 1.30  2006/01/13 23:55:48  greg
@@ -1806,23 +1961,3 @@ __END__
  import
 
  
-=head1 TODO
-
-=over 4
-
-=item * Built-in Operators and Functions
-
-L<http://www.w3.org/TR/rdf-sparql-query/#StandardOperations>
-
-Casting functions: xsd:{boolean,double,float,decimal,integer,dateTime,string}, rdf:{URIRef,Literal}, STR, LANG, DATATYPE
-XPath functions: numeric-equal, numeric-less-than, numeric-greater-than, numeric-multiply, numeric-divide, numeric-add, numeric-subtract, not, dateTime-equal, dateTime-greater-than, matches
-SPARQL operators: sop:RDFterm-equal, sop:bound, sop:isURI, sop:isBlank, sop:isLiteral, sop:str, sop:lang, sop:datatype, sop:logical-or, sop:logical-and, 
-SPARQL functions: REGEX, BOUND, ISURI, ISBLANK, ISLITERAL
-
-=back
-
-=head1 AUTHOR
-
- Gregory Williams <gwilliams@cpan.org>
-
-=cut

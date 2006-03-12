@@ -20,6 +20,17 @@ INSTALLATION
 
 VERSION HISTORY
 
+  Version 1.033 (2006-03-08)
+
+     * Updated test suite to work if one of the model classes is missing.
+     * Data-typed literals are now cast appropriately when used in a FILTER.
+     * Added support for xsd:dateTime datatypes using the DateTime module.
+     * Added support for LANG(), LANGMATCHES() and DATATYPE() built-in functions.
+     * Updated TODO list.
+     * Added more exception types to RDF::Query::Error.
+     * Added POD coverage.
+     * Fixed SPARQL parsing bug for logical operators <= and >=.
+
   Version 1.032 (2006-03-03)
 
      * Replaced the Parse::RecDescent SPARQL parser with a much faster hand-written one.
@@ -189,7 +200,7 @@ VERSION HISTORY
 
 COPYRIGHT
 
-   Copyright (C) 2005 Gregory Williams. All rights reserved.
+   Copyright (C) 2005-2006 Gregory Williams. All rights reserved.
    This program is free software; you can redistribute it and/or
    modify it under the same terms as Perl itself.
 
@@ -197,4 +208,4 @@ AUTHOR
 
 	Gregory Williams <gwilliams@cpan.org>
 
-$Id: README 134 2006-03-03 23:06:03Z samofool $
+$Id: README 137 2006-03-08 05:17:28Z samofool $

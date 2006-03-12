@@ -50,6 +50,22 @@ package RDF::Query::Error::ParseError;
 
 use base qw(RDF::Query::Error);
 
+package RDF::Query::Error::MethodInvocationError;
+
+use base qw(RDF::Query::Error);
+
+package RDF::Query::Error::MethodError;
+
+use base qw(RDF::Query::Error);
+
+package RDF::Query::Error::ModelError;
+
+use base qw(RDF::Query::Error);
+
+package RDF::Query::Error::QueryPatternError;
+
+use base qw(RDF::Query::Error);
+
 
 1;
 

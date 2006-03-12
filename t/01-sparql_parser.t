@@ -1,11 +1,12 @@
 #!/usr/bin/perl
 use strict;
-use Test::More tests => 57;
+use Test::More tests => 76;
 use Data::Dumper;
 
 use_ok( 'RDF::Query::Parser::SPARQL' );
 my $parser	= new RDF::Query::Parser::SPARQL (undef);
 isa_ok( $parser, 'RDF::Query::Parser::SPARQL' );
+
 
 
 {
@@ -194,6 +195,90 @@ END
 		WHERE	{
 					?person foaf:name "Gregory Todd Williams" .
 					?person ?pred ?homepage .
+					FILTER( ?pred = <func:homepagepred>() ) .
+				}
+END
+	my $correct	= {
+		'method' => 'SELECT',
+		'triples' => [
+						[['VAR','person'],['URI',['foaf','name']],['LITERAL','Gregory Todd Williams']],
+						[['VAR','person'],['VAR','pred'],['VAR','homepage']],
+						['FILTER', ['==',['VAR','pred'],['FUNCTION',['URI', 'func:homepagepred']]]],
+					],
+		'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/','rdf' => 'http://www.w3.org/1999/02/22-rdf-syntax-ns#','geo' => 'http://www.w3.org/2003/01/geo/wgs84_pos#','dcterms' => 'http://purl.org/dc/terms/'},
+		'sources' => [],
+		'variables' => [['VAR','person'],['VAR','homepage']]
+	};
+	my $parsed	= $parser->parse( $sparql );
+	is_deeply( $parsed, $correct, "filter with variable/function-call equality" );
+}
+
+{
+	my $sparql	= <<"END";
+		PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		PREFIX	dcterms: <http://purl.org/dc/terms/>
+		PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+		SELECT	?person ?homepage
+		WHERE	{
+					?person foaf:name "Gregory Todd Williams" .
+					?person ?pred ?homepage .
+					FILTER( isBLANK([]) ) .
+				}
+END
+	my $correct	= {
+		'method' => 'SELECT',
+		'triples' => [
+						[['VAR','person'],['URI',['foaf','name']],['LITERAL','Gregory Todd Williams']],
+						[['VAR','person'],['VAR','pred'],['VAR','homepage']],
+						['FILTER',['FUNCTION',['URI','sop:isBlank'],[]]],
+					],
+		'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/','rdf' => 'http://www.w3.org/1999/02/22-rdf-syntax-ns#','geo' => 'http://www.w3.org/2003/01/geo/wgs84_pos#','dcterms' => 'http://purl.org/dc/terms/'},
+		'sources' => [],
+		'variables' => [['VAR','person'],['VAR','homepage']]
+	};
+	my $parsed	= $parser->parse( $sparql );
+	is_deeply( $parsed, $correct, "filter with variable/function-call equality" );
+}
+
+{
+	my $sparql	= <<"END";
+		PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		PREFIX	dcterms: <http://purl.org/dc/terms/>
+		PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+		SELECT	?person ?homepage
+		WHERE	{
+					?person foaf:name "Gregory Todd Williams" .
+					?person ?pred ?homepage .
+					FILTER( isBLANK([ a foaf:Person ]) ) .
+				}
+END
+	my $correct	= {
+		'method' => 'SELECT',
+		'triples' => [
+						[['VAR','person'],['URI',['foaf','name']],['LITERAL','Gregory Todd Williams']],
+						[['VAR','person'],['VAR','pred'],['VAR','homepage']],
+						['FILTER',['FUNCTION',['URI','sop:isBlank'],[[['BLANK','a1'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI',['foaf','Person']]]]]],
+					],
+		'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/','rdf' => 'http://www.w3.org/1999/02/22-rdf-syntax-ns#','geo' => 'http://www.w3.org/2003/01/geo/wgs84_pos#','dcterms' => 'http://purl.org/dc/terms/'},
+		'sources' => [],
+		'variables' => [['VAR','person'],['VAR','homepage']]
+	};
+	my $parsed	= $parser->parse( $sparql );
+	is_deeply( $parsed, $correct, "filter with variable/function-call equality" );
+}
+
+{
+	my $sparql	= <<"END";
+		PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		PREFIX	dcterms: <http://purl.org/dc/terms/>
+		PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+		SELECT	?person ?homepage
+		WHERE	{
+					?person foaf:name "Gregory Todd Williams" .
+					?person ?pred ?homepage .
 					FILTER( ?person = _:foo ) .
 				}
 END
@@ -304,6 +389,37 @@ END
 	};
 	my $parsed	= $parser->parse( $sparql );
 	is_deeply( $parsed, $correct, "filter with isLITERAL(?var)" );
+}
+
+{
+	my $sparql	= <<"END";
+		PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		PREFIX	dcterms: <http://purl.org/dc/terms/>
+		PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+		SELECT	?person ?homepage
+		WHERE	{
+					?person foaf:name ?name .
+					FILTER( DATATYPE(?name) = rdf:Literal ) .
+				}
+END
+	my $correct	= {
+		'method' => 'SELECT',
+		'triples' => [
+						[['VAR','person'],['URI',['foaf','name']],['VAR', 'name']],
+						['FILTER',
+							['==',
+								['FUNCTION',['URI', 'sparql:datatype'], ['VAR', 'name']],
+								['URI', ['rdf', 'Literal']]
+							]
+						],
+					],
+		'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/','rdf' => 'http://www.w3.org/1999/02/22-rdf-syntax-ns#','geo' => 'http://www.w3.org/2003/01/geo/wgs84_pos#','dcterms' => 'http://purl.org/dc/terms/'},
+		'sources' => [],
+		'variables' => [['VAR','person'],['VAR','homepage']]
+	};
+	my $parsed	= $parser->parse( $sparql );
+	is_deeply( $parsed, $correct, "filter with DATATYPE(?var)/URI equality" );
 }
 
 {
@@ -1175,6 +1291,57 @@ END
 	is_deeply( $parsed, $correct, "single triple; no prefix" );
 }
 
+{
+	my $sparql	= <<"END";
+				PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+				ASK {
+					FILTER ( "1995-11-05"^^xsd:dateTime <= "1994-11-05T13:15:30Z"^^xsd:dateTime ) .
+				}
+END
+	my $correct	= {
+		'method'	=> 'ASK',
+		'variables'	=> [],
+		'triples'	=> [
+						[
+							'FILTER',
+							[
+								'<=',
+								[
+									'LITERAL',
+									'1995-11-05',
+									undef,
+									[
+										'URI',
+										[
+											'xsd',
+											'dateTime'
+										]
+									]
+								],
+								[
+									'LITERAL',
+									'1994-11-05T13:15:30Z',
+									undef,
+									[
+										'URI',
+										[
+											'xsd',
+											'dateTime'
+										]
+									]
+								]
+							]
+						]
+					],
+		'sources' => [],
+		'namespaces' => {
+		'xsd' => 'http://www.w3.org/2001/XMLSchema#'
+		}
+        };
+	my $parsed	= $parser->parse( $sparql );
+	is_deeply( $parsed, $correct, "ASK FILTER; using <= (shouldn't parse as '<')" );
+}
+
 ##### ERRORS
 
 {
@@ -1267,3 +1434,99 @@ END
 	like( $parser->error, qr/^Expecting unary expression after '*'/, 'got expected error' );
 }
 
+{
+	my $sparql	= <<"END";
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT	?x
+		WHERE	{ (1 2) foaf:name }
+END
+	my $parsed	= $parser->parse( $sparql );
+	is( $parsed, undef, 'missing object' );
+	like( $parser->error, qr/Expecting object after predicate/, 'parse error' );
+}
+
+{
+	my $sparql	= <<"END";
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT	?x
+		WHERE	{ [] foaf:name }
+END
+	my $parsed	= $parser->parse( $sparql );
+	is( $parsed, undef, 'missing object' );
+	like( $parser->error, qr/Expecting object after predicate/, 'parse error' );
+}
+
+{
+	my $sparql	= <<"END";
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT	?x
+		WHERE	{ ?x foaf:name }
+END
+	my $parsed	= $parser->parse( $sparql );
+	is( $parsed, undef, 'missing object' );
+	like( $parser->error, qr/Expecting object after predicate/, 'parse error' );
+}
+
+{
+	my $sparql	= <<"END";
+		PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		PREFIX	dcterms: <http://purl.org/dc/terms/>
+		PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+		PREFIX	mygeo: <http://kasei.us/e/ns/geo#>
+		SELECT	?image ?point ?lat
+		WHERE	{
+					?point geo:lat ?lat .
+					FILTER( 10 > ?lat + )
+				}
+END
+	my $parsed	= $parser->parse( $sparql );
+	is( $parsed, undef, 'missing multiplicative expression' );
+	like( $parser->error, qr/Expecting multiplicative expression after '[+]'/, 'parse error' );
+}
+
+{
+	my $sparql	= <<"END";
+		PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		PREFIX	dcterms: <http://purl.org/dc/terms/>
+		PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+		PREFIX	mygeo: <http://kasei.us/e/ns/geo#>
+		SELECT	?image ?point ?lat
+		WHERE	{
+					?point geo:lat ?lat .
+					FILTER( ! )
+				}
+END
+	my $parsed	= $parser->parse( $sparql );
+	is( $parsed, undef, 'missing multiplicative expression' );
+	like( $parser->error, qr/Expecting primary expression after '[!]'/, 'parse error' );
+}
+
+{
+	my $sparql	= <<"END";
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT	?name
+		WHERE	{
+					?person a foaf:Person; foaf:name ?name
+				}
+		ORDER BY ASC
+END
+	my $parsed	= $parser->parse( $sparql );
+	is( $parsed, undef, 'bad ORDER BY expression' );
+	like( $parser->error, qr/Expecting ORDER BY expression/, 'parse error' );
+}
+
+{
+	my $sparql	= <<"END";
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT	?name
+		WHERE	{
+					?person a foaf:Person; foaf:name ?name
+				}
+		ORDER BY
+END
+	my $parsed	= $parser->parse( $sparql );
+	is( $parsed, undef, 'bad ORDER BY expression' );
+	like( $parser->error, qr/Expecting ORDER BY expression/, 'parse error' );
+}

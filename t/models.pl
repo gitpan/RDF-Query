@@ -5,7 +5,7 @@ use RDF::Query;
 sub test_models {
 	my @files	= @_;
 	my @models;
-	eval "use RDF::Redland;";
+	eval "use RDF::Query::Model::Redland;";
 	if (not $@ and not $ENV{RDFQUERY_NO_REDLAND}) {
 		require RDF::Query::Model::Redland;
 		my @data	= map { RDF::Redland::URI->new( 'file://' . $_ ) } @files;
@@ -17,7 +17,7 @@ sub test_models {
 		push(@models, $model);
 	}
 	
-	eval "use RDF::Core;";
+	eval "use RDF::Query::Model::RDFCore;";
 	if (not $@ and not $ENV{RDFQUERY_NO_RDFCORE}) {
 		require RDF::Query::Model::RDFCore;
 		my $storage	= new RDF::Core::Storage::Memory;

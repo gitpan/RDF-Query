@@ -5,6 +5,7 @@ package RDF::Query::Model::RDFCore;
 use strict;
 use warnings;
 use Carp qw(carp croak);
+use Scalar::Util qw(blessed);
 
 use File::Spec;
 use LWP::Simple;
@@ -22,7 +23,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 130 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 137 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
 ######################################################################
@@ -36,7 +37,7 @@ Returns a new bridge object for the specified C<$model>.
 sub new {
 	my $class	= shift;
 	my $model	= shift;
-	unless (UNIVERSAL::isa($model, 'RDF::Core::Model')) {
+	unless (blessed($model) and $model->isa('RDF::Core::Model')) {
 		my $storage	= new RDF::Core::Storage::Memory;
 		$model	= new RDF::Core::Model (Storage => $storage);
 	}
@@ -49,7 +50,7 @@ sub new {
 				}, $class );
 }
 
-=item C<new ()>
+=item C<model ()>
 
 Returns the underlying model object.
 

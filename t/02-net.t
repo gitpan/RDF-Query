@@ -10,9 +10,19 @@ if (not exists $ENV{RDFQUERY_NO_NETWORK}) {
 	return;
 }
 
-use_ok( 'RDF::Query' );
+my $loaded	= use_ok( 'RDF::Query' );
+BAIL_OUT( "RDF::Query not loaded" ) unless ($loaded);
 
-{
+my $has_backend	= 0;
+
+SKIP: {
+	eval "use RDF::Query::Model::Redland;";
+	if ($@) {
+		skip "Failed to load RDF::Redland", 5 if $@;
+	} else {
+		$has_backend	= 1;
+	}
+	
 	print "# Redland\n";
 	my $storage	= new RDF::Redland::Storage("hashes", "test", "new='yes',hash-type='memory'");
 	my $model	= new RDF::Redland::Model($storage, "");
@@ -36,7 +46,14 @@ END
 	is( $results[0][0]->getLabel, 'http://kasei.us/', 'Got homepage url' );
 }
 
-{
+SKIP: {
+	eval "use RDF::Query::Model::RDFCore; use RDF::Core; use RDF::Core::Storage::Memory; use RDF::Core::Model;";
+	if ($@) {
+		skip "Failed to load RDF::Core", 5;
+	} else {
+		$has_backend	= 1;
+	}
+	
 	print "# RDF::Core\n";
 	my $storage	= new RDF::Core::Storage::Memory;
 	my $model	= new RDF::Core::Model (Storage => $storage);
@@ -60,7 +77,9 @@ END
 	is( $results[0][0]->getLabel, 'http://kasei.us/', 'Got homepage url' );
 }
 
-{
+SKIP: {
+	skip "No backend available for execute() call with no query", 5 unless ($has_backend);
+	
 	print "# No model\n";
 	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>

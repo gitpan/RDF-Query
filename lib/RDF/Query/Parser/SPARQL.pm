@@ -1,7 +1,7 @@
 # RDF::Query::Parser::SPARQL
 # -------------
-# $Revision: 130 $
-# $Date: 2006-03-03 14:50:45 -0500 (Fri, 03 Mar 2006) $
+# $Revision: 137 $
+# $Date: 2006-03-08 00:17:28 -0500 (Wed, 08 Mar 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -28,7 +28,7 @@ use Carp qw(carp croak confess);
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
 	$debug		= 1;
-	$VERSION	= do { my $REV = (qw$Revision: 130 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 137 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	$lang		= 'sparql';
 	$languri	= 'http://www.w3.org/TR/rdf-sparql-query/';
 }
@@ -51,6 +51,12 @@ sub new {
 	return $self;
 }
 
+
+=item C<parse ( $query ) >
+
+Parses the supplied RDQL query string, returning a parse tree.
+
+=cut
 
 sub parse {
 	my $self	= shift;
@@ -82,7 +88,16 @@ sub parse {
 	}
 }
 
-# query
+=for private
+
+=item C<parse_query>
+
+Returns the parse tree for a complete SPARQL query.
+
+=end for
+
+=cut
+
 sub parse_query {
 	my $self	= shift;
 	
@@ -159,7 +174,16 @@ sub parse_query {
 	}
 }
 
-# namespaces
+=for private
+
+=item C<parse_namespaces>
+
+Returns the parse tree for zero or more namespace declarations.
+
+=end for
+
+=cut
+
 sub parse_namespaces {
 	my $self	= shift;
 	
@@ -178,11 +202,30 @@ sub parse_namespaces {
 	return \%namespaces;
 }
 
-# identifier
+=for private
+
+=item C<parse_identifier>
+
+Returns the parse tree for an identifier.
+
+=end for
+
+=cut
+
 sub parse_identifier {
 	my $self	= shift;
 	return $self->match_pattern(qr/(([a-zA-Z0-9_.-])+)/);
 }
+
+=for private
+
+=item C<parse_qURI>
+
+Returns the parse tree for a fully qualified URI.
+
+=end for
+
+=cut
 
 sub parse_qURI {
 	my $self	= shift;
@@ -198,7 +241,17 @@ sub parse_qURI {
 	}
 }
 
-# variables
+=for private
+
+=item C<parse_variables>
+
+Returns the parse tree for a list of variables for a SELECT query.
+'*' is an acceptable substitute for a list of variables.
+
+=end for
+
+=cut
+
 sub parse_variables {
 	my $self	= shift;
 	
@@ -216,6 +269,16 @@ sub parse_variables {
 	return \@variables;
 }
 
+=for private
+
+=item C<parse_variable>
+
+Returns the parse tree for a variable.
+
+=end for
+
+=cut
+
 sub parse_variable {
 	my $self	= shift;
 	
@@ -230,7 +293,16 @@ sub parse_variable {
 	}
 }
 
-# SourceClause
+=for private
+
+=item C<parse_sources>
+
+Returns the parse tree for zero or more source ('FROM' or 'FROM NAMED') declarations.
+
+=end for
+
+=cut
+
 sub parse_sources {
 	my $self	= shift;
 	
@@ -246,7 +318,16 @@ sub parse_sources {
 	return \@sources;
 }
 
-# URI
+=for private
+
+=item C<parse_uri>
+
+Returns the parse tree for a URI (either fully qualified or a QName).
+
+=end for
+
+=cut
+
 sub parse_uri {
 	my $self	= shift;
 	if (my $uri = $self->parse_qURI) {
@@ -258,6 +339,16 @@ sub parse_uri {
 	}
 }
 
+=for private
+
+=item C<parse_ncname_prefix>
+
+Returns the parse tree for a QName prefix.
+
+=end for
+
+=cut
+
 sub parse_ncname_prefix {
 	my $self		= shift;
 	my $ncchar1p	= qr/[A-Za-z\x{00C0}-\x{00D6}\x{00D8}-\x{00F6}\x{00F8}-\x{02FF}\x{0370}-\x{037D}\x{037F}-\x{1FFF}\x{200C}-\x{200D}\x{2070}-\x{218F}\x{2C00}-\x{2FEF}\x{3001}-\x{D7FF}\x{F900}-\x{FDCF}\x{FDF0}-\x{FFFD}\x{10000}-\x{EFFFF}]/x;
@@ -265,6 +356,16 @@ sub parse_ncname_prefix {
 	my $ncchar_p	= qr/${ncchar1p}((${ncchar}|[.])*${ncchar})?/x;
 	return $self->match_pattern(qr/${ncchar_p}/);
 }
+
+=for private
+
+=item C<parse_QName>
+
+Returns the parse tree for a QName.
+
+=end for
+
+=cut
 
 sub parse_QName {
 	my $self	= shift;
@@ -286,7 +387,16 @@ sub parse_QName {
 	return $self->new_qname( $ns, $localpart );
 }
 
-# blankQName
+=for private
+
+=item C<parse_blankQName>
+
+Returns the parse tree for a blank QName ('_:foo').
+
+=end for
+
+=cut
+
 sub parse_blankQName {
 	my $self	= shift;
 	if ($self->match_literal('_:')) {
@@ -297,7 +407,16 @@ sub parse_blankQName {
 	}
 }
 
-# triplepatterns
+=for private
+
+=item C<parse_triple_patterns>
+
+Returns the parse tree for a (possibly nested) set of triple patterns.
+
+=end for
+
+=cut
+
 sub parse_triple_patterns {
 	my $self	= shift;
 	
@@ -349,7 +468,20 @@ sub parse_triple_patterns {
 	}
 }
 
-# triplepattern
+=for private
+
+=item C<parse_triple_pattern>
+
+Returns the parse tree for a single triple pattern.
+May return multiple triples if multiple-object syntax ('?subj :pred ?obj1, ?obj2'),
+multiple-predicate syntax ('?subj :pred1 ?obj1 ; :pred2 ?obj2'),
+collections ('(1 2 3) :pred ?obj'), or blank nodes ('[ a foaf:Person; foaf:name "Jane" ]')
+are used.
+
+=end for
+
+=cut
+
 sub parse_triplepattern {
 	my $self	= shift;
 	
@@ -381,8 +513,32 @@ sub parse_triplepattern {
 		
 		my ($pred, $obj, $optobjs);
 		if (scalar(@$triples)) {
-			try {
-				$pred		= $self->parse_predicate;
+			$pred		= $self->parse_predicate;
+			if ($pred) {
+				try {
+					if (my $data = $self->parse_collection) {
+						($obj, my $collection_triples)	= @$data;
+						push(@$triples, @{ $collection_triples });
+					} else {
+						$obj		= $self->parse_object;
+					}
+					
+					if ($obj) {
+						$optobjs	= $self->parse_optional_objects;
+						push( @$triples, $self->new_triple($subj, $pred, $obj) );
+					} else {
+						$self->set_commit;
+						$self->fail( "Expecting object after predicate" );
+					}
+				} catch RDF::Query::Error::ParseError with {
+					my $err	= shift;
+					$self->unset_commit;
+					throw $err;
+				};
+			}
+		} else {
+			$pred		= $self->parse_predicate;
+			if ($pred) {
 				if (my $data = $self->parse_collection) {
 					($obj, my $collection_triples)	= @$data;
 					push(@$triples, @{ $collection_triples });
@@ -391,26 +547,13 @@ sub parse_triplepattern {
 				}
 				$optobjs	= $self->parse_optional_objects;
 				
-				# triples from the subject position come before the main triple
-				if ($pred and $obj) {
-					push( @$triples, $self->new_triple($subj, $pred, $obj) );
+				# triples from the object position get bumped after the main triple
+				if ($obj) {
+					unshift( @$triples, $self->new_triple($subj, $pred, $obj) );
+				} else {
+					$self->set_commit;
+					$self->fail( "Expecting object after predicate" );
 				}
-			} catch RDF::Query::Error::ParseError with {
-				$self->unset_commit;
-			};
-		} else {
-			$pred		= $self->parse_predicate;
-			if (my $data = $self->parse_collection) {
-				($obj, my $collection_triples)	= @$data;
-				push(@$triples, @{ $collection_triples });
-			} else {
-				$obj		= $self->parse_object;
-			}
-			$optobjs	= $self->parse_optional_objects;
-			
-			# triples from the object position get bumped after the main triple
-			if ($pred and $obj) {
-				unshift( @$triples, $self->new_triple($subj, $pred, $obj) );
 			}
 		}
 		
@@ -445,7 +588,17 @@ sub parse_triplepattern {
 # 																				}
 }
 
-# Object
+=for private
+
+=item C<parse_object>
+
+Returns the parse tree for the object of a triple pattern (a variable, URI,
+constant or collection).
+
+=end for
+
+=cut
+
 sub parse_object {
 	my $self	= shift;
 	if (my $object = $self->parse_variable_or_uri_or_constant) {
@@ -455,7 +608,17 @@ sub parse_object {
 	}
 }
 
-# OptObj
+=for private
+
+=item C<parse_optional_objects>
+
+Returns the parse tree for a set of optional objects following a full triple
+pattern (', ?obj2, ?obj3').
+
+=end for
+
+=cut
+
 sub parse_optional_objects {
 	my $self	= shift;
 	
@@ -466,7 +629,17 @@ sub parse_optional_objects {
 	return \@objects;
 }
 
-# OptPredObj
+=for private
+
+=item C<parse_optional_predicate_objects>
+
+Returns the parse tree for a set of optional predicate-objects following a full
+triple pattern ('; :pred2 ?obj2 ; :pred3 ?obj3').
+
+=end for
+
+=cut
+
 sub parse_optional_predicate_objects {
 	my $self	= shift;
 	
@@ -478,7 +651,16 @@ sub parse_optional_predicate_objects {
 	return \@pred_objs;
 }
 
-# PredObj
+=for private
+
+=item C<parse_predicate_object>
+
+Returns the parse tree for a predicate-objects following a triple subject.
+
+=end for
+
+=cut
+
 sub parse_predicate_object {
 	my $self	= shift;
 	my $pred	= $self->parse_predicate;
@@ -491,7 +673,16 @@ sub parse_predicate_object {
 	}
 }
 
-# Collection
+=for private
+
+=item C<parse_collection>
+
+Returns the parse tree for a collection.
+
+=end for
+
+=cut
+
 sub parse_collection {
 	my $self	= shift;
 	if ($self->match_literal('(')) {
@@ -542,7 +733,17 @@ sub parse_collection {
 	}
 }
 
-# blanknode
+=for private
+
+=item C<parse_blanknode>
+
+Returns the parse tree for a blank node containing optional triples
+('[]' or '[ :pred ?obj ]').
+
+=end for
+
+=cut
+
 sub parse_blanknode {
 	my $self	= shift;
 	if ($self->match_literal('[')) {
@@ -550,7 +751,7 @@ sub parse_blanknode {
 		
 		my $id		= 'a' . ++$self->{blank_ids};
 		my $subj	= $self->new_blank( $id );
-		my $triples	= $predobj ? [ map { $self->new_triple($subj, @$_) } (@$predobj) ] : [];
+		my $triples	= [ map { $self->new_triple($subj, @$_) } (@$predobj) ];
 		
 		$self->set_commit;
 		$self->match_literal(']');
@@ -562,7 +763,16 @@ sub parse_blanknode {
 	}
 }
 
-# constraints
+=for private
+
+=item C<parse_filter>
+
+Returns the parse tree for a FILTER declaration.
+
+=end for
+
+=cut
+
 sub parse_filter {
 	my $self	= shift;
 	if ($self->match_literal('FILTER', 1)) {
@@ -578,7 +788,17 @@ sub parse_filter {
 	}
 }
 
-# Expression
+=for private
+
+=item C<parse_expression>
+
+Returns the parse tree for an expression (possibly multiple expressions joined
+with a logical-or).
+
+=end for
+
+=cut
+
 sub parse_expression {
 	my $self	= shift;
 	
@@ -594,6 +814,17 @@ sub parse_expression {
 		return $expressions[0];
 	}
 }
+
+=for private
+
+=item C<parse_conditional_and_expression>
+
+Returns the parse tree for an expression (possibly multiple expressions joined
+with a logical-and).
+
+=end for
+
+=cut
 
 sub parse_conditional_and_expression {
 	my $self	= shift;
@@ -611,11 +842,23 @@ sub parse_conditional_and_expression {
 	}
 }
 
+=for private
+
+=item C<parse_value_logical>
+
+Returns the parse tree for an expression (possibly multiple expressions joined
+with a logical operator: equal, not-equal, less-than, less-than-or-equal,
+greater-than, greater-than-or-equal).
+
+=end for
+
+=cut
+
 sub parse_value_logical {
 	my $self	= shift;
 	my $expr1	= $self->parse_numeric_expression;
 	
-	if (my $op = $self->match_pattern(qr/(=|!=|<|>|<=|>=)/)) {
+	if (my $op = $self->match_pattern(qr/(=|!=|<=?|>=?)/)) {
 #		local($debug)	= 3;
 		if (my $expr2 = $self->parse_numeric_expression) {
 			$op		= '==' if ($op eq '=');
@@ -628,6 +871,17 @@ sub parse_value_logical {
 		return $expr1;
 	}
 }
+
+=for private
+
+=item C<parse_numeric_expression>
+
+Returns the parse tree for an expression (possibly multiple expressions joined
+with a numeric operator: plus, minus).
+
+=end for
+
+=cut
 
 sub parse_numeric_expression {
 	my $self	= shift;
@@ -645,6 +899,17 @@ sub parse_numeric_expression {
 	}
 }
 
+=for private
+
+=item C<parse_multiplicative_expression>
+
+Returns the parse tree for an expression (possibly multiple expressions joined
+with a numeric operator: multiply, divide).
+
+=end for
+
+=cut
+
 sub parse_multiplicative_expression {
 	my $self	= shift;
 	my $expr1	= $self->parse_unary_expression;
@@ -660,6 +925,17 @@ sub parse_multiplicative_expression {
 		return $expr1;
 	}
 }
+
+=for private
+
+=item C<parse_unary_expression>
+
+Returns the parse tree for a unary expression (possibly with a unary operator:
+not, negative, positive).
+
+=end for
+
+=cut
 
 sub parse_unary_expression {
 	my $self	= shift;
@@ -680,6 +956,18 @@ sub parse_unary_expression {
 		return $expr;
 	}
 }
+
+=for private
+
+=item C<parse_primary_expression>
+
+Returns the parse tree for a primary expression: bracketted expression,
+built-in function call, blank QName, constant, blank node, variable, IRI, or
+function call.
+
+=end for
+
+=cut
 
 sub parse_primary_expression {
 	my $self	= shift;
@@ -703,7 +991,17 @@ sub parse_primary_expression {
 	return $expr;
 }
 
-# CallExpression
+=for private
+
+=item C<parse_built_in_call_expression>
+
+Returns the parse tree for a built-in function call: REGEX, LANGMATCHES, LANG,
+DATATYPE, BOUND, isIRI, isURI, isBLANK, or isLITERAL.
+
+=end for
+
+=cut
+
 sub parse_built_in_call_expression {
 	my $self	= shift;
 	if ($self->match_literal('REGEX', 1)) {
@@ -753,7 +1051,7 @@ sub parse_built_in_call_expression {
 		$self->set_commit;
 		$self->match_literal(')');
 		$self->unset_commit;
-		return $self->new_function_expression( $self->new_uri('XXX DATATYPE'), $str );
+		return $self->new_function_expression( $self->new_uri('sparql:datatype'), $str );
 	} elsif ($self->match_literal('BOUND', 1)) {
 		$self->set_commit;
 		$self->match_literal('(');
@@ -802,6 +1100,16 @@ sub parse_built_in_call_expression {
 	}
 }
 
+=for private
+
+=item C<parse_iriref_or_function>
+
+Returns the parse tree for an IRI or function call.
+
+=end for
+
+=cut
+
 sub parse_iriref_or_function {
 	my $self	= shift;
 #	Carp::cluck;
@@ -829,6 +1137,16 @@ sub parse_iriref_or_function {
 	}
 }
 
+=for private
+
+=item C<parse_function_call>
+
+Returns the parse tree for a function call.
+
+=end for
+
+=cut
+
 sub parse_function_call {
 	my $self	= shift;
 	
@@ -844,6 +1162,17 @@ sub parse_function_call {
 		return $self->fail( 'Expecting qURI of function' );
 	}
 }
+
+=for private
+
+=item C<parse_bracketted_expression>
+
+Returns the parse tree for a bracketted expression (C<parse_expression> surrounded
+by parentheses).
+
+=end for
+
+=cut
 
 sub parse_bracketted_expression {
 	my $self	= shift;
@@ -861,7 +1190,16 @@ sub parse_bracketted_expression {
 	}
 }
 
-# ArgList
+=for private
+
+=item C<parse_arguments>
+
+Returns the parse tree for a function's argument list.
+
+=end for
+
+=cut
+
 sub parse_arguments {
 	my $self	= shift;
 	
@@ -873,7 +1211,17 @@ sub parse_arguments {
 	return \@args;
 }
 
-# PredVarUri
+=for private
+
+=item C<parse_predicate>
+
+Returns the parse tree for a predicate. Either 'a' for rdf:type shortcut syntax
+('?p a foaf:Person') or a variable or URI.
+
+=end for
+
+=cut
+
 sub parse_predicate {
 	my $self	= shift;
 	if ($self->match_literal('a', 1)) {
@@ -883,19 +1231,47 @@ sub parse_predicate {
 	}
 }
 
-# VarUri
+=for private
+
+=item C<parse_variable_or_uri>
+
+Returns the parse tree for a variable or URI.
+
+=end for
+
+=cut
+
 sub parse_variable_or_uri {
 	my $self	= shift;
 	return $self->parse_variable || $self->parse_blankQName || $self->parse_uri;
 }
 
-# VarUriConst
+=for private
+
+=item C<parse_variable_or_uri_or_constant>
+
+Returns the parse tree for a variable, URI, or constant.
+
+=end for
+
+=cut
+
 sub parse_variable_or_uri_or_constant {
 	my $self	= shift;
 	return $self->parse_variable || $self->parse_constant || $self->parse_uri;
 }
 
-# CONST
+=for private
+
+=item C<parse_constant>
+
+Returns the parse tree for a constant. Either a quoted string (with optional data-
+or language-typing), or a number.
+
+=end for
+
+=cut
+
 sub parse_constant {
 	my $self	= shift;
 	
@@ -939,7 +1315,16 @@ sub parse_constant {
 	}
 }
 
-# OptOrderBy
+=for private
+
+=item C<parse_order_by>
+
+Returns the parse tree for an ORDER BY clause.
+
+=end for
+
+=cut
+
 sub parse_order_by {
 	my $self	= shift;
 	if ($self->match_literal('ORDER BY', 1)) {
@@ -947,18 +1332,30 @@ sub parse_order_by {
 			if (my $expr = $self->parse_bracketted_expression) {
 				return [ uc($dir), $expr ];
 			} else {
+				$self->set_commit;
 				return $self->fail( 'Expecting ORDER BY expression' );
 			}
-		} else {
-			my $expr	= $self->parse_variable || $self->parse_function_call || $self->parse_bracketted_expression;
+		} elsif (my $expr = $self->parse_variable || $self->parse_function_call || $self->parse_bracketted_expression) {
 			return [ 'ASC', $expr ];
+		} else {
+			$self->set_commit;
+			return $self->fail( 'Expecting ORDER BY expression' );
 		}
 	} else {
 		return $self->fail( 'Expecting ORDER BY clause' );
 	}
 }
 
-# OptLimit
+=for private
+
+=item C<parse_limit>
+
+Returns the parse tree for a LIMIT clause.
+
+=end for
+
+=cut
+
 sub parse_limit {
 	my $self	= shift;
 	if ($self->match_literal('LIMIT', 1)) {
@@ -969,7 +1366,16 @@ sub parse_limit {
 	}
 }
 
-# OptOffset
+=for private
+
+=item C<parse_offset>
+
+Returns the parse tree for an OFFSET clause.
+
+=end for
+
+=cut
+
 sub parse_offset {
 	my $self	= shift;
 	if ($self->match_literal('OFFSET', 1)) {
@@ -984,16 +1390,29 @@ sub parse_offset {
 
 ######################################################################
 
+=for private
+
+=item C<match_literal ( $literal, $case_insensitive_flag )>
+
+Matches the supplied C<$literal> at the beginning of the reamining text.
+
+If a match is found, returns the literal. Otherwise returns an error via
+C<fail> (which might throw an exception if C<set_commit> has been called).
+
+=end for
+
+=cut
+
 sub match_literal {
 	my $self	= shift;
 	my $literal	= shift;
 	my $casei	= shift || 0;
 	$self->whitespace;
 	
-	if ($debug > 2) {
-		my $remaining	= substr($self->{remaining}, 0, 20);
-		print STDERR "literal match: $literal (remaining: '$remaining...') ... ";
-	}
+# 	if ($debug > 2) {
+# 		my $remaining	= substr($self->{remaining}, 0, 20);
+# 		print STDERR "literal match: $literal (remaining: '$remaining...') ... ";
+# 	}
 	
 	my $length	= length($literal);
 	
@@ -1007,25 +1426,39 @@ sub match_literal {
 		$self->{position}	+= $length;
 		my $match	= substr($self->{remaining}, 0, $length, '');
 		
-		warn "ok\n" if ($debug > 2);
+# 		warn "ok\n" if ($debug > 2);
 		return $match;
 	} else {
 		my $error	= qq'Expecting "$literal"';
 		$error		.= ' (case insensitive)' if ($casei);
 		
-		warn "failed\n" if ($debug > 2);
+# 		warn "failed\n" if ($debug > 2);
 		return $self->fail($error);
 	}
 }
+
+=for private
+
+=item C<match_pattern ( $pattern )>
+
+Matches the supplied regular expression C<$pattern> at the beginning of the
+reamining text.
+
+If a match is found, returns the matching text. Otherwise returns an error via
+C<fail> (which might throw an exception if C<set_commit> has been called).
+
+=end for
+
+=cut
 
 sub match_pattern {
 	my $self	= shift;
 	my $pattern	= shift;
 	
-	if ($debug > 2) {
-		my $remaining	= substr($self->{remaining}, 0, 20);
-		print STDERR "pattern match: $pattern (remaining: '$remaining...') ... ";
-	}
+# 	if ($debug > 2) {
+# 		my $remaining	= substr($self->{remaining}, 0, 20);
+# 		print STDERR "pattern match: $pattern (remaining: '$remaining...') ... ";
+# 	}
 	
 	$self->whitespace;
 	if ($self->{remaining} =~ m#^(${pattern})#xsm) {
@@ -1033,14 +1466,24 @@ sub match_pattern {
 		$self->{position}	+= $length;
 		my $match	= substr($self->{remaining}, 0, $length, '');
 		
-		warn "ok\n" if ($debug > 2);
+# 		warn "ok\n" if ($debug > 2);
 		return $match;
 	} else {
-		warn "failed\n" if ($debug > 2);
+# 		warn "failed\n" if ($debug > 2);
 #		Carp::cluck if ($debug > 2);
 		return $self->fail(qq'Expecting pattern match /$pattern/');
 	}
 }
+
+=for private
+
+=item C<whitespace>
+
+Matches any whitespace at the beginning of the reamining text.
+
+=end for
+
+=cut
 
 sub whitespace {
 	my $self	= shift;
@@ -1053,6 +1496,16 @@ sub whitespace {
 
 ######################################################################
 
+=for private
+
+=item C<set_input ( $input )>
+
+Sets the query string for parsing.
+
+=end for
+
+=cut
+
 sub set_input {
 	my $self				= shift;
 	my $query				= shift;
@@ -1063,6 +1516,16 @@ sub set_input {
 }
 
 		
+=for private
+
+=item C<get_options ( $distinct, $order, $limit, $offset )>
+
+Returns a HASH of result form arguments.
+
+=end for
+
+=cut
+
 sub get_options {
 	my $self	= shift;
 	my $distinct	= shift;
@@ -1071,20 +1534,25 @@ sub get_options {
 	my $offset		= shift;
 	my %options;
 	
+	my $has_options	= 0;
 	if ($distinct) {
 		$options{distinct}	= 1;
+		$has_options		= 1;
 	}
 	if ($order) {
 		$options{orderby}	= [$order];
+		$has_options		= 1;
 	}
 	if ($limit) {
 		$options{limit}		= $limit;
+		$has_options		= 1;
 	}
 	if ($offset) {
 		$options{offset}	= $offset;
+		$has_options		= 1;
 	}
 	
-	if (%options) {
+	if ($has_options) {
 		return \%options;
 	} else {
 		return;

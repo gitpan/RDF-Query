@@ -35,7 +35,7 @@
 			<exif:model>NIKON D70</exif:model>
 			<exif:exposureTime>1/500</exif:exposureTime>
 			<dc:description></dc:description>
-			<dc:date>2004-09-06T15:19:20+0100</dc:date>
+			<dc:date rdf:datatype="http://www.w3.org/2001/XMLSchema#dateTime">2004-09-06T15:19:20+01:00</dc:date>
 			<foaf:thumbnail rdf:resource="http://kasei.us/pictures/2004/20040909-Ireland/thumbnails/DSC_5705.jpg"/>
 	</foaf:Image>
 	<foaf:Image rdf:about="http://kasei.us/pictures/2005/20050422-WCCS_Dinner/images/DSC_8055.jpg">
@@ -69,7 +69,7 @@
 		<exif:fNumber>4.5</exif:fNumber>
 		<exif:model>Nikon D70</exif:model>
 		<exif:exposureTime>1/60</exif:exposureTime>
-		<dc:date>2005-04-07T18:27:37-0400</dc:date>
+		<dc:date>2005-04-07T18:27:37-04:00</dc:date>
 		<foaf:thumbnail rdf:resource="http://kasei.us/pictures/2005/20050422-WCCS_Dinner/thumbnails/DSC_8055.jpg"/>
 	</foaf:Image>
 	<foaf:Image rdf:about="http://kasei.us/pictures/2005/20050422-WCCS_Dinner/images/DSC_8056.jpg">
@@ -82,7 +82,7 @@
 		<exif:fNumber>4.5</exif:fNumber>
 		<exif:model>Nikon D70</exif:model>
 		<exif:exposureTime>1/60</exif:exposureTime>
-		<dc:date>2005-04-07T18:27:50-0400</dc:date>
+		<dc:date>2005-04-07T18:27:50-04:00</dc:date>
 		<foaf:thumbnail rdf:resource="http://kasei.us/pictures/2005/20050422-WCCS_Dinner/thumbnails/DSC_8056.jpg"/>
 	</foaf:Image>
 	<foaf:Image rdf:about="http://kasei.us/pictures/2005/20050422-WCCS_Dinner/images/DSC_8057.jpg">

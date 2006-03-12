@@ -1,5 +1,3 @@
-#!/usr/bin/perl
-
 package RDF::Query::Model::Redland;
 
 use strict;
@@ -7,7 +5,7 @@ use warnings;
 use Carp qw(carp croak confess);
 
 use File::Spec;
-use RDF::Redland;
+use RDF::Redland 1.00;
 use Data::Dumper;
 use Scalar::Util qw(blessed);
 use Encode;
@@ -19,7 +17,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 130 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 137 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
 ######################################################################
@@ -190,6 +188,7 @@ sub literal_datatype {
 	my $self	= shift;
 	my $node	= shift;
 	my $type	= $node->literal_datatype;
+	return unless $type;
 	return $type->as_string;
 }
 

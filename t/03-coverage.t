@@ -2,6 +2,8 @@
 use strict;
 use warnings;
 use File::Spec;
+use Test::Exception;
+use Scalar::Util qw(refaddr);
 
 use lib qw(. t);
 BEGIN { require "models.pl"; }
@@ -10,7 +12,8 @@ my @files	= map { File::Spec->rel2abs( "data/$_" ) } qw(about.xrdf foaf.xrdf);
 my @models	= test_models( @files );
 
 use Test::More;
-plan tests => 1 + (55 * scalar(@models));
+
+plan tests => 1 + (55 * scalar(@models)) + 3;
 
 use_ok( 'RDF::Query' );
 foreach my $model (@models) {
@@ -368,3 +371,32 @@ END
 
 }
 
+SKIP: {
+	eval "use RDF::Core; use RDF::Core::Storage::Memory; use RDF::Core::Model;";
+	skip "RDF::Core not installed", 3 if $@;
+	
+	my $storage	= new RDF::Core::Storage::Memory;
+	my $model	= new RDF::Core::Model (Storage => $storage);
+	
+	my $query1	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
+		SELECT ?page
+		WHERE
+			(?person foaf:name "Gregory Todd Williams")
+			(?person foaf:homepage ?page)
+		USING
+			foaf FOR <http://xmlns.com/foaf/0.1/>
+END
+
+	my $query2	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
+		SELECT ?page
+		WHERE
+			(?person foaf:name "Gregory Todd Williams")
+			(?person foaf:homepage ?page)
+		USING
+			foaf FOR <http://xmlns.com/foaf/0.1/>
+END
+	
+	is( refaddr($query1->{parser}{parser}), refaddr($query2->{parser}{parser}), 'cached rdql parser' );
+	throws_ok { $query1->{parser}->autoload_me_please(1,2,3) } 'RDF::Query::Error::MethodError', 'bad object autoload';
+	throws_ok { RDF::Query::Parser::RDQL->autoload_me_please(1,2,3) } 'RDF::Query::Error::MethodInvocationError', 'bad class autoload';
+}

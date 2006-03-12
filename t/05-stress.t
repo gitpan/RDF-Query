@@ -4,13 +4,12 @@ use warnings;
 use Test::More;
 
 use Data::Dumper;
-use RDF::Redland;
 use RDF::Query;
 
 if ($ENV{RDFQUERY_BIGTEST}) {
 	plan qw(no_plan);
 } else {
-	plan skip_all => 'developer tests. Set RDFQUERY_BIGTEST to run these tests.';
+	plan skip_all => 'Developer tests. Set RDFQUERY_BIGTEST to run these tests.';
 	return;
 }
 

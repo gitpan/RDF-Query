@@ -4,11 +4,15 @@ use warnings;
 use Test::More tests => 11;
 use Data::Dumper;
 
-use_ok( 'RDF::Query' );
+my $loaded	= use_ok( 'RDF::Query' );
+BAIL_OUT( "RDF::Query not loaded" ) unless ($loaded);
 
 my $file	= 'file://' . File::Spec->rel2abs( "data/foaf.xrdf" );
 
-{
+SKIP: {
+	eval "use RDF::Query::Model::Redland;";
+	skip "Failed to load RDF::Redland", 5 if $@;
+	
 	my $storage	= new RDF::Redland::Storage("hashes", "test", "new='yes',hash-type='memory'");
 	my $model	= new RDF::Redland::Model($storage, "");
 	
@@ -32,7 +36,10 @@ END
 	is( $results[0][0]->getLabel, 'http://kasei.us/', 'Got homepage url' );
 }
 
-{
+SKIP: {
+	eval "use RDF::Query::Model::RDFCore; use RDF::Core; use RDF::Core::Storage::Memory; use RDF::Core::Model;";
+	skip "Failed to load RDF::Redland", 5 if $@;
+	
 	my $storage	= new RDF::Core::Storage::Memory;
 	my $model	= new RDF::Core::Model (Storage => $storage);
 	
