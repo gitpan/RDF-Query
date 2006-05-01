@@ -1,7 +1,7 @@
 # RDF::Query::Parser::SPARQL
 # -------------
-# $Revision: 137 $
-# $Date: 2006-03-08 00:17:28 -0500 (Wed, 08 Mar 2006) $
+# $Revision: 143 $
+# $Date: 2006-05-01 00:58:27 -0400 (Mon, 01 May 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -28,7 +28,7 @@ use Carp qw(carp croak confess);
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
 	$debug		= 1;
-	$VERSION	= do { my $REV = (qw$Revision: 137 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 143 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	$lang		= 'sparql';
 	$languri	= 'http://www.w3.org/TR/rdf-sparql-query/';
 }
@@ -423,24 +423,27 @@ sub parse_triple_patterns {
 	my $triples	= [];
 	
 	if ($self->match_literal('{')) {
-		while (my $triple = $self->parse_triplepattern) {
-			if ($self->match_literal('UNION', 1)) {
-				if (my $unionpart = $self->parse_triple_patterns) {
-					$triples		= [ $self->new_union($triple, $unionpart) ];
+		BALANCED: {
+			LOOP: while (my $triple = $self->parse_triplepattern) {
+				if ($self->match_literal('UNION', 1)) {
+					if (my $unionpart = $self->parse_triple_patterns) {
+						$triples		= [ $self->new_union($triple, $unionpart) ];
+					} else {
+						$self->set_commit;
+						return $self->fail('Expecting triple pattern in second position of UNION');
+					}
 				} else {
-					$self->set_commit;
-					return $self->fail('Expecting triple pattern in second position of UNION');
+					push(@$triples, @$triple);
 				}
-			} else {
-				push(@$triples, @$triple);
+				
+				last LOOP unless $self->match_literal('.');
+				last BALANCED if $self->match_literal('}');
 			}
 			
-			last unless $self->match_literal('.');
+			$self->set_commit;
+			$self->match_literal('}');
+			$self->unset_commit;
 		}
-		
-		$self->set_commit;
-		$self->match_literal('}');
-		$self->unset_commit;
 		
 		# put filters at the end
 		my @triples;
@@ -568,6 +571,7 @@ sub parse_triplepattern {
 				$self->new_triple( $subj, @$_ )
 			} @predobjs
 		);
+		
 		return $triples;
 	}
 	
@@ -1224,7 +1228,7 @@ Returns the parse tree for a predicate. Either 'a' for rdf:type shortcut syntax
 
 sub parse_predicate {
 	my $self	= shift;
-	if ($self->match_literal('a', 1)) {
+	if ($self->match_pattern(qr/a\b/)) {
 		return $self->new_uri('http://www.w3.org/1999/02/22-rdf-syntax-ns#type');
 	} else {
 		return $self->parse_variable_or_uri;
@@ -1311,7 +1315,18 @@ sub parse_constant {
 												([eE] [-+]? [0-9]+)?
 											/x)) {
 		$num	=~ s/^[+]//;
-		return $self->new_literal( $num );
+		my $dt;
+		if ($num =~ m/^[-+]?\d+$/) {
+			$dt	= $self->new_uri( 'http://www.w3.org/2001/XMLSchema#integer' );
+		} elsif ($num =~ /[.][^eE]+$/) {
+			$dt	= $self->new_uri( 'http://www.w3.org/2001/XMLSchema#decimal' );
+		} else {
+			$dt	= $self->new_uri( 'http://www.w3.org/2001/XMLSchema#double' );
+		}
+		return $self->new_literal( $num, undef, $dt );
+	} elsif (my $bool = $self->match_pattern(qr/true|false/)) {
+		my $dt	= $self->new_uri( 'http://www.w3.org/2001/XMLSchema#boolean' );
+		return $self->new_literal( $bool, undef, $dt );
 	}
 }
 

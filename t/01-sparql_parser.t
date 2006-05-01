@@ -1,12 +1,11 @@
 #!/usr/bin/perl
 use strict;
-use Test::More tests => 76;
+use Test::More tests => 79;
 use Data::Dumper;
 
 use_ok( 'RDF::Query::Parser::SPARQL' );
 my $parser	= new RDF::Query::Parser::SPARQL (undef);
 isa_ok( $parser, 'RDF::Query::Parser::SPARQL' );
-
 
 
 {
@@ -112,11 +111,11 @@ END
 									   ],
 									   ['>',
 										 ['VAR','lat'],
-										 ['LITERAL','52.988674']
+										 ['LITERAL','52.988674', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#decimal']]
 									   ],
 									   ['<',
 										 ['VAR','lat'],
-										 ['LITERAL','53.036526']
+										 ['LITERAL','53.036526', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#decimal']]
 									   ]
 								   ]
 							   ],
@@ -656,8 +655,8 @@ END
 									[['VAR','image'],['VAR','pred'],['VAR','point']],
 									['FILTER',
 										['<',
-											['FUNCTION', ['URI', ['mygeo', 'distance']], ['VAR', 'point'], ['LITERAL', '41.849331'], ['LITERAL', '-71.392']],
-											['LITERAL','10'],
+											['FUNCTION', ['URI', ['mygeo', 'distance']], ['VAR', 'point'], ['LITERAL', '41.849331', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#decimal']], ['LITERAL', '-71.392', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#decimal']]],
+											['LITERAL','10', undef, [ 'URI', 'http://www.w3.org/2001/XMLSchema#integer' ]],
 										]
 									],
 								],
@@ -690,10 +689,10 @@ END
 									[['VAR','image'],['VAR','pred'],['VAR','point']],
 									['FILTER',
 										['<',
-											['FUNCTION', ['URI', ['mygeo', 'distance']], ['VAR', 'point'], ['LITERAL', '41.849331'], ['LITERAL', '-71.392']],
+											['FUNCTION', ['URI', ['mygeo', 'distance']], ['VAR', 'point'], ['LITERAL', '41.849331', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#decimal']], ['LITERAL', '-71.392', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#decimal']]],
 											['+',
-												['LITERAL','5'],
-												['LITERAL','5'],
+												['LITERAL','5', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#integer']],
+												['LITERAL','5', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#integer']],
 											]
 										]
 									],
@@ -727,10 +726,10 @@ END
 									[['VAR','image'],['VAR','pred'],['VAR','point']],
 									['FILTER',
 										['<',
-											['FUNCTION', ['URI', ['mygeo', 'distance']], ['VAR', 'point'], ['LITERAL', '41.849331'], ['LITERAL', '-71.392']],
+											['FUNCTION', ['URI', ['mygeo', 'distance']], ['VAR', 'point'], ['LITERAL', '41.849331', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#decimal']], ['LITERAL', '-71.392', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#decimal']]],
 											['*',
-												['LITERAL','5'],
-												['LITERAL','5'],
+												['LITERAL','5', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#integer']],
+												['LITERAL','5', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#integer']],
 											]
 										]
 									],
@@ -766,7 +765,7 @@ END
 					['FILTER', 
 						[
 							'&&',
-							['<',['FUNCTION',['URI',['mygeo','distance']],['VAR','point'],['LITERAL','41.849331'],['LITERAL','-71.392']],['LITERAL','10']],
+							['<',['FUNCTION',['URI',['mygeo','distance']],['VAR','point'],['LITERAL','41.849331', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#decimal']],['LITERAL','-71.392', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#decimal']]],['LITERAL','10', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#integer']]],
 							['~~',['VAR','name'],['LITERAL','Providence, RI']]
 						]
 					],
@@ -983,7 +982,7 @@ END
                          [
                            ['BLANK','a1'],
                            ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#first'],
-                           ['LITERAL','1']
+                           ['LITERAL','1', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#integer']]
                          ],
                          [
                            ['BLANK','a1'],
@@ -1003,7 +1002,7 @@ END
                          [
                            ['BLANK','a3'],
                            ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#first'],
-                           ['LITERAL','3']
+                           ['LITERAL','3', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#integer']]
                          ],
                          [
                            ['BLANK','a3'],
@@ -1033,7 +1032,7 @@ END
                          [
                            ['BLANK','a1'],
                            ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#first'],
-                           ['LITERAL','1']
+                           ['LITERAL','1', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#integer']]
                          ],
                          [
                            ['BLANK','a1'],
@@ -1053,7 +1052,7 @@ END
                          [
                            ['BLANK','a3'],
                            ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#first'],
-                           ['LITERAL','3']
+                           ['LITERAL','3', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#integer']]
                          ],
                          [
                            ['BLANK','a3'],
@@ -1088,7 +1087,7 @@ END
                          [
                            ['BLANK','a1'],
                            ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#first'],
-                           ['LITERAL','1']
+                           ['LITERAL','1', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#integer']]
                          ],
                          [
                            ['BLANK','a1'],
@@ -1108,7 +1107,7 @@ END
                          [
                            ['BLANK','a3'],
                            ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#first'],
-                           ['LITERAL','3']
+                           ['LITERAL','3', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#integer']]
                          ],
                          [
                            ['BLANK','a3'],
@@ -1118,7 +1117,7 @@ END
                          [
                            ['BLANK','a4'],
                            ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#first'],
-                           ['LITERAL','1']
+                           ['LITERAL','1', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#integer']]
                          ],
                          [
                            ['BLANK','a4'],
@@ -1128,7 +1127,7 @@ END
                          [
                            ['BLANK','a5'],
                            ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#first'],
-                           ['LITERAL','2']
+                           ['LITERAL','2', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#integer']]
                          ],
                          [
                            ['BLANK','a5'],
@@ -1138,7 +1137,7 @@ END
                          [
                            ['BLANK','a6'],
                            ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#first'],
-                           ['LITERAL','3']
+                           ['LITERAL','3', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#integer']]
                          ],
                          [
                            ['BLANK','a6'],
@@ -1180,7 +1179,7 @@ END
                          [
                            ['BLANK','a1'],
                            ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#first'],
-                           ['LITERAL','1']
+                           ['LITERAL','1', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#integer']]
                          ],
                          [
                            ['BLANK','a1'],
@@ -1200,7 +1199,7 @@ END
                          [
                            ['BLANK','a3'],
                            ['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#first'],
-                           ['LITERAL','3']
+                           ['LITERAL','3', undef, ['URI', 'http://www.w3.org/2001/XMLSchema#integer']]
                          ],
                          [
                            ['BLANK','a3'],
@@ -1341,6 +1340,180 @@ END
 	my $parsed	= $parser->parse( $sparql );
 	is_deeply( $parsed, $correct, "ASK FILTER; using <= (shouldn't parse as '<')" );
 }
+
+{
+	my $sparql	= <<"END";
+		PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		PREFIX	dcterms: <http://purl.org/dc/terms/>
+		PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+		PREFIX	xsd: <http://www.w3.org/2001/XMLSchema#>
+		SELECT	?image ?point ?lat
+		WHERE	{
+					?point geo:lat ?lat .
+					?image ?pred ?point .
+		}
+		ORDER BY ASC( xsd:decimal( ?lat ) )
+END
+	my $correct	= {
+			'method'		=> 'SELECT', 
+			'triples'		=> [
+									[['VAR','point'],['URI',['geo','lat']],['VAR','lat']],
+									[['VAR','image'],['VAR','pred'],['VAR','point']],
+							   ],
+			'sources'		=> [],
+			'namespaces'	=> {'foaf' => 'http://xmlns.com/foaf/0.1/','geo' => 'http://www.w3.org/2003/01/geo/wgs84_pos#','dcterms' => 'http://purl.org/dc/terms/','rdf' => 'http://www.w3.org/1999/02/22-rdf-syntax-ns#', 'xsd' => 'http://www.w3.org/2001/XMLSchema#'},
+			'variables'		=> [['VAR','image'],['VAR','point'],['VAR','lat']],
+			'options'		=> {
+								'orderby' => [
+												[
+													'ASC',
+													[
+														'FUNCTION',
+														['URI',['xsd','decimal']],
+														['VAR','lat']
+													]
+												]
+											]
+		                       },
+	};
+	my $parsed	= $parser->parse( $sparql );
+	is_deeply( $parsed, $correct, 'ORDER BY with expression' );
+}
+
+{
+	my $sparql	= <<"END";
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+PREFIX cyc: <http://www.cyc.com/2004/06/04/cyc#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX dc: <http://purl.org/dc/elements/1.1/>
+SELECT ?place ?img ?date
+WHERE {
+	?region foaf:name "Maine" .
+	?p cyc:inRegion ?region; foaf:name ?place .
+	?img dcterms:spatial ?p .
+	?img dc:date ?date;  rdf:type foaf:Image .
+}
+ORDER BY DESC(?date)
+LIMIT 10
+END
+	my $correct	= {
+		  'method' => 'SELECT',
+		  'sources' => [],
+		  'variables' => [
+							['VAR','place'],
+							['VAR','img'],
+							['VAR','date']
+						 ],
+		  'triples' => [
+						 [
+							[ 'VAR', 'region' ],
+							[ 'URI', [ 'foaf', 'name' ] ],
+							[ 'LITERAL','Maine' ]
+						 ],
+						 [
+							[ 'VAR', 'p' ],
+							[ 'URI',['cyc','inRegion'] ],
+							[ 'VAR', 'region' ]
+						 ],
+						 [
+							[ 'VAR', 'p' ],
+							[ 'URI',['foaf','name'] ],
+							[ 'VAR', 'place' ]
+						 ],
+						 [
+							[ 'VAR', 'img' ],
+							[ 'URI',['dcterms','spatial'] ],
+							[ 'VAR', 'p' ]
+						 ],
+						 [
+							[ 'VAR', 'img' ],
+							[ 'URI', ['dc','date'] ],
+							[ 'VAR', 'date' ]
+						 ],
+						 [
+							[ 'VAR', 'img' ],
+							[ 'URI', ['rdf','type'] ],
+							[ 'URI', ['foaf','Image'] ]
+						 ]
+					   ],
+		  'options' => {
+						'orderby' => [
+										[
+											'DESC',
+											[
+												'VAR',
+												'date'
+											]
+										]
+									],
+						'limit' => '10'
+					   },
+		  'namespaces' => {
+							'dc' => 'http://purl.org/dc/elements/1.1/',
+							'cyc' => 'http://www.cyc.com/2004/06/04/cyc#',
+							'foaf' => 'http://xmlns.com/foaf/0.1/',
+							'rdf' => 'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
+							'dcterms' => 'http://purl.org/dc/terms/'
+						  }
+		};
+	my $parsed	= $parser->parse( $sparql );
+	is_deeply( $parsed, $correct, "triple pattern with trailing internal '.'" );
+}
+
+{
+	my $sparql	= <<"END";
+			PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+			PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+			PREFIX cyc: <http://www.cyc.com/2004/06/04/cyc#>
+			PREFIX dcterms: <http://purl.org/dc/terms/>
+			PREFIX dc: <http://purl.org/dc/elements/1.1/>
+			PREFIX album: <http://kasei.us/e/ns/album#>
+			PREFIX p: <http://www.usefulinc.com/picdiary/>
+			SELECT ?img ?date
+			WHERE {
+				<http://kasei.us/pictures/parties/19991205-Tims_Party/> album:image ?img .
+				?img dc:date ?date ; rdf:type foaf:Image .
+			}
+			ORDER BY DESC(?date)
+END
+	my $correct	= {
+					'method' => 'SELECT',
+					'triples' => [
+									[
+										['URI','http://kasei.us/pictures/parties/19991205-Tims_Party/'],
+										['URI',['album','image']],
+										['VAR','img']
+									],
+									[
+										['VAR','img'],
+										['URI',['dc','date']],
+										['VAR','date']
+									],
+									[
+										['VAR','img'],
+										['URI',['rdf','type']],
+										['URI',['foaf', 'Image']]
+									]
+								],
+					'namespaces' => {
+										p		=> 'http://www.usefulinc.com/picdiary/',
+										album	=> 'http://kasei.us/e/ns/album#',
+										dc		=> 'http://purl.org/dc/elements/1.1/',
+										cyc		=> 'http://www.cyc.com/2004/06/04/cyc#',
+										foaf	=> 'http://xmlns.com/foaf/0.1/',
+										rdf		=> 'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
+										dcterms	=> 'http://purl.org/dc/terms/',
+									},
+					'sources' => [],
+					'variables' => [['VAR','img'], ['VAR', 'date']],
+					'options' => {orderby => [['DESC', ['VAR', 'date']]]},
+				};
+	my $parsed	= $parser->parse( $sparql );
+	is_deeply( $parsed, $correct, "[bug] query with predicate starting with 'a' (confused with { ?subj a ?type})" );
+}
+
 
 ##### ERRORS
 

@@ -5,9 +5,13 @@ RDF::Query - A SPARQL/RDQL implementation for RDF::Redland and RDF::Core
 REQUIREMENTS
 
 	To install RDF::Query you'll need the following perl modules installed:
+
+     * RDF::Core or RDF::Redland
      * Parse::RecDescent
      * LWP::Simple
-     * RDF::Core or RDF::Redland
+     * DateTime::Format::W3CDTF
+     * JSON
+     * Error
 
 INSTALLATION
 
@@ -19,6 +23,17 @@ INSTALLATION
    make install
 
 VERSION HISTORY
+
+  Version 1.034 (2006-05-01)
+
+     * Added JSON serialization for bindings and boolean queries.
+     * Initial support for compiling RDF queries to SQL queries using the Redland schema.
+     * Added to_string method to query results Stream class.
+     * Model objects now store the query parse tree for access to data needed in serialization.
+     * Unquoted number and boolean literals in SPARQL are now datatyped appropriately.
+     * Fixed crashing bug when RDF::Query::Model::Redland::as_string was called with an undefined value.
+     * Fixed bug parsing queries with predicate starting with 'a' (confused with { ?subj a ?type}).
+     * Fixed bug parsing queries whose triple pattern ended with the optional dot.
 
   Version 1.033 (2006-03-08)
 
@@ -208,4 +223,4 @@ AUTHOR
 
 	Gregory Williams <gwilliams@cpan.org>
 
-$Id: README 137 2006-03-08 05:17:28Z samofool $
+$Id: README 146 2006-05-01 05:57:16Z samofool $

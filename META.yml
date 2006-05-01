@@ -1,17 +1,19 @@
 # http://module-build.sourceforge.net/META-spec.html
 #XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
 name:         RDF-Query
-version:      1.033
+version:      1.034
 version_from: lib/RDF/Query.pm
 installdirs:  site
 requires:
     DateTime::Format::W3CDTF:      0
     Error:                         0
+    JSON:                          0
     LWP::Simple:                   0
     Parse::RecDescent:             0
     RDF::Core:                     0
     Scalar::Util:                  0
     Test::Exception:               0
+    Test::JSON:                    0
     Test::More:                    0.61
 
 distribution_type: module

@@ -1,7 +1,7 @@
 # RDF::Query
 # -------------
-# $Revision: 137 $
-# $Date: 2006-03-08 00:17:28 -0500 (Wed, 08 Mar 2006) $
+# $Revision: 145 $
+# $Date: 2006-05-01 01:50:44 -0400 (Mon, 01 May 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -10,7 +10,7 @@ RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF
 
 =head1 VERSION
 
-This document describes RDF::Query version 1.033
+This document describes RDF::Query version 1.034.
 
 =head1 SYNOPSIS
 
@@ -53,20 +53,23 @@ use Carp qw(carp croak confess);
 
 use Data::Dumper;
 use LWP::Simple ();
+use Storable qw(dclone);
 use Scalar::Util qw(blessed reftype);
 use DateTime::Format::W3CDTF;
 
 use RDF::Query::Stream;
 use RDF::Query::Parser::RDQL;
 use RDF::Query::Parser::SPARQL;
+use RDF::Query::Compiler::SQL;
+use RDF::Query::Error qw(:try);
 
 ######################################################################
 
 our ($REVISION, $VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$REVISION	= do { my $REV = (qw$Revision: 137 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
-	$VERSION	= 1.033;
+	$REVISION	= do { my $REV = (qw$Revision: 145 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= 1.034;
 }
 
 ######################################################################
@@ -101,7 +104,7 @@ sub new {
 				}, $class );
 	
 	unless ($parsed->{'triples'}) {
-#		warn $parser->error if ($debug);
+		warn $parser->error if ($debug);
 		return undef;
 	}
 	$self->{parsed}{namespaces}{rdf}	= 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
@@ -125,7 +128,7 @@ sub get {
 	}
 }
 
-=item C<execute ( $model )>
+=item C<execute ( $model, %args )>
 
 Executes the query using the specified model. If called in a list
 context, returns an array of rows, otherwise returns an iterator.
@@ -134,22 +137,67 @@ context, returns an array of rows, otherwise returns an iterator.
 sub execute {
 	my $self	= shift;
 	my $model	= shift;
+	my %args	= @_;
+	my $parsed	= $self->{parsed};
 	
-	my $bridge	= $self->get_bridge( $model );
-	
+	my ($stream, $bridge);
 	$self->{model}		= $model;
+	
+	if (my $dsn = $args{'dsn'}) {
+		require DBI;
+		try {
+			my $dbh			= DBI->connect( @$dsn );
+			$self->{dbh}	= $dbh;
+		};
+	}
+	
+	if (my $dbh = $self->{'dbh'} || $args{'dbh'}) {
+		try {
+			my $compiler	= RDF::Query::Compiler::SQL->new( dclone($parsed), $args{'model'} );
+			my $sql			= $compiler->compile();
+			my $sth			= $dbh->prepare( $sql );
+			$sth->execute;
+			if (my $err = $sth->errstr) {
+				throw RDF::Query::Error::CompilationError ( -text => $err );
+			}
+			$self->{sql}	= $sql;
+			$self->{sth}	= $sth;
+#			warn $sql;
+		} catch RDF::Query::Error::CompilationError with {
+			my $err	= shift;
+			if ($args{'require_sql'}) {
+				throw $err;
+			} else {
+				warn $err->text;
+				delete $self->{'dbh'};
+				delete $self->{'sql'};
+			}
+		};
+	}
+	
+	$bridge	= $self->get_bridge( $model, %args );
 	$self->{bridge}		= $bridge;
 	
-	my $parser	= $self->{parser};
-	my $parsed	= $self->fixup( $self->{parsed} );
-	my $stream	= $self->query_more( bound => {}, triples => [@{ $parsed->{'triples'} }] );
-	_debug( "got stream: $stream" );
-	$stream		= RDF::Query::Stream->new(
-					$self->sort_rows( $stream, $parsed ),
-					'bindings',
-					[ $self->variables() ],
-					bridge	=> $bridge
-				);
+	if (my $sth = $self->{sth}) {
+		$stream	= $bridge->stream( $parsed, $sth );
+	} else {
+		if ($args{'require_sql'}) {
+			throw RDF::Query::Error::CompilationError;
+		}
+		
+		$parsed	= $self->fixup( $self->{parsed} );
+		$stream	= $self->query_more( bound => {}, triples => [@{ $parsed->{'triples'} }] );
+		_debug( "got stream: $stream" );
+		$stream		= RDF::Query::Stream->new(
+						$self->sort_rows( $stream, $parsed ),
+						'bindings',
+						[ $self->variables() ],
+						bridge	=> $bridge
+					);
+		
+	}
+	
+	
 	if ($parsed->{'method'} eq 'DESCRIBE') {
 		$stream	= $self->describe( $stream );
 	} elsif ($parsed->{'method'} eq 'CONSTRUCT') {
@@ -371,20 +419,25 @@ Returns a bridge object for the specified model object.
 sub get_bridge {
 	my $self	= shift;
 	my $model	= shift;
+	my %args	= @_;
+	
+	my $parsed	= ref($self) ? $self->{parsed} : undef;
 	
 	my $bridge;
-	
 	if (not $model) {
 		$bridge	= $self->new_bridge();
+	} elsif (my $dbh = (ref($self) ? $self->{'dbh'} : undef) || $args{'dbh'}) {
+		require RDF::Query::Model::SQL;
+		$bridge	= RDF::Query::Model::SQL->new( $dbh, 'db1', parsed => $parsed );	# XXXXXXXXXXXXXXXXXXXXX
 	} elsif (blessed($model) and $model->isa('RDF::Redland::Model')) {
 		require RDF::Query::Model::Redland;
-		$bridge	= RDF::Query::Model::Redland->new( $model );
+		$bridge	= RDF::Query::Model::Redland->new( $model, parsed => $parsed );
 #	} elsif (reftype($model) eq 'ARRAY' and blessed($model->[0]) and $model->[0]->isa('DBI::db')) {
 #		require RDF::Query::Model::DBI;
 #		$bridge	= RDF::Query::Model::DBI->new( $model );
 	} else {
 		require RDF::Query::Model::RDFCore;
-		$bridge	= RDF::Query::Model::RDFCore->new( $model );
+		$bridge	= RDF::Query::Model::RDFCore->new( $model, parsed => $parsed );
 	}
 	
 	return $bridge;
@@ -1051,11 +1104,13 @@ my %dispatch	= (
 								if (defined($data->[2])) {
 									my $uri		= $data->[2];
 									my $literal	= $data->[0];
-									my $func	= [ 'FUNCTION', $uri, [ 'LITERAL', $literal ] ];
-									return $self->check_constraints( $values, $func );
-								} else {
-									return $data->[0]
+									my $func	= $self->get_function( $self->qualify_uri( $uri ) );
+									if ($func) {
+										my $funcdata	= [ 'FUNCTION', $uri, [ 'LITERAL', $literal ] ];
+										return $self->check_constraints( $values, $funcdata );
+									}
 								}
+								return $data->[0];
 							},
 					'~~'	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return ($operands[0] =~ /$operands[1]/) },
 					'=='	=> sub {
@@ -1090,8 +1145,7 @@ my %dispatch	= (
 						our %functions;
 						my ($self, $values, $data) = @_;
 						my $uri		= $data->[0][1];
-						my $func	= $self->{'functions'}{$uri}
-									|| $RDF::Query::functions{ $uri };
+						my $func	= $self->get_function( $uri );
 						if ($func) {
 							$self->{'values'}	= $values;
 							my $value	= $func->(
@@ -1108,6 +1162,7 @@ my %dispatch	= (
 							return $value;
 						} else {
 							warn "No function defined for <${uri}>\n";
+							Carp::cluck if ($::counter++ > 5);
 							return undef;
 						}
 					},
@@ -1173,6 +1228,14 @@ sub add_function {
 		our %functions;
 		$RDF::Query::functions{ $uri }	= $code;
 	}
+}
+
+sub get_function {
+	my $self	= shift;
+	my $uri		= shift;
+	my $func	= $self->{'functions'}{$uri}
+				|| $RDF::Query::functions{ $uri };
+	return $func;
 }
 
 =for private

@@ -230,7 +230,6 @@ sub fail {
 	
 	$self->set_error( "$error at $line:$col (near '$rest')" );
 	if ($self->{commit}) {
-#		Carp::cluck;
 		throw RDF::Query::Error::ParseError( -text => "$error at $line:$col (near '$rest')" );
 	} else {
 		return undef;

@@ -12,9 +12,13 @@ data/named_graphs/alice.rdf
 data/named_graphs/meta.ttl
 data/named_graphs/bob.rdf
 lib/RDF/Query.pm
+lib/RDF/Query/Compiler/SQL.pm
 lib/RDF/Query/Error.pm
+lib/RDF/Query/Model.pm
 lib/RDF/Query/Model/RDFCore.pm
 lib/RDF/Query/Model/Redland.pm
+lib/RDF/Query/Model/SQL.pm
+lib/RDF/Query/Model/SQL/Statement.pm
 lib/RDF/Query/Parser.pm
 lib/RDF/Query/Parser/RDQL.pm
 lib/RDF/Query/Parser/SPARQL.pm
@@ -43,5 +47,6 @@ t/12-literals.t
 t/13-sparql-2_8-syntactic_forms.t
 t/14-sparql-9_2-named_graphs.t
 t/15-functions.t
+t/16-sql_compiler.t
 t/models.pl
 META.yml                                 Module meta-data (added by MakeMaker)

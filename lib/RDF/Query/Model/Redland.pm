@@ -2,6 +2,8 @@ package RDF::Query::Model::Redland;
 
 use strict;
 use warnings;
+use base qw(RDF::Query::Model);
+
 use Carp qw(carp croak confess);
 
 use File::Spec;
@@ -17,7 +19,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 137 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 142 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
 ######################################################################
@@ -25,12 +27,15 @@ BEGIN {
 sub new {
 	my $class	= shift;
 	my $model	= shift;
+	my %args	= @_;
+	
 	unless (UNIVERSAL::isa($model, 'RDF::Redland::Model')) {
 		my $storage	= RDF::Redland::Storage->new( "hashes", "test", "new='yes',hash-type='memory',contexts='yes'" );
 		$model	= RDF::Redland::Model->new( $storage, '' );
 	}
 	my $self	= bless( {
 					model	=> $model,
+					parsed	=> $args{parsed},
 				}, $class );
 }
 
@@ -162,7 +167,7 @@ Returns a string version of the node object.
 sub as_string {
 	my $self	= shift;
 	my $node	= shift;
-	Carp:confess unless (blessed($node));
+	return undef unless (blessed($node));
 	return $node->as_string;
 }
 

@@ -18,9 +18,12 @@
 	<h2>Requirements</h2>
 		<p>To install RDF::Query you'll need the following perl modules installed:</p>
 		<ul>
+			<li>RDF::Core <em>or</em> RDF::Redland</li>
 			<li>Parse::RecDescent</li>
 			<li>LWP::Simple</li>
-			<li>RDF::Core <em>or</em> RDF::Redland</li>
+			<li>DateTime::Format::W3CDTF</li>
+			<li>JSON</li>
+			<li>Error</li>
 		</ul>
 	<h2 id="installing">Installing RDF::Query</h2>
 		<p>To install, run:</p>
@@ -31,6 +34,17 @@
 			make install<br />
 		</div>
 	<h2 id="changelog">Version History</h2>
+		<h3 id="v1_034">Version 1.034 (2006-05-01)</h3>
+			<ul>
+				<li>Added JSON serialization for bindings and boolean queries.</li>
+				<li>Initial support for compiling RDF queries to SQL queries using the Redland schema.</li>
+				<li>Added to_string method to query results Stream class.</li>
+				<li>Model objects now store the query parse tree for access to data needed in serialization.</li>
+				<li>Unquoted number and boolean literals in SPARQL are now datatyped appropriately.</li>
+				<li>Fixed crashing bug when RDF::Query::Model::Redland::as_string was called with an undefined value.</li>
+				<li>Fixed bug parsing queries with predicate starting with 'a' (confused with { ?subj a ?type}).</li>
+				<li>Fixed bug parsing queries whose triple pattern ended with the optional dot.</li>
+			</ul>
 		<h3 id="v1_033">Version 1.033 (2006-03-08)</h3>
 			<ul>
 				<li>Updated test suite to work if one of the model classes is missing.</li>
@@ -210,5 +224,5 @@
 	<h2>Copyright</h2>
 		<p>Copyright &copy; 2005&#8211;2006 Gregory Williams. All rights reserved. This program is free software; you can redistribute it and/or modify it under the same terms as Perl itself.</p>
 	
-	$Id: README.html 137 2006-03-08 05:17:28Z samofool $
+	$Id: README.html 146 2006-05-01 05:57:16Z samofool $
 </body></html>

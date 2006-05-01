@@ -4,6 +4,8 @@ package RDF::Query::Model::RDFCore;
 
 use strict;
 use warnings;
+use base qw(RDF::Query::Model);
+
 use Carp qw(carp croak);
 use Scalar::Util qw(blessed);
 
@@ -23,7 +25,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 137 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 142 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
 ######################################################################
@@ -37,6 +39,8 @@ Returns a new bridge object for the specified C<$model>.
 sub new {
 	my $class	= shift;
 	my $model	= shift;
+	my %args	= @_;
+	
 	unless (blessed($model) and $model->isa('RDF::Core::Model')) {
 		my $storage	= new RDF::Core::Storage::Memory;
 		$model	= new RDF::Core::Model (Storage => $storage);
@@ -44,6 +48,7 @@ sub new {
 	my $factory	= new RDF::Core::NodeFactory;
 	my $self	= bless( {
 					model	=> $model,
+					parsed	=> $args{parsed},
 					factory	=> $factory,
 					sttime	=> time,
 					counter	=> 0

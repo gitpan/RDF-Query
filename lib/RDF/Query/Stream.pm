@@ -1,7 +1,7 @@
 # RDF::Query::Stream
 # -------------
-# $Revision: 121 $
-# $Date: 2006-02-06 23:07:43 -0500 (Mon, 06 Feb 2006) $
+# $Revision: 145 $
+# $Date: 2006-05-01 01:50:44 -0400 (Mon, 01 May 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -14,8 +14,11 @@ package RDF::Query::Stream;
 
 use strict;
 use warnings;
+
 use Data::Dumper;
 use Carp qw(carp);
+
+use JSON;
 
 our ($debug);
 BEGIN {
@@ -128,6 +131,20 @@ sub get_all {
 	return @data;
 }
 
+sub to_string {
+	my $self	= shift;
+	my $format	= shift;
+	if (ref($format) and $format->isa('RDF::Redland::URI')) {
+		$format	= $format->as_string;
+	}
+	
+	if ($format eq 'http://www.w3.org/2001/sw/DataAccess/json-sparql/') {
+		return $self->as_json;
+	} else {
+		return $self->as_xml;
+	}
+}
+
 sub as_xml {
 	my $self			= shift;
 	my $max_result_size	= shift || 0;
@@ -137,6 +154,18 @@ sub as_xml {
 		return $self->graph_as_xml( $max_result_size );
 	} elsif ($self->is_boolean) {
 		return $self->boolean_as_xml();
+	}
+}
+
+sub as_json {
+	my $self			= shift;
+	my $max_result_size	= shift || 0;
+	if ($self->is_bindings) {
+		return $self->bindings_as_json( $max_result_size );
+	} elsif ($self->is_graph) {
+		throw RDF::Query::Error::SerializationError ( -text => 'There is no JSON serialization specified for graph query results' );
+	} elsif ($self->is_boolean) {
+		return $self->boolean_as_json();
 	}
 }
 
@@ -153,6 +182,13 @@ sub boolean_as_xml {
 </sparql>
 END
 	return $xml;
+}
+
+sub boolean_as_json {
+	my $self	= shift;
+	my $value	= $self->get_boolean ? JSON::True : JSON::False;
+	my $data	= { head => { vars => [] }, boolean => $value };
+	return objToJson( $data );
 }
 
 sub bindings_as_xml {
@@ -183,7 +219,7 @@ END
 		for (my $i = 0; $i < $width; $i++) {
 			my $name		= $self->binding_name($i);
 			my $value		= $self->binding_value($i);
-			$xml	.= "\t\t\t" . format_node_raw($bridge, $value, $name) . "\n";
+			$xml	.= "\t\t\t" . format_node_xml($bridge, $value, $name) . "\n";
 		}
 		$xml	.= "\t\t</result>\n";
 		
@@ -196,12 +232,51 @@ EOT
 	return $xml;
 }
 
+sub bindings_as_json {
+	my $self			= shift;
+	my $max_result_size	= shift;
+	my $width			= $self->bindings_count;
+	my $bridge			= $self->_bridge;
+	
+	my @variables;
+	for (my $i=0; $i < $width; $i++) {
+		my $name	= $self->binding_name($i);
+		push(@variables, $name) if $name;
+	}
+	
+	my $count	= 0;
+	my $parsed	= $bridge->parsed;
+	my $order	= ref($parsed->{options}{orderby}) ? JSON::True : JSON::False;
+	my $dist	= $parsed->{options}{distinct} ? JSON::True : JSON::False;
+	
+	my $data	= {
+					head	=> { vars => \@variables },
+					results	=> { ordered => $order, distinct => $dist },
+				};
+	my @bindings;
+	while (!$self->finished) {
+		my %row;
+		for (my $i = 0; $i < $width; $i++) {
+			my $name		= $self->binding_name($i);
+			my $value		= $self->binding_value($i);
+			if (my ($k, $v) = format_node_json($bridge, $value, $name)) {
+				$row{ $k }		= $v;
+			}
+		}
+		
+		push(@{ $data->{results}{bindings} }, \%row);
+		last if ($max_result_size and ++$count >= $max_result_size);
+	} continue { $self->next_result }
+	
+	return objToJson( $data );
+}
+
 sub graph_as_xml {
 	my $self	= shift;
 	return $self->_bridge->as_xml( $self );
 }
 
-sub format_node_raw ($$) {
+sub format_node_xml ($$$) {
 	my $bridge	= shift;
 	return undef unless ($bridge);
 	
@@ -233,6 +308,30 @@ sub format_node_raw ($$) {
 		$node_label	= "<unbound/>";
 	}
 	return qq(<binding name="${name}">${node_label}</binding>);
+}
+
+sub format_node_json ($$$) {
+	my $bridge	= shift;
+	return undef unless ($bridge);
+	
+	my $node	= shift;
+	my $name	= shift;
+	my $node_label;
+	
+	if(!defined $node) {
+		return;
+	} elsif ($bridge->is_resource($node)) {
+		$node_label	= $bridge->uri_value( $node );
+		return $name => { type => 'uri', value => $node_label };
+	} elsif ($bridge->is_literal($node)) {
+		$node_label	= $bridge->literal_value( $node );
+		return $name => { type => 'literal', value => $node_label };
+	} elsif ($bridge->is_blank($node)) {
+		$node_label	= $bridge->blank_identifier( $node );
+		return $name => { type => 'bnode', value => $node_label };
+	} else {
+		return;
+	}
 }
 
 sub AUTOLOAD {

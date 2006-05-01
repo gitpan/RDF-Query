@@ -45,7 +45,7 @@ END
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 			SELECT	?x
 			WHERE	{
-						(1 ?x 3)
+						("1" ?x "3")
 					}
 END
 		my ($x)	= $query->get( $model );
@@ -59,7 +59,7 @@ END
 			PREFIX test: <http://kasei.us/e/ns/test#>
 			SELECT	?x
 			WHERE	{
-						<http://kasei.us/about/foaf.xrdf#greg> test:mycollection (1 ?x 3) .
+						<http://kasei.us/about/foaf.xrdf#greg> test:mycollection ("1" ?x "3") .
 					}
 END
 		my ($x)	= $query->get( $model );
