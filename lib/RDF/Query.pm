@@ -1,7 +1,7 @@
 # RDF::Query
 # -------------
-# $Revision: 145 $
-# $Date: 2006-05-01 01:50:44 -0400 (Mon, 01 May 2006) $
+# $Revision: 151 $
+# $Date: 2006-06-04 16:08:40 -0400 (Sun, 04 Jun 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -10,7 +10,7 @@ RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF
 
 =head1 VERSION
 
-This document describes RDF::Query version 1.034.
+This document describes RDF::Query version 1.035.
 
 =head1 SYNOPSIS
 
@@ -54,7 +54,7 @@ use Carp qw(carp croak confess);
 use Data::Dumper;
 use LWP::Simple ();
 use Storable qw(dclone);
-use Scalar::Util qw(blessed reftype);
+use Scalar::Util qw(blessed reftype looks_like_number);
 use DateTime::Format::W3CDTF;
 
 use RDF::Query::Stream;
@@ -68,8 +68,8 @@ use RDF::Query::Error qw(:try);
 our ($REVISION, $VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$REVISION	= do { my $REV = (qw$Revision: 145 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
-	$VERSION	= 1.034;
+	$REVISION	= do { my $REV = (qw$Revision: 151 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= 1.035;
 }
 
 ######################################################################
@@ -186,7 +186,7 @@ sub execute {
 		}
 		
 		$parsed	= $self->fixup( $self->{parsed} );
-		$stream	= $self->query_more( bound => {}, triples => [@{ $parsed->{'triples'} }] );
+		$stream	= $self->query_more( bound => {}, triples => [@{ $parsed->{'triples'} }], variables => [ $self->variables ] );
 		_debug( "got stream: $stream" );
 		$stream		= RDF::Query::Stream->new(
 						$self->sort_rows( $stream, $parsed ),
@@ -481,6 +481,7 @@ sub fixup {
 			
 			$self->parse_url( $source->[1], $named_source );
 		}
+		$self->run_hook( 'http://kasei.us/code/rdf-query/hooks/post-create-model', $self->bridge );
 	}
 	
 	## CONVERT URIs to Resources, and strings to Literals
@@ -526,8 +527,9 @@ sub fixup {
 	
 	## SELECT * implies selecting all known variables
 	no warnings 'uninitialized';
+	$self->{known_variables}	= [ map { ['VAR', $_] } (keys %known_variables) ];
 	if ($parsed->{variables}[0] eq '*') {
-		$parsed->{variables}	= [ map { ['VAR', $_] } (keys %known_variables) ];
+		$parsed->{variables}	= $self->{known_variables};
 	}
 	
 	
@@ -612,11 +614,12 @@ sub query_more {
 	my $self	= shift;
 	my %args	= @_;
 	
-	my $bound	= delete($args{bound});
-	my $triples	= delete($args{triples});
-	my $context	= $args{context};
+	my $bound		= delete($args{bound});
+	my $triples		= delete($args{triples});
+	my $context		= $args{context};
+	my $variables	= $args{variables};
 	
-	my @triples	= @{$triples};
+	my @triples		= @{$triples};
 # 	if ($debug > 0.1) {
 # 		warn 'query_more: ' . Data::Dumper->Dump([\@triples, $bound], [qw(triples bound)]);
 # 		warn "with context: " . Dumper($context) if ($context);
@@ -626,35 +629,37 @@ sub query_more {
 	my $parsed		= $self->parsed;
 	my $bridge		= $self->bridge;
 	
-	if ($triples[0][0] eq 'OPTIONAL') {
-		return $self->optional( bound => $bound, triples => \@triples, %args );
-	} elsif ($triples[0][0] eq 'GRAPH') {
-		if ($context) {
-			throw RDF::Query::Error::QueryPatternError ( -text => "Can't use nested named graphs" );
-		} else {
-			return $self->named_graph( bound => $bound, triples => \@triples );
-		}
-	} elsif ($triples[0][0] eq 'FILTER') {
-		my $data	= shift(@triples);
-		my $filter	= $data->[1];
-		if ($self->check_constraints( $bound, $filter )) {
-			if (@triples) {
-				return $self->query_more( bound => $bound, triples => \@triples );
+	if (@triples) {
+		if ($triples[0][0] eq 'OPTIONAL') {
+			return $self->optional( bound => $bound, triples => \@triples, %args );
+		} elsif ($triples[0][0] eq 'GRAPH') {
+			if ($context) {
+				throw RDF::Query::Error::QueryPatternError ( -text => "Can't use nested named graphs" );
 			} else {
-				my @values	= map { $bound->{$_} } $self->variables();
-				my @rows	= [@values];
-				return sub { shift(@rows) };
+				return $self->named_graph( bound => $bound, triples => \@triples, variables => $variables );
 			}
-		} else {
-			return sub { undef };
+		} elsif ($triples[0][0] eq 'FILTER') {
+			my $data	= shift(@triples);
+			my $filter	= [ 'FUNCTION', ['URI', 'sop:boolean'], $data->[1] ];
+			my $filter_value	= $self->check_constraints( $bound, $filter );
+			
+			if ($filter_value) {
+				return $self->query_more( bound => $bound, triples => \@triples, variables => $variables );
+			} else {
+				return sub { undef };
+			}
+		} elsif ($triples[0][0] eq 'UNION') {
+			return $self->union( bound => $bound, triples => \@triples, %args );
 		}
-	} elsif ($triples[0][0] eq 'UNION') {
-		return $self->union( bound => $bound, triples => \@triples, %args );
+	} else {
+		my @values	= map { $bound->{$_} } @$variables;
+		my @rows	= [@values];
+		return sub { shift(@rows) };
 	}
 	
 	my $triple		= shift(@triples);
 	unless (ref($triple)) {
-		carp "Something went wrong. No triple passed to query_more";
+		Carp::cluck "Something went wrong. No triple passed to query_more";
 		return undef;
 	}
 	my @triple		= @{ $triple };
@@ -689,7 +694,7 @@ sub query_more {
 					} elsif (scalar(@triples)) {
 						$self->{punt}++;
 						push(@triples, $triple);
-						return $self->query_more( bound => { %{ $bound } }, triples => [@triples] );
+						return $self->query_more( bound => { %{ $bound } }, triples => [@triples], variables => $variables );
 					} else {
 						carp "Something went wrong. Not enough triples passed to query_more";
 						return undef;
@@ -782,9 +787,9 @@ sub query_more {
 				_debug( "${indent}-> " . Dumper(\@triples) );
 				$indent	.= '  ';
 				_debug( 'adding a new stream for more triples' );
-				unshift(@streams, $self->query_more( bound => { %{ $bound } }, triples => [@triples], ($context ? (context => $context ) : ()) ) );
+				unshift(@streams, $self->query_more( bound => { %{ $bound } }, triples => [@triples], variables => $variables, ($context ? (context => $context ) : ()) ) );
 			} else {
-				my @values	= map { $bound->{$_} } $self->variables();
+				my @values	= map { $bound->{$_} } @$variables;
 				_debug( "${indent}-> no triples left: result: " . join(', ', map {$bridge->as_string($_)} grep defined, @values) . "\n" );
 				$result	= [@values];
 			}
@@ -895,84 +900,72 @@ pattern succeeds. Returns by calling C<query_more()> with any remaining triples.
 =cut
 
 sub optional {
-	my $self		= shift;
+	my $self	= shift;
 	my %args	= @_;
+
+	my $bound		= delete($args{bound});
+	my $triples		= delete($args{triples});
+	my $variables	= delete $args{variables};
+	my $context		= $args{context};
 	
-	my $bound	= delete($args{bound});
-	my $triples	= delete($args{triples});
-	my $context	= $args{context};
-	
-	my @triples	= @{$triples};
-	my $triple	= shift(@triples);
+	my @triples		= @{$triples};
+	my $triple		= shift(@triples);
 	
 	my $parsed		= $self->parsed;
 	
 	my @triple		= @{ $triple };
 	my @opt_triples	= @{ $triple[1] };
-	_debug( 'optional triples: ' . Dumper(\@opt_triples), 2 );
-	my $ostream	= $self->query_more( bound => { %{ $bound } }, triples => [@opt_triples], %args );
-	$ostream	= RDF::Query::Stream->new(
+	
+	my @known		= $self->all_variables;
+	my $ostream		= $self->query_more( bound => { %{ $bound } }, triples => [@opt_triples], variables => \@known, %args );
+	$ostream		= RDF::Query::Stream->new(
 					$ostream,
 					'bindings',
-					[ $self->variables() ],
+					\@known,
 					bridge => $self->bridge
 				);
-	if ($ostream and not $ostream->finished) {
-		_debug( 'got optional stream' );
-		if (@triples) {
-			_debug( "with more triples to match." );
-			my $stream;
-			return sub {
-				while ($ostream and not $ostream->finished) {
-					if (ref($stream)) {
-						my $data	= $stream->();
-						return $data;
-					}
-					
-					foreach my $i (0 .. $ostream->bindings_count - 1) {
-						my $name	= $ostream->binding_name( $i );
-						my $value	= $ostream->binding_value( $i );
-						if (defined $value) {
-							$bound->{ $name }	= $value;
-							_debug( "Setting $name = $value\n" );
-						}
-					}
-					$stream	= $self->query_more( bound => { %{ $bound } }, triples => [@triples] );
+	
+	if ($ostream->current) {
+		my $substream;
+		my $current;
+		my $stream	= sub {
+			my %local_bound	= %$bound;
+			until ($ostream->finished and not $ostream->current and not $substream) {
+				if ($substream) {
+					my $data	= $substream->();
+					return $data if (defined $data);
+					undef $substream;
 				}
-				return undef;
-			};
-		} else {
-			_debug( "No more triples. Returning OPTIONAL stream." );
-			return sub {
-				return undef unless ($ostream and not $ostream->finished);
-				my $data	= $ostream->current;
+				
+				$current	= $ostream->current;
+				last unless ($current);
 				$ostream->next;
-				return $data;
-			};
-		}
-	} else {
-		_debug( "OPTIONAL block failed" );
-		if (@triples) {
-			_debug( "More triples. Re-dispatching" );
-			return $self->query_more( bound => { %{ $bound } }, triples => [@triples] );
-		} else {
-			_debug( "No more triples. Returning empty results." );
-			my @vars	= $self->variables;
-			my @values	= map { $bound->{$_} } $self->variables();
-			my @results	= [@values];
-			my $stream;
-			$stream	= sub {
-						while (@results) {
-							my $result	= shift(@results);
-							my %bound;
-							@bound{ @vars }	= @$result;
-							return $result;
+				foreach my $i (0 .. $#known) {
+					my $name	= $known[ $i ];
+					my $value	= $current->[ $i ];
+					if (defined $value) {
+						if (not exists $bound->{ $name }) {
+							$local_bound{ $name }	= $value;
+							_debug( "Setting $name = " . $value->as_string . "\n" );
+						} else {
+							_debug( "Existing value for $name = " . $bound->{ $name }->as_string . "\n" );
 						}
-					};
-			return $stream;
-		}
+					} else {
+	#						warn "$name wasn't defined\n";
+					}
+				}
+				$substream	= $self->query_more( bound => { %local_bound }, triples => [@triples], variables => $variables, %args );
+			}
+			
+			return undef;
+		};
+		return $stream;
+	} else {
+		return $self->query_more( bound => { %{ $bound } }, triples => [@triples], variables => $variables, %args );
 	}
 }
+
+
 
 =for private
 
@@ -990,8 +983,9 @@ sub named_graph {
 	my $self		= shift;
 	my %args	= @_;
 	
-	my $bound	= { %{ delete($args{bound}) } };
-	my $triples	= delete($args{triples});
+	my $bound		= { %{ delete($args{bound}) } };
+	my $triples		= delete($args{triples});
+	my $variables	= $args{variables};
 	
 	my @triples	= @{$triples};
 	my $triple	= shift(@triples);
@@ -1001,10 +995,8 @@ sub named_graph {
 	my (undef, $context, $named_triples)	= @{ $triple };
 	my @named_triples	= @{ $named_triples };
 	
-#	local($debug)	= 1;
 	_debug( 'named triples: ' . Dumper(\@named_triples), 1 );
-	my $variables	= [ $self->variables ];
-	my $nstream	= $self->query_more( bound => $bound, triples => \@named_triples, context => $context );
+	my $nstream	= $self->query_more( bound => $bound, triples => \@named_triples, variables => $variables, context => $context );
 	
 	_debug( 'named stream: ' . $nstream, 1 );
 	_debug_closure( $nstream );
@@ -1035,7 +1027,7 @@ sub named_graph {
 								_debug( "Setting $name from named graph = $value\n" );
 							}
 						}
-						$stream	= $self->query_more( bound => $bound, triples => \@triples );
+						$stream	= $self->query_more( bound => $bound, triples => \@triples, variables => $variables );
 					} else {
 						undef $nstream;
 					}
@@ -1095,9 +1087,14 @@ with the bound variables in C<%bound>.
 =cut
 
 {
+our %functions;
 no warnings 'numeric';
 my %dispatch	= (
-					VAR		=> sub { my ($self, $values, $data) = @_; return $self->get_value( $values->{ $data->[0] } ) },
+					VAR		=> sub {
+								my ($self, $values, $data) = @_;
+								my $value	= $values->{ $data->[0] };
+								return $value;
+							},
 					URI		=> sub { my ($self, $values, $data) = @_; return $data->[0] },
 					LITERAL	=> sub {
 								my ($self, $values, $data) = @_;
@@ -1108,37 +1105,96 @@ my %dispatch	= (
 									if ($func) {
 										my $funcdata	= [ 'FUNCTION', $uri, [ 'LITERAL', $literal ] ];
 										return $self->check_constraints( $values, $funcdata );
+									} else {
+										warn "no conversion function found for " . $self->qualify_uri( $uri ) if ($debug);	# XXX
 									}
 								}
 								return $data->[0];
 							},
-					'~~'	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return ($operands[0] =~ /$operands[1]/) },
+					'~~'	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->get_value( $self->check_constraints( $values, $_ ) ) } @{ $data }; return ($operands[0] =~ /$operands[1]/) },
 					'=='	=> sub {
 								my ($self, $values, $data) = @_;
-								my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data };
+								my @operands = map { $self->get_value( $self->check_constraints( $values, $_ ) ) } @{ $data };
 								return ncmp($operands[0], $operands[1]) == 0;
 							},
-					'!='	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return ncmp($operands[0], $operands[1]) != 0 },
-					'<'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return ncmp($operands[0], $operands[1]) == -1 },
+					'!='	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->get_value( $self->check_constraints( $values, $_ ) ) } @{ $data }; return ncmp($operands[0], $operands[1]) != 0 },
+					'<'		=> sub {
+								my ($self, $values, $data) = @_;
+								my @operands = map { $self->get_value( $self->check_constraints( $values, $_ ) ) } @{ $data };
+								return ncmp($operands[0], $operands[1]) == -1;
+							},
 					'>'		=> sub {
 								my ($self, $values, $data) = @_;
-								my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data };
+								my @operands = map { $self->get_value( $self->check_constraints( $values, $_ ) ) } @{ $data };
 								return ncmp($operands[0], $operands[1]) == 1;
 							},
-					'<='	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return ncmp($operands[0], $operands[1]) != 1 },
-					'>='	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return ncmp($operands[0], $operands[1]) != -1 },
-					'&&'	=> sub { my ($self, $values, $data) = @_; foreach my $part (@{ $data }) { return 0 unless $self->check_constraints( $values, $part ); } return 1 },
-					'||'	=> sub { my ($self, $values, $data) = @_; foreach my $part (@{ $data }) { return 1 if $self->check_constraints( $values, $part ); } return 0 },
-					'*'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return $operands[0] * $operands[1] },
-					'/'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return $operands[0] / $operands[1] },
-					'+'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->check_constraints( $values, $_ ) } @{ $data }; return $operands[0] + $operands[1] },
+					'<='	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->get_value( $self->check_constraints( $values, $_ ) ) } @{ $data }; return ncmp($operands[0], $operands[1]) != 1 },
+					'>='	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->get_value( $self->check_constraints( $values, $_ ) ) } @{ $data }; return ncmp($operands[0], $operands[1]) != -1 },
+					'&&'	=> sub {
+								my ($self, $values, $data) = @_;
+								my @results;
+								foreach my $part (@{ $data }) {
+									my $error;
+									my $value;
+									try {
+										$value	= $functions{'sop:boolean'}->( $self, $self->check_constraints( $values, $part ) );
+										push(@results, $value);
+									} catch RDF::Query::Error::FilterEvaluationError with {
+										$error	= shift;
+										push(@results, $error);
+									};
+									return 0 if (not $error and not $value);
+								}
+								
+								if ($results[0] and $results[1]) {
+									return 1;
+								} else {
+									foreach my $r (@results) {
+										throw $r if (ref($r) and $r->isa('RDF::Query::Error'));
+									}
+									throw RDF::Query::Error::FilterEvaluationError;
+								}
+							},
+					'||'	=> sub {
+								my ($self, $values, $data) = @_;
+								my $error;
+								foreach my $part (@{ $data }) {
+									my $value;
+									try {
+										$value	= $functions{'sop:boolean'}->( $self, $self->check_constraints( $values, $part ) );
+									} catch RDF::Query::Error::FilterEvaluationError with {
+										$error	= shift;
+										$value	= 0;
+									};
+									
+									return 1 if ($value);
+								}
+								
+								if ($error) {
+									throw $error;
+								} else {
+									return 0;
+								}
+							},
+					'*'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $functions{'sop:numeric'}->( $self, $self->check_constraints( $values, $_ ) ) } @{ $data }; return $operands[0] * $operands[1] },
+					'/'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $functions{'sop:numeric'}->( $self, $self->check_constraints( $values, $_ ) ) } @{ $data }; return $operands[0] / $operands[1] },
+					'+'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $functions{'sop:numeric'}->( $self, $self->check_constraints( $values, $_ ) ) } @{ $data }; return $operands[0] + $operands[1] },
 					'-'		=> sub {
 								my ($self, $values, $data) = @_;
-								my @operands	= map { $self->check_constraints( $values, $_ ) } @{ $data };
+								my @operands	= map { $functions{'sop:numeric'}->( $self, $self->check_constraints( $values, $_ ) ) } @{ $data };
 								if (1 == @operands) {
 									return -1 * $operands[0];
 								} else {
 									return $operands[0] - $operands[1]
+								}
+							},
+					'!'		=> sub {
+								my ($self, $values, $data) = @_;
+								my $value	= $self->check_constraints( $values, $data->[0] );
+								if (defined $value) {
+									return not $functions{'sop:boolean'}->( $self, $value );
+								} else {
+									throw RDF::Query::Error::TypeError ( -text => 'Cannot negate an undefined value' );
 								}
 							},
 					'FUNCTION'	=> sub {
@@ -1177,7 +1233,14 @@ sub check_constraints {
 	my $code	= $dispatch{ $op };
 	if ($code) {
 #		local($Data::Dumper::Indent)	= 0;
-		my $result	= $code->( $self, $values, [ @{$data}[1..$#{$data}] ] );
+		my $result;
+		try {
+			$result	= $code->( $self, $values, [ @{$data}[1..$#{$data}] ] );
+		} catch RDF::Query::Error::FilterEvaluationError with {
+			$result	= undef;
+		} catch RDF::Query::Error::TypeError with {
+			$result	= undef;
+		};
 		_debug( "OP: $op -> " . Dumper($data), 2 );
 #		warn "RESULT: " . $result . "\n\n";
 		return $result;
@@ -1202,12 +1265,24 @@ sub get_value {
 	my $self	= shift;
 	my $value	= shift;
 	my $bridge	= $self->bridge;
-	if ($bridge->isa_resource($value)) {
+	if (ref($value) and $value->isa('DateTime')) {
+		return $value;
+		return $self->{dateparser}->format_datetime($value);
+	} elsif ($bridge->isa_resource($value)) {
 		return $bridge->uri_value( $value );
 	} elsif ($bridge->isa_literal($value)) {
-		return $bridge->literal_value( $value );
-	} else {
+		my $literal	= $bridge->literal_value( $value );
+		if (my $dt = $bridge->literal_datatype( $value )) {
+			return [$literal, undef, $dt]
+		} elsif (my $lang = $bridge->literal_value_language( $value )) {
+			return [$literal, $lang, undef];
+		} else {
+			return $literal;
+		}
+	} elsif ($bridge->isa_blank($value)) {
 		return $bridge->blank_identifier( $value );
+	} else {
+		return $value;
 	}
 }
 
@@ -1238,6 +1313,48 @@ sub get_function {
 	return $func;
 }
 
+=item C<add_hook ( $uri, $function )>
+
+Associates the custom function C<$function> (a CODE reference) with the
+RDF::Query code hook specified by C<$uri>. Each function that has been
+associated with a particular hook will be called (in the order they were
+registered as hooks) when the hook event occurs. See L</"Defined Hooks">
+for more information.
+
+
+=cut
+
+sub add_hook {
+	my $self	= shift;
+	my $uri		= shift;
+	my $code	= shift;
+	if (ref($self)) {
+		push(@{ $self->{'hooks'}{$uri} }, $code);
+	} else {
+		our %hooks;
+		push(@{ $RDF::Query::hooks{ $uri } }, $code);
+	}
+}
+
+sub get_hooks {
+	my $self	= shift;
+	my $uri		= shift;
+	my $func	= $self->{'hooks'}{$uri}
+				|| $RDF::Query::hooks{ $uri }
+				|| [];
+	return $func;
+}
+
+sub run_hook {
+	my $self	= shift;
+	my $uri		= shift;
+	my @args	= @_;
+	my $hooks	= $self->get_hooks( $uri );
+	foreach my $hook (@$hooks) {
+		$hook->( $self, @args );
+	}
+}
+
 =for private
 
 =item C<ncmp ( $value )>
@@ -1250,13 +1367,40 @@ General-purpose sorting function for both numbers and strings.
 
 sub ncmp ($$) {
 	my ($a, $b)	= @_;
+	for ($a, $b) {
+		throw RDF::Query::Error::FilterEvaluationError unless defined($_);
+	}
+	
+	my $get_value	= sub {
+		my $node	= shift;
+		if (ref($node) and reftype($node) eq 'ARRAY') {
+			return $node->[0];
+		} else {
+			return $node;
+		}
+	};
+	
+	my $get_type	= sub {
+		my $node	= shift;
+		if (ref($node) and reftype($node) eq 'ARRAY') {
+			return $node->[2];
+		} else {
+			return;
+		}
+	};
+	
 	no warnings 'uninitialized';
-	my $numeric	= sub { (blessed($_[0])) ? $_[0]->isa('DateTime') : $_[0] =~ /^[-+]?[0-9.]+$/;};
+	my $numeric	= sub { my $val = $get_value->($_[0]); return (blessed($val)) ? $val->isa('DateTime') : (is_numeric_type($get_type->($_[0])) or looks_like_number($val)); };
 	my $num_cmp	= ($numeric->($a) and $numeric->($b));
 	my $cmp		= ($num_cmp)
-				? ($a <=> $b)
-				: ($a cmp $b);
+				? ($get_value->($a) <=> $get_value->($b))
+				: ($get_value->($a) cmp $get_value->($b));
 	return $cmp;
+}
+
+sub is_numeric_type {
+	my $type	= shift || '';
+	return $type =~ m<^http://www.w3.org/2001/XMLSchema#(numeric|double|integer)>;
 }
 
 =for private
@@ -1323,7 +1467,9 @@ sub sort_rows {
 		no warnings 'numeric';
 		@nodes	= map {
 					my $node	= $_;
-					[ $node, $self->check_constraints( {map { $_ => $node->[ $colmap{$_} ] } (keys %colmap)}, $data ) ]
+					my $result	= $self->check_constraints( {map { $_ => $node->[ $colmap{$_} ] } (keys %colmap)}, $data );
+					my $value	= $self->get_value( $result );
+					[ $node, $value ]
 				} @nodes;
 		@nodes	= sort { ncmp($a->[1], $b->[1]) }
 						@nodes;
@@ -1386,6 +1532,13 @@ sub variables {
 	my $self	= shift;
 	my $parsed	= $self->parsed;
 	my @vars	= map { $_->[1] } @{ $parsed->{'variables'} };
+	return @vars;
+}
+
+sub all_variables {
+	my $self	= shift;
+	my $parsed	= $self->parsed;
+	my @vars	= map { $_->[1] } @{ $self->{'known_variables'} };
 	return @vars;
 }
 
@@ -1513,20 +1666,56 @@ our %functions;
 
 ### XSD CASTING FUNCTIONS
 
+$functions{"http://www.w3.org/2001/XMLSchema#boolean"}	= sub {
+	my $query	= shift;
+	my $node	= shift;
+	return 1 if ($node eq 'true');
+	return 0 if ($node eq 'false');
+	throw RDF::Query::Error::FilterEvaluationError ( -text => "'$node' is not a boolean type (true or false)" );
+};
+
 $functions{"sop:boolean"}	= sub {
 	my $query	= shift;
 	my $node	= shift;
-	my $bridge	= $query->bridge;
-	if ($node->is_literal) {
-		my $value	= $bridge->literal_value( $node );
-		my $type	= $bridge->literal_datatype( $node );
-		if ($type and $type->as_string eq 'http://www.w3.org/2001/XMLSchema#boolean') {
-			return 0 if ($value eq 'false');
+	return 0 if not defined($node);
+	
+	if (ref($node)) {
+		my $bridge	= $query->bridge;
+		if ($node->is_literal) {
+			my $value	= $bridge->literal_value( $node );
+			my $type	= $bridge->literal_datatype( $node );
+			if ($type) {
+				if ($type eq 'http://www.w3.org/2001/XMLSchema#boolean') {
+#					warn "boolean-typed: $value";
+					return 0 if ($value eq 'false');
+					return 1 if ($value eq 'true');
+					throw RDF::Query::Error::FilterEvaluationError ( -text => "'$value' is not a boolean type (true or false)" );
+				} elsif ($type eq 'http://www.w3.org/2001/XMLSchema#string') {
+#					warn "string-typed: $value";
+					return 0 if (length($value) == 0);
+					return 1;
+				} elsif (is_numeric_type( $type )) {
+#					warn "numeric-typed: $value";
+					return ($value == 0) ? 0 : 1;
+				} else {
+#					warn "unknown-typed: $value";
+					throw RDF::Query::Error::TypeError ( -text => "'$value' cannot be coerced into a boolean value" );
+				}
+			} else {
+				no warnings 'numeric';
+#				warn "not-typed: $value";
+				return 0 if (length($value) == 0);
+				if (looks_like_number($value) and $value == 0) {
+					return 0;
+				} else {
+					return 1;
+				}
+			}
 		}
-		return 0 if (length($value) == 0);
-		return 0 if ($value == 0);
+		throw RDF::Query::Error::TypeError;
+	} else {
+		return $node ? 1 : 0;
 	}
-	return 1;
 };
 
 $functions{"sop:numeric"}	= sub {
@@ -1540,8 +1729,11 @@ $functions{"sop:numeric"}	= sub {
 			return int($value)
 		}
 		return +$value;
+	} elsif (looks_like_number($node)) {
+		return $node;
+	} else {
+		return 0;
 	}
-	return 0;
 };
 
 $functions{"sop:str"}	= sub {
@@ -1698,7 +1890,7 @@ $functions{"op:dateTime-greater-than"}	= sub {
 	my $nodea	= shift;
 	my $nodeb	= shift;
 	my $cast	= 'sop:date';
-	return ($functions{$cast}->($nodea) > $functions{$cast}->($nodeb));
+	return ($functions{$cast}->($query, $nodea) > $functions{$cast}->($query, $nodeb));
 };
 
 # op:numeric-equal
@@ -1707,7 +1899,7 @@ $functions{"op:numeric-equal"}	= sub {
 	my $nodea	= shift;
 	my $nodeb	= shift;
 	my $cast	= 'sop:numeric';
-	return ($functions{$cast}->($nodea) == $functions{$cast}->($nodeb));
+	return ($functions{$cast}->($query, $nodea) == $functions{$cast}->($query, $nodeb));
 };
 
 # op:numeric-less-than
@@ -1716,7 +1908,7 @@ $functions{"op:numeric-less-than"}	= sub {
 	my $nodea	= shift;
 	my $nodeb	= shift;
 	my $cast	= 'sop:numeric';
-	return ($functions{$cast}->($nodea) < $functions{$cast}->($nodeb));
+	return ($functions{$cast}->($query, $nodea) < $functions{$cast}->($query, $nodeb));
 };
 
 # op:numeric-greater-than
@@ -1725,7 +1917,7 @@ $functions{"op:numeric-greater-than"}	= sub {
 	my $nodea	= shift;
 	my $nodeb	= shift;
 	my $cast	= 'sop:numeric';
-	return ($functions{$cast}->($nodea) > $functions{$cast}->($nodeb));
+	return ($functions{$cast}->($query, $nodea) > $functions{$cast}->($query, $nodeb));
 };
 
 # op:numeric-multiply
@@ -1734,7 +1926,7 @@ $functions{"op:numeric-multiply"}	= sub {
 	my $nodea	= shift;
 	my $nodeb	= shift;
 	my $cast	= 'sop:numeric';
-	return ($functions{$cast}->($nodea) * $functions{$cast}->($nodeb));
+	return ($functions{$cast}->($query, $nodea) * $functions{$cast}->($query, $nodeb));
 };
 
 # op:numeric-divide
@@ -1743,7 +1935,7 @@ $functions{"op:numeric-divide"}	= sub {
 	my $nodea	= shift;
 	my $nodeb	= shift;
 	my $cast	= 'sop:numeric';
-	return ($functions{$cast}->($nodea) / $functions{$cast}->($nodeb));
+	return ($functions{$cast}->($query, $nodea) / $functions{$cast}->($query, $nodeb));
 };
 
 # op:numeric-add
@@ -1752,7 +1944,7 @@ $functions{"op:numeric-add"}	= sub {
 	my $nodea	= shift;
 	my $nodeb	= shift;
 	my $cast	= 'sop:numeric';
-	return ($functions{$cast}->($nodea) + $functions{$cast}->($nodeb));
+	return ($functions{$cast}->($query, $nodea) + $functions{$cast}->($query, $nodeb));
 };
 
 # op:numeric-subtract
@@ -1761,7 +1953,7 @@ $functions{"op:numeric-subtract"}	= sub {
 	my $nodea	= shift;
 	my $nodeb	= shift;
 	my $cast	= 'sop:numeric';
-	return ($functions{$cast}->($nodea) - $functions{$cast}->($nodeb));
+	return ($functions{$cast}->($query, $nodea) - $functions{$cast}->($query, $nodeb));
 };
 
 # fn:compare
@@ -1770,7 +1962,7 @@ $functions{"http://www.w3.org/2005/04/xpath-functionscompare"}	= sub {
 	my $nodea	= shift;
 	my $nodeb	= shift;
 	my $cast	= 'sop:str';
-	return ($functions{$cast}->($nodea) cmp $functions{$cast}->($nodeb));
+	return ($functions{$cast}->($query, $nodea) cmp $functions{$cast}->($query, $nodeb));
 };
 
 # fn:not
@@ -1779,18 +1971,18 @@ $functions{"http://www.w3.org/2005/04/xpath-functionsnot"}	= sub {
 	my $nodea	= shift;
 	my $nodeb	= shift;
 	my $cast	= 'sop:str';
-	return (0 != ($functions{$cast}->($nodea) cmp $functions{$cast}->($nodeb)));
+	return (0 != ($functions{$cast}->($query, $nodea) cmp $functions{$cast}->($query, $nodeb)));
 };
 
 # fn:matches
 $functions{"http://www.w3.org/2005/04/xpath-functionsmatches"}	= sub {
 	my $query	= shift;
 	my $cast	= 'sop:str';
-	my $string	= $functions{$cast}->( shift );
-	my $pattern	= $functions{$cast}->( shift );
+	my $string	= $functions{$cast}->( $query, shift );
+	my $pattern	= $functions{$cast}->( $query, shift );
 	return undef if (index($pattern, '(?{') != -1);
 	return undef if (index($pattern, '(??{') != -1);
-	my $flags	= $functions{$cast}->( shift );
+	my $flags	= $functions{$cast}->( $query, shift );
 	if ($flags) {
 		$pattern	= "(?${flags}:${pattern})";
 		return $string =~ /$pattern/;
@@ -1807,11 +1999,126 @@ $functions{"http://www.w3.org/2005/04/xpath-functionsmatches"}	= sub {
 
 
 
+################################################################################
+################################################################################
+sub ________CUSTOM_FUNCTIONS________ {}#########################################
+################################################################################
+
+$functions{"java:com.hp.hpl.jena.query.function.library.sha1sum"}	= sub {
+	my $query	= shift;
+	my $node	= shift;
+	require Digest::SHA1;
+	my $cast	= 'sop:str';
+	return Digest::SHA1::sha1_hex($functions{$cast}->($query, $node));
+};
+
+$functions{"java:com.hp.hpl.jena.query.function.library.now"}	= sub {
+	my $query	= shift;
+	my $dt		= DateTime->new();
+	return $dt;
+};
+
+$functions{"java:com.hp.hpl.jena.query.function.library.langeq"}	= sub {
+	my $query	= shift;
+	my $cast	= 'sop:str';
+	
+	require I18N::LangTags;
+	my $node	= shift;
+	my $lang	= $functions{$cast}->( $query, shift );
+	my $litlang	= $query->bridge->literal_value_language( $node );
+	
+	return I18N::LangTags::is_dialect_of( $litlang, $lang );
+};
+
+$functions{"java:com.hp.hpl.jena.query.function.library.listMember"}	= sub {
+	my $query	= shift;
+	my $bridge	= $query->bridge;
+	
+	my $list	= shift;
+	my $value	= shift;
+	if ($bridge->isa_resource( $list ) and $bridge->uri_value( $list ) eq 'http://www.w3.org/1999/02/22-rdf-syntax-ns#nil') {
+		return 0;
+	} else {
+		my $first	= $bridge->new_resource( 'http://www.w3.org/1999/02/22-rdf-syntax-ns#first' );
+		my $rest	= $bridge->new_resource( 'http://www.w3.org/1999/02/22-rdf-syntax-ns#rest' );
+		my $stream	= $bridge->get_statements( $list, $first, undef );
+		while (my $stmt = $stream->()) {
+			my $member	= $bridge->object( $stmt );
+			return 1 if ($bridge->equals( $value, $member ));
+		}
+		
+		my $stmt	= $bridge->get_statements( $list, $rest, undef )->();
+		my $tail	= $bridge->object( $stmt );
+		if ($tail) {
+			return $functions{"java:com.hp.hpl.jena.query.function.library.listMember"}->( $query, $tail, $value );
+		} else {
+			return 0;
+		}
+	}
+};
+
+$functions{"java:com.ldodds.sparql.Distance"}	= sub {
+	my $query	= shift;
+	my ($lat1, $lon1, $lat2, $lon2);
+	
+	require Geo::Distance;
+	my $cast	= 'sop:str';
+	if (2 == @_) {
+		my $point1	= $functions{$cast}->( $query, shift );
+		my $point2	= $functions{$cast}->( $query, shift );
+		($lat1, $lon1)	= split(/ /, $point1);
+		($lat2, $lon2)	= split(/ /, $point2);
+	} else {
+		$lat1	= $functions{$cast}->( $query, shift );
+		$lon1	= $functions{$cast}->( $query, shift );
+		$lat2	= $functions{$cast}->( $query, shift );
+		$lon2	= $functions{$cast}->( $query, shift );
+	}
+	
+	my $geo		= new Geo::Distance;
+	my $dist	= $geo->distance(
+					'kilometer',
+					$lon1,
+					$lat1,
+					$lon2,
+					$lat2,
+				);
+	return $dist;
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 1;
 
 __END__
+
+=back
+
+=head1 Defined Hooks
+
+=over 4
+
+=item http://kasei.us/code/rdf-query/hooks/post-create-model
+
+Called after loading all external files to a temporary model in queries that
+use FROM and FROM NAMED.
+
+Args: ( $query, $bridge )
+
+C<$query> is the RDF::Query object.
+C<$bridge> is the model bridge (RDF::Query::Model::*) object.
 
 =back
 

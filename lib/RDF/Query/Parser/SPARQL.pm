@@ -1,7 +1,7 @@
 # RDF::Query::Parser::SPARQL
 # -------------
-# $Revision: 143 $
-# $Date: 2006-05-01 00:58:27 -0400 (Mon, 01 May 2006) $
+# $Revision: 147 $
+# $Date: 2006-05-11 02:27:23 -0400 (Thu, 11 May 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -27,8 +27,8 @@ use Carp qw(carp croak confess);
 
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
-	$debug		= 1;
-	$VERSION	= do { my $REV = (qw$Revision: 143 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$debug		= 0 || $RDF::Query::Parser::debug;
+	$VERSION	= do { my $REV = (qw$Revision: 147 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	$lang		= 'sparql';
 	$languri	= 'http://www.w3.org/TR/rdf-sparql-query/';
 }
@@ -214,7 +214,7 @@ Returns the parse tree for an identifier.
 
 sub parse_identifier {
 	my $self	= shift;
-	return $self->match_pattern(qr/(([a-zA-Z0-9_.-])+)/);
+	return $self->match_pattern(qr/[a-zA-Z0-9_.-]+/);
 }
 
 =for private
@@ -1470,13 +1470,14 @@ sub match_pattern {
 	my $self	= shift;
 	my $pattern	= shift;
 	
+	$self->whitespace;
+	
 # 	if ($debug > 2) {
 # 		my $remaining	= substr($self->{remaining}, 0, 20);
 # 		print STDERR "pattern match: $pattern (remaining: '$remaining...') ... ";
 # 	}
 	
-	$self->whitespace;
-	if ($self->{remaining} =~ m#^(${pattern})#xsm) {
+	if ($self->{remaining} =~ m/\A(${pattern})/xsm) {
 		my $length	= length($1);
 		$self->{position}	+= $length;
 		my $match	= substr($self->{remaining}, 0, $length, '');
@@ -1502,10 +1503,19 @@ Matches any whitespace at the beginning of the reamining text.
 
 sub whitespace {
 	my $self	= shift;
-	if ($self->{remaining} =~ m#^(\s*)#xsm) {
-		my $length	= length($1);
-		substr($self->{remaining}, 0, $length, '');
-		$self->{position}	+= $length;
+	my $ws		= 1;
+	while ($ws) {
+		if ($self->{remaining} =~ m#\A(\s+)#xsm) {
+			my $length	= length($1);
+			substr($self->{remaining}, 0, $length, '');
+			$self->{position}	+= $length;
+		} elsif ($self->{remaining} =~ m/^(#.*)/) {
+			my $length	= length($1);
+			substr($self->{remaining}, 0, $length, '');
+			$self->{position}	+= $length;
+		} else {
+			$ws	= 0;
+		}
 	}
 }
 

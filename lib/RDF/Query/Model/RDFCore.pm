@@ -25,7 +25,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 142 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 151 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
 ######################################################################
@@ -166,6 +166,36 @@ sub isa_blank {
 *RDF::Query::Model::RDFCore::is_literal		= \&isa_literal;
 *RDF::Query::Model::RDFCore::is_blank		= \&isa_blank;
 
+sub equals {
+	my $self	= shift;
+	my $nodea	= shift;
+	my $nodeb	= shift;
+	if ($self->isa_resource( $nodea ) and $self->isa_resource( $nodeb )) {
+		return ($nodea->uri_value eq $nodeb->uri_value);
+	} elsif ($self->isa_literal( $nodea ) and $self->isa_literal( $nodeb )) {
+		my @values	= map { $self->literal_value( $_ ) } ($nodea, $nodeb);
+		my @langs	= map { $self->literal_value_language( $_ ) } ($nodea, $nodeb);
+		my @types	= map { $self->literal_datatype( $_ ) } ($nodea, $nodeb);
+		
+		if ($values[0] eq $values[1]) {
+			if (@langs) {
+				return ($langs[0] eq $langs[1]);
+			} elsif (@types) {
+				return ($types[0] eq $types[1]);
+			} else {
+				return 1;
+			}
+		} else {
+			return 0;
+		}
+	} elsif ($self->isa_blank( $nodea ) and $self->isa_blank( $nodeb )) {
+		return ($nodea->blank_identifier eq $nodeb->blank_identifier);
+	} else {
+		return 0;
+	}
+}
+
+
 =item C<as_string ( $node )>
 
 Returns a string version of the node object.
@@ -280,6 +310,24 @@ sub statement_method_map {
 	return qw(getSubject getPredicate getObject);
 }
 
+sub subject {
+	my $self	= shift;
+	my $stmt	= shift;
+	return $stmt->getSubject;
+}
+
+sub predicate {
+	my $self	= shift;
+	my $stmt	= shift;
+	return $stmt->getPredicate;
+}
+
+sub object {
+	my $self	= shift;
+	my $stmt	= shift;
+	return $stmt->getObject;
+}
+
 =item C<get_statements ($subject, $predicate, $object)>
 
 Returns a stream object of all statements matching the specified subject,
@@ -299,6 +347,20 @@ sub get_statements {
 	};
 	
 	return RDF::Query::Stream->new( $stream, 'graph', undef, bridge => $self );
+}
+
+sub add_statement {
+	my $self	= shift;
+	my $stmt	= shift;
+	my $model	= $self->model;
+	$model->addStmt( $stmt );
+}
+
+sub remove_statement {
+	my $self	= shift;
+	my $stmt	= shift;
+	my $model	= $self->model;
+	$model->removeStmt( $stmt );
 }
 
 =item C<supports ($feature)>

@@ -31,7 +31,7 @@ SKIP: {
 		SELECT
 			?page
 		FROM
-			<http://kasei.us/about/foaf.xrdf>
+			<http://homepage.mac.com/samofool/rdf-query/test-data/foaf.rdf>
 		WHERE
 			(?person foaf:name "Gregory Todd Williams")
 			(?person foaf:homepage ?page)
@@ -62,7 +62,7 @@ SKIP: {
 		SELECT
 			?page
 		FROM
-			<http://kasei.us/about/foaf.xrdf>
+			<http://homepage.mac.com/samofool/rdf-query/test-data/foaf.rdf>
 		WHERE
 			(?person foaf:name "Gregory Todd Williams")
 			(?person foaf:homepage ?page)
@@ -84,7 +84,7 @@ SKIP: {
 	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 		SELECT	?page
-		FROM	<http://kasei.us/about/foaf.xrdf>
+		FROM	<http://homepage.mac.com/samofool/rdf-query/test-data/foaf.rdf>
 		WHERE {
 				?person foaf:name "Gregory Todd Williams" ;
 					foaf:homepage ?page .

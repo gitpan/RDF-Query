@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 use strict;
-use Test::More tests => 79;
+use Test::More tests => 81;
 use Data::Dumper;
 
 use_ok( 'RDF::Query::Parser::SPARQL' );
@@ -1514,6 +1514,71 @@ END
 	is_deeply( $parsed, $correct, "[bug] query with predicate starting with 'a' (confused with { ?subj a ?type})" );
 }
 
+{
+	my $sparql	= <<"END";
+		PREFIX : <http://example.org/data/>
+		
+		SELECT *
+		WHERE { :x ?p ?q . }
+END
+	my $correct	= {
+					'method' => 'SELECT',
+					'triples' => [
+									[
+										['URI',['__DEFAULT__', 'x']],
+										['VAR','p'],
+										['VAR','q']
+									]
+								],
+					'namespaces' => {'__DEFAULT__' => 'http://example.org/data/'},
+					'sources' => [],
+					'variables' => ['*'],
+				};
+	my $parsed	= $parser->parse( $sparql );
+	is_deeply( $parsed, $correct, "dawg/simple/01" );
+}
+
+{
+	my $sparql	= <<"END";
+		# Get name, and optionally the mbox, of each person
+		
+		PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+		
+		SELECT ?name ?mbox
+		WHERE
+		  { ?person foaf:name ?name .
+			OPTIONAL { ?person foaf:mbox ?mbox}
+		  }
+END
+	my $correct	= {
+					'method' => 'SELECT',
+					'triples' => [
+									[
+										['VAR','person'],
+										['URI',['foaf','name']],
+										['VAR','name'],
+									],
+									[
+										'OPTIONAL',
+										[
+											[
+												['VAR','person'],
+												['URI',['foaf','mbox']],
+												['VAR','mbox'],
+											]
+										]
+									]
+								],
+					'namespaces' => { foaf => 'http://xmlns.com/foaf/0.1/' },
+					'sources' => [],
+					'variables' => [['VAR','name'],['VAR','mbox']],
+				};
+	my $parsed	= $parser->parse( $sparql );
+	is_deeply( $parsed, $correct, "single triple with comment; dawg/data/part1" );
+}
+
+
+sub _____ERRORS______ {}
 
 ##### ERRORS
 

@@ -1,0 +1,37 @@
+@prefix rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:	<http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dawgt:   <http://www.w3.org/2001/sw/DataAccess/tests/test-dawg#> .
+@prefix mf:     <http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#> .
+@prefix qt:     <http://www.w3.org/2001/sw/DataAccess/tests/test-query#> .
+
+<>  rdf:type mf:Manifest ;
+    rdfs:comment "Test of UNSAID and inference" ;
+    mf:entries
+    (
+     [  mf:name    "dawg-unsaid-001" ;
+        rdfs:comment
+            "Inference test from http://lists.w3.org/Archives/Public/public-rdf-dawg/2004OctDec/0538.html" ;
+        mf:action
+            [ qt:query  <query-01.rq> ;
+              qt:data   <data-a.n3> ] ;
+        mf:result  <result-01.n3>
+      ]
+
+     [  mf:name    "dawg-unsaid-002" ;
+        rdfs:comment
+            "UNSAID test from http://lists.w3.org/Archives/Public/public-rdf-dawg/2004OctDec/0538.html" ;
+        mf:action
+            [ qt:query  <query-02.rq> ;
+              qt:data   <data-a.n3> ] ;
+        mf:result  <result-02.n3>
+      ]
+
+     [  mf:name    "dawg-unsaid-003" ;
+        rdfs:comment
+            "UNSAID test from http://lists.w3.org/Archives/Public/public-rdf-dawg/2004OctDec/0538.html expressed as an ASK" ;
+        mf:action
+            [ qt:query  <query-03.rq> ;
+              qt:data   <data-a.n3> ] ;
+        mf:result  <result-03.n3>
+      ]
+   ).

@@ -6,11 +6,30 @@
 @prefix asc:     <http://aaronland.info/ns/changefile/> .
                                      
 <>
-        dc:identifier           "$Id: Changes.ttl 146 2006-05-01 05:57:16Z samofool $" ;
+        dc:identifier           "$Id: Changes.ttl 151 2006-06-04 20:08:40Z samofool $" ;
         dc:description          "Changes for RDF::Query" ;
         dcterms:references      <http://kasei.us/code/rdf-query/> .
 
-<http://kasei.us/code/files/RDF-Query-v1.1.34.tar>
+<http://kasei.us/code/files/RDF-Query-v1.1.35.tar.gz>
+        dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
+        dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.034.tar.gz> ;
+
+        doap:Version    [
+                        doap:revision     "1.035" ;
+                        doap:created      "2006-06-04" ;
+                        ];
+        asc:changes     [
+                        asc:addition      "Added DAWG tests and harness.
+                        asc:addition      "Added custom functions: jena:sha1sum, jena:now, jena:langeq, jena:listMember, ldodds:Distance" .
+                        asc:addition      "Added new model methods: equals, subject, predicate, object." .
+                        asc:update        "Rewrote core logic in OPTIONAL handling code." .
+                        asc:update        "Comparisons on literals now respect numeric datatypes." .
+                        asc:update        "Fixed outdated calling conventions in casting functions." .
+                        asc:update        "Relocated external http-based test data to .Mac URLs." .
+                        ] .
+
+
+<http://kasei.us/code/files/RDF-Query-v1.1.34.tar.gz>
         dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
         dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.033.tar.gz> ;
 
@@ -30,7 +49,7 @@
                         ] .
 
 
-<http://kasei.us/code/files/RDF-Query-v1.1.33.tar>
+<http://kasei.us/code/files/RDF-Query-v1.1.33.tar.gz>
         dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
         dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.032.tar.gz> ;
 
@@ -50,7 +69,7 @@
                         ] .
 
 
-<http://kasei.us/code/files/RDF-Query-v1.1.32.tar>
+<http://kasei.us/code/files/RDF-Query-v1.1.32.tar.gz>
         dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
         dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.031.tar.gz> ;
 
@@ -70,7 +89,7 @@
                         ] .
 
 
-<http://kasei.us/code/files/RDF-Query-v1.1.31.tar>
+<http://kasei.us/code/files/RDF-Query-v1.1.31.tar.gz>
         dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
         dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.030.tar.gz> ;
 

@@ -1,0 +1,63 @@
+@prefix rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:	<http://www.w3.org/2000/01/rdf-schema#> .
+@prefix mf:     <http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#> .
+@prefix qt:     <http://www.w3.org/2001/sw/DataAccess/tests/test-query#> .
+
+<>  rdf:type mf:Manifest ;
+    rdfs:comment "Some DAWG test cases" ;
+    mf:entries
+    (
+     [  mf:name    "dawg-source-simple-001" ;
+        rdfs:comment
+            "Simple triple match on two graphs" ;
+        mf:action
+            [ qt:query  <source-simple-01.rq> ;
+              # qt:data   <simple-data-1.n3> , <simple-data-2.n3>
+             ] ;
+        mf:result  <result-ss-01.n3>
+      ]
+
+     [  mf:name    "dawg-source-simple-002" ;
+        rdfs:comment
+            "Triple match using SOURCE" ;
+        mf:action
+            [ qt:query  <source-simple-02.rq> ;
+              # qt:data   <simple-data-1.n3> , <simple-data-2.n3>
+            ] ;
+        mf:result  <result-ss-02.n3>
+      ]
+    
+     [  mf:name    "dawg-source-simple-003" ;
+        rdfs:comment
+            "Triple match using SOURCE - SELECTed variables" ;
+        mf:action
+            [ qt:query  <source-simple-03.rq> ;
+              # qt:data   <simple-data-1.n3> , <simple-data-2.n3>
+            ] ;
+        mf:result  <result-ss-03.n3>
+      ]
+
+     [  mf:name    "dawg-source-simple-004" ;
+        rdfs:comment
+            "Simple triple match - one named container" ;
+        mf:action
+            [ qt:query  <source-simple-04.rq> ;
+              # qt:data   <simple-data-1.n3>
+            ] ;
+        mf:result  <result-ss-04.n3>
+      ]
+
+     [  mf:name    "dawg-source-simple-005" ;
+        rdfs:comment
+            "Simple triple match - no named container" ;
+        mf:action
+            [ qt:query  <source-simple-05.rq> ;
+              qt:data   <simple-data-1.n3>
+            ] ;
+        mf:result  <result-ss-05.n3>
+      ]
+
+
+
+    # End of tests
+   ).

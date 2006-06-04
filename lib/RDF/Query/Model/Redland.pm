@@ -19,7 +19,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 142 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 151 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
 ######################################################################
@@ -158,6 +158,14 @@ sub isa_blank {
 *RDF::Query::Model::Redland::is_literal		= \&isa_literal;
 *RDF::Query::Model::Redland::is_blank		= \&isa_blank;
 
+sub equals {
+	my $self	= shift;
+	my $nodea	= shift;
+	my $nodeb	= shift;
+	return $nodea->equals( $nodeb );
+}
+
+
 =item C<as_string ( $node )>
 
 Returns a string version of the node object.
@@ -270,6 +278,24 @@ sub statement_method_map {
 	return qw(subject predicate object);
 }
 
+sub subject {
+	my $self	= shift;
+	my $stmt	= shift;
+	return $stmt->subject;
+}
+
+sub predicate {
+	my $self	= shift;
+	my $stmt	= shift;
+	return $stmt->predicate;
+}
+
+sub object {
+	my $self	= shift;
+	my $stmt	= shift;
+	return $stmt->object;
+}
+
 =item C<get_statements ($subject, $predicate, $object)>
 
 Returns a stream object of all statements matching the specified subject,
@@ -371,6 +397,27 @@ sub get_statements {
 	
 	return RDF::Query::Stream->new( $stream, 'graph', undef, %args );
 }
+
+sub add_statement {
+	my $self	= shift;
+	my $stmt	= shift;
+	my $model	= $self->model;
+	$model->add_statement( $stmt );
+}
+
+sub remove_statement {
+	my $self	= shift;
+	my $stmt	= shift;
+	my $model	= $self->model;
+	$model->remove_statement( $stmt );
+}
+
+
+
+
+
+
+
 
 =item C<get_context ($stream)>
 

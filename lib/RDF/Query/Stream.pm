@@ -1,7 +1,7 @@
 # RDF::Query::Stream
 # -------------
-# $Revision: 145 $
-# $Date: 2006-05-01 01:50:44 -0400 (Mon, 01 May 2006) $
+# $Revision: 147 $
+# $Date: 2006-05-11 02:27:23 -0400 (Thu, 11 May 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -30,6 +30,7 @@ sub new {
 	my $stream		= shift || sub { undef };
 	my $type		= shift || 'bindings';
 	my $names		= shift || [];
+#	Carp::cluck(Dumper($names));
 	my %args		= @_;
 	my $open		= 0;
 	my $finished	= 0;
@@ -84,10 +85,6 @@ sub new {
 				}
 				return @{ $row };
 			} elsif ($arg eq 'bindings_count') {
-				if (not $row or not scalar( @{ $row } )) {
-					RDF::Query::_debug_closure( $stream );
-				}
-				
 				unless ($open) {
 					$self->next_result;
 				}
@@ -106,6 +103,9 @@ sub new {
 				my $bridge	= $args{bridge};
 				my $context	= $bridge->get_context( $stream, %args );
 				return $context;
+			} elsif ($arg eq 'debug') {
+				local($RDF::Query::debug)	= 2;
+				RDF::Query::_debug_closure( $stream );
 			}
 		} else {
 			RDF::Query::_debug_closure( $stream );

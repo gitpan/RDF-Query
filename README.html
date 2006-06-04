@@ -34,6 +34,23 @@
 			make install<br />
 		</div>
 	<h2 id="changelog">Version History</h2>
+		<h3 id="v1_035">Version 1.035 (2006-06-04)</h3>
+			<ul>
+				<li>Added DAWG tests and harness.</li>
+				<li>Rewrote core logic in OPTIONAL handling code.</li>
+				<li>Comparisons on literals now respect numeric datatypes.</li>
+				<li>Fixed outdated calling conventions in casting functions.</li>
+				<li>Added custom functions:
+					<ul>
+						<li>jena:sha1sum</li>
+						<li>jena:now</li>
+						<li>jena:langeq</li>
+						<li>jena:listMember</li>
+						<li>ldodds:Distance</li>
+					</ul></li>
+				<li>Added new model methods: equals, subject, predicate, object.</li>
+				<li>Relocated external http-based test data to .Mac URLs.</li>
+			</ul>
 		<h3 id="v1_034">Version 1.034 (2006-05-01)</h3>
 			<ul>
 				<li>Added JSON serialization for bindings and boolean queries.</li>
@@ -224,5 +241,5 @@
 	<h2>Copyright</h2>
 		<p>Copyright &copy; 2005&#8211;2006 Gregory Williams. All rights reserved. This program is free software; you can redistribute it and/or modify it under the same terms as Perl itself.</p>
 	
-	$Id: README.html 146 2006-05-01 05:57:16Z samofool $
+	$Id: README.html 151 2006-06-04 20:08:40Z samofool $
 </body></html>

@@ -24,6 +24,21 @@ INSTALLATION
 
 VERSION HISTORY
 
+  Version 1.035 (2006-06-04)
+
+     * Added DAWG tests and harness.
+     * Rewrote core logic in OPTIONAL handling code.
+     * Comparisons on literals now respect numeric datatypes.
+     * Fixed outdated calling conventions in casting functions.
+     * Added custom functions:
+        + jena:sha1sum
+        + jena:now
+        + jena:langeq
+        + jena:listMember
+        + ldodds:Distance
+     * Added new model methods: equals, subject, predicate, object.
+     * Relocated external http-based test data to .Mac URLs.
+
   Version 1.034 (2006-05-01)
 
      * Added JSON serialization for bindings and boolean queries.
@@ -90,11 +105,11 @@ VERSION HISTORY
 
   Version 1.027 (2005-07-28)
 
-	* Updated to follow SPARQL Draft 2005.07.21:
-		+ ORDER BY arguments now use parenthesis.
-		+ SPARQL parser now supports ORDER BY operands:
-		  variable, expression, or function call.
-	* Added binding_value_by_name() method to query result streams.
+     * Updated to follow SPARQL Draft 2005.07.21:
+        + ORDER BY arguments now use parenthesis.
+        + SPARQL parser now supports ORDER BY operands:
+          variable, expression, or function call.
+     * Added binding_value_by_name() method to query result streams.
 
   Version 1.026 (2005-06-05)
 
@@ -223,4 +238,4 @@ AUTHOR
 
 	Gregory Williams <gwilliams@cpan.org>
 
-$Id: README 146 2006-05-01 05:57:16Z samofool $
+$Id: README 151 2006-06-04 20:08:40Z samofool $

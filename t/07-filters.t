@@ -1,14 +1,14 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use Test::More tests => 25;
+use Test::More tests => 40;
 
 use Data::Dumper;
 use RDF::Query;
 
 SKIP: {
 	eval "use RDF::Query::Model::Redland;";
-	skip "Failed to load RDF::Redland", 25 if $@;
+	skip "Failed to load RDF::Redland", 40 if $@;
 	
 	my @data	= map { RDF::Redland::URI->new( 'file://' . File::Spec->rel2abs( "data/$_" ) ) } qw(about.xrdf foaf.xrdf Flower-2.rdf);
 	my $storage	= new RDF::Redland::Storage("hashes", "test", "new='yes',hash-type='memory'");
@@ -185,7 +185,112 @@ END
 		}
 		is( $count, 3, "3 object depictions found" );
 	}
+
+	{
+		my $sparql	= <<"END";
+			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+			PREFIX	jena: <java:com.hp.hpl.jena.query.function.library.>
+			SELECT	?p
+			WHERE	{
+				?p foaf:mbox ?mbox .
+				FILTER ( jena:sha1sum( ?mbox ) = 'f80a0f19d2a0897b89f48647b2fb5ca1f0bc1cb8' ) .
+			}
+END
+		my $query	= RDF::Query->new( $sparql, undef, undef, 'sparql' );
+		
+		my $count	= 0;
+		my $stream	= $query->execute( $model );
+		while (my $row = $stream->()) {
+			my ($node)	= @{ $row };
+			my $uri	= $query->bridge->uri_value( $node );
+			is( $uri, 'http://kasei.us/about/foaf.xrdf#greg', 'jena:sha1sum' );
+			$count++;
+		}
+		is( $count, 1, "jena:sha1sum: 1 object found" );
+	}
+
+	{
+		my $sparql	= <<"END";
+			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+			PREFIX	xpath: <http://www.w3.org/2005/04/xpath-functions>
+			SELECT	?p
+			WHERE	{
+				?p foaf:mbox ?mbox .
+				FILTER ( xpath:matches(?p, "^http://kasei.us", "") ) .
+			}
+END
+		my $query	= RDF::Query->new( $sparql, undef, undef, 'sparql' );
+		
+		my $count	= 0;
+		my $stream	= $query->execute( $model );
+		while (my $row = $stream->()) {
+			my ($node)	= @{ $row };
+			my $uri	= $query->bridge->uri_value( $node );
+			is( $uri, 'http://kasei.us/about/foaf.xrdf#greg', 'xpath:matches' );
+			$count++;
+		}
+		is( $count, 1, "xpath:matches: 1 object found" );
+	}
+
+	{
+		my $sparql	= <<"END";
+			PREFIX	ldodds: <java:com.ldodds.sparql.>
+			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+			PREFIX	dcterms: <http://purl.org/dc/terms/>
+			PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+			SELECT	?image ?point ?name ?lat ?long
+			WHERE	{
+						?image a foaf:Image .
+						?image dcterms:spatial ?point .
+						?point foaf:name ?name .
+						?point geo:lat ?lat .
+						?point geo:long ?long .
+						FILTER( ldodds:Distance(?lat, ?long, 41.849331, -71.392) < 10 ) .
+					}
+END
+		my $query	= RDF::Query->new( $sparql, undef, undef, 'sparql' );
+		my $stream	= $query->execute( $model );
+		my $count	= 0;
+		while (my $row = $stream->()) {
+			my ($image, $point, $pname, $lat, $lon)	= @{ $row };
+			my $url		= $image->uri->as_string;
+			my $name	= $pname->literal_value;
+			like( $name, qr/, (RI|MA|CT)$/, "$name ($url)" );
+			$count++;
+		}
+		is( $count, 3, "ldodds:Distance: 3 objects found" );
+	}
+
+	{
+		my $sparql	= <<"END";
+			PREFIX	jfn: <java:com.hp.hpl.jena.query.function.library.>
+			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+			PREFIX	dcterms: <http://purl.org/dc/terms/>
+			PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+			PREFIX test: <http://kasei.us/e/ns/test#>
+			PREFIX kasei: <http://kasei.us/about/foaf.xrdf#>
+			SELECT	?data
+			WHERE	{
+					kasei:greg test:mycollection ?col .
+					?list rdf:first ?data .
+					FILTER( jfn:listMember( ?col, ?data ) ) .
+			}
+END
+		my $query	= RDF::Query->new( $sparql, undef, undef, 'sparql' );
+		my $stream	= $query->execute( $model );
+		my $count	= 0;
+		my %expect	= map {$_=>1} (1..3);
+		while (my $row = $stream->()) {
+			my ($data)	= @{ $row };
+			ok( $query->bridge->isa_literal( $data ), "literal list member" );
+			ok( exists($expect{ $query->bridge->literal_value( $data ) }), , "expected literal value" );
+			delete $expect{ $query->bridge->literal_value( $data ) };
+			$count++;
+		}
+		is( $count, 3, "jfn:listMember: 3 objects found" );
+	}
 }
+
 ######################################################################
 
 sub get_first_literal {

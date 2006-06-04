@@ -1,0 +1,50 @@
+@prefix rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:	<http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dawgt:   <http://www.w3.org/2001/sw/DataAccess/tests/test-dawg#> .
+@prefix mf:     <http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#> .
+@prefix qt:     <http://www.w3.org/2001/sw/DataAccess/tests/test-query#> .
+
+<>  rdf:type mf:Manifest ;
+    rdfs:comment "Untrusted graphs test cases" ;
+    mf:entries
+    (
+     [  mf:name    "untrusted-graphs-001" ;
+        rdfs:comment "Untrusted graphs query example 1" ;
+        mf:action
+            [ qt:query  <untrusted-graph-q1.rq> ] ;
+        mf:result  <untrusted-graph-q1-result.n3> ;
+      ]
+
+     [  mf:name    "untrusted-graphs-002" ;
+        rdfs:comment "Untrusted graphs query example 2" ;
+        mf:action
+            [ qt:query  <untrusted-graph-q2.rq> ] ;
+        mf:result  <untrusted-graph-q2-result.n3> ;
+      ]
+
+    ## No data - awaiting changes to manifest format
+    ## to describe RDF datasets (Feb 2005)
+##      [  mf:name    "untrusted-graphs-003" ;
+##         rdfs:comment "Untrusted graphs query example 3" ;
+##         mf:action
+##             [ qt:query  <untrusted-graph-q3.rq> ] ;
+##         mf:result  <untrusted-graph-q3-result.n3> ;
+##       ]
+
+     [  mf:name    "untrusted-graphs-004" ;
+        rdfs:comment "Untrusted graphs query example 4" ;
+        mf:action
+            [ qt:query  <untrusted-graph-q4.rq> ] ;
+        mf:result  <untrusted-graph-q4-result.n3> ;
+      ]
+
+     [  mf:name    "untrusted-graphs-005" ;
+        rdfs:comment "Untrusted graphs query example 5" ;
+        mf:action
+            [ qt:query  <untrusted-graph-q5.rq> ] ;
+        # This is not a typo; result is the same as for untrusted-graphs-004
+        mf:result  <untrusted-graph-q4-result.n3> ;
+      ]
+
+    # End of tests
+   ).

@@ -74,6 +74,14 @@ package RDF::Query::Error::SerializationError;
 
 use base qw(RDF::Query::Error);
 
+package RDF::Query::Error::FilterEvaluationError;
+
+use base qw(RDF::Query::Error);
+
+package RDF::Query::Error::TypeError;
+
+use base qw(RDF::Query::Error);
+
 
 1;
 

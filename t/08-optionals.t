@@ -1,13 +1,13 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use Test::More tests => 28;
+use Test::More tests => 32;
 
 use_ok( 'RDF::Query' );
 
 SKIP: {
 	eval "use RDF::Query::Model::Redland;";
-	skip "Failed to load RDF::Redland", 27 if $@;
+	skip "Failed to load RDF::Redland", 31 if $@;
 	
 	my @data	= map { RDF::Redland::URI->new( 'file://' . File::Spec->rel2abs( "data/$_" ) ) } qw(about.xrdf foaf.xrdf);
 	my $storage	= new RDF::Redland::Storage("hashes", "test", "new='yes',hash-type='memory'");
@@ -28,7 +28,7 @@ END
 		isa_ok( $stream, 'RDF::Query::Stream' );
 		my $row		= $stream->current;
 		isa_ok( $row, "ARRAY" );
-		my ($p,$n)	= @{ $row };
+		my ($p,$n)	= @{ $row || [] };
 		ok( $query->bridge->isa_node( $p ), 'isa_node' );
 		is( $n, undef, 'missing nick' );
 	}
@@ -97,7 +97,7 @@ END
 		isa_ok( $stream, 'RDF::Query::Stream' );
 		my $row		= $stream->current;
 		isa_ok( $row, "ARRAY" );
-		my ($p,$h)	= @{ $row };
+		my ($p,$h)	= @{ $row || [] };
 		ok( $query->bridge->isa_node( $p ), 'isa_node(person)' );
 		ok( $query->bridge->isa_node( $h ), 'isa_node(homepage)' );
 	}
@@ -119,7 +119,7 @@ END
 		isa_ok( $stream, 'RDF::Query::Stream' );
 		my $row		= $stream->current;
 		isa_ok( $row, "ARRAY" );
-		my ($p,$h,$t)	= @{ $row };
+		my ($p,$h,$t)	= @{ $row || [] };
 		ok( $query->bridge->isa_node( $p ), 'isa_node' );
 		is( $h, undef, 'no homepage' );
 		is( $t, undef, 'no homepage title' );
@@ -139,6 +139,29 @@ END
 		isa_ok( $stream, 'RDF::Query::Stream' );
 		my $row		= $stream->current;
 		ok( not($row), 'no results: successful BOUND() filter' );
+	}
+	
+	{
+		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+			SELECT	?school
+			WHERE	{
+						?person a foaf:Person ; foaf:nick "kasei" .
+						OPTIONAL {
+							?person foaf:schoolHomepage ?school .
+						} .
+					}
+END
+		my $stream	= $query->execute( $model );
+		isa_ok( $stream, 'RDF::Query::Stream' );
+		my $count	= 0;
+		while ($stream and not $stream->finished) {
+			my $row		= $stream->current;
+			my $school	= $row->[0];
+			my $str		= $query->bridge->as_string( $school );
+			like( $str, qr<(smmusd|wheatonma)>, "exected school: $str" );
+		} continue { $stream->next; $count++ }
+		is( $count, 2, 'expected result count' );
 	}
 	
 }
