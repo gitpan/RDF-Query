@@ -3,7 +3,11 @@ use strict;
 use warnings;
 use Test::More;
 
-if (not exists $ENV{RDFQUERY_NO_NETWORK}) {
+eval { require LWP::Simple };
+if ($@) {
+	plan skip_all => "LWP::Simple is not available for loading <http://...> URLs";
+	return;
+} elsif (not exists $ENV{RDFQUERY_NO_NETWORK}) {
 	plan tests => 16;
 } else {
 	plan skip_all => 'No network. Unset RDFQUERY_NO_NETWORK to run these tests.';

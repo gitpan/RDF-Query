@@ -1,7 +1,7 @@
 # RDF::Query::Parser::RDQL
 # -------------
-# $Revision: 137 $
-# $Date: 2006-03-08 00:17:28 -0500 (Wed, 08 Mar 2006) $
+# $Revision: 152 $
+# $Date: 2006-06-26 15:15:25 -0400 (Mon, 26 Jun 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -17,7 +17,6 @@ use warnings;
 use base qw(RDF::Query::Parser);
 
 use Data::Dumper;
-use LWP::Simple ();
 use Parse::RecDescent;
 use Digest::SHA1  qw(sha1_hex);
 use Carp qw(carp croak confess);
@@ -31,7 +30,7 @@ BEGIN {
 	$::RD_TRACE	= undef;
 	$::RD_HINT	= undef;
 	$debug		= 1;
-	$VERSION	= do { my $REV = (qw$Revision: 137 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 152 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	$lang		= 'rdql';
 	$languri	= 'http://jena.hpl.hp.com/2003/07/query/RDQL';
 }

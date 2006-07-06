@@ -18,7 +18,6 @@ use warnings;
 use RDF::Query::Error qw(:try);
 
 use Data::Dumper;
-use LWP::Simple ();
 use Carp qw(carp croak confess);
 
 ######################################################################
@@ -34,6 +33,10 @@ BEGIN {
 =head1 METHODS
 
 =over 4
+
+=item C<parsed>
+
+Returns the query parse tree.
 
 =cut
 

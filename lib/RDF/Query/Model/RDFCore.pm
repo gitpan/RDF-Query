@@ -1,5 +1,3 @@
-#!/usr/bin/perl
-
 package RDF::Query::Model::RDFCore;
 
 use strict;
@@ -10,7 +8,6 @@ use Carp qw(carp croak);
 use Scalar::Util qw(blessed);
 
 use File::Spec;
-use LWP::Simple;
 use RDF::Core::Model;
 use RDF::Core::Query;
 use RDF::Core::Model::Parser;
@@ -25,10 +22,16 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 151 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 152 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	eval "use LWP::Simple ();";
+	our $LWP_SUPPORT	= ($@) ? 0 : 1;
 }
 
 ######################################################################
+
+=head1 METHODS
+
+=over 4
 
 =item C<new ( $model )>
 
@@ -114,6 +117,8 @@ sub new_statement {
 	return RDF::Core::Statement->new(@_);
 }
 
+=item C<is_node ( $node )>
+
 =item C<isa_node ( $node )>
 
 Returns true if C<$node> is a node object for the current model.
@@ -125,6 +130,8 @@ sub isa_node {
 	my $node	= shift;
 	return UNIVERSAL::isa($node,'RDF::Core::Node');
 }
+
+=item C<is_resource ( $node )>
 
 =item C<isa_resource ( $node )>
 
@@ -138,6 +145,8 @@ sub isa_resource {
 	return UNIVERSAL::isa($node,'RDF::Core::Resource');
 }
 
+=item C<is_literal ( $node )>
+
 =item C<isa_literal ( $node )>
 
 Returns true if C<$node> is a literal object for the current model.
@@ -149,6 +158,8 @@ sub isa_literal {
 	my $node	= shift;
 	return UNIVERSAL::isa($node,'RDF::Core::Literal');
 }
+
+=item C<is_blank ( $node )>
 
 =item C<isa_blank ( $node )>
 
@@ -165,6 +176,12 @@ sub isa_blank {
 *RDF::Query::Model::RDFCore::is_resource	= \&isa_resource;
 *RDF::Query::Model::RDFCore::is_literal		= \&isa_literal;
 *RDF::Query::Model::RDFCore::is_blank		= \&isa_blank;
+
+=item C<< equals ( $node_a, $node_b ) >>
+
+Returns true if C<$node_a> and C<$node_b> are equal
+
+=cut
 
 sub equals {
 	my $self	= shift;
@@ -286,6 +303,11 @@ sub add_uri {
 	
 	die "This model does not support named graphs" if ($named);
 	
+	our $LWP_SUPPORT;
+	unless ($LWP_SUPPORT) {
+		die "LWP::Simple is not available for loading external data";
+	}
+	
 	my $rdf		= LWP::Simple::get($url);
 	my %options = (
 				Model		=> $self->{'model'},
@@ -310,17 +332,35 @@ sub statement_method_map {
 	return qw(getSubject getPredicate getObject);
 }
 
+=item C<< subject ( $statement ) >>
+
+Returns the subject node of the specified C<$statement>.
+
+=cut
+
 sub subject {
 	my $self	= shift;
 	my $stmt	= shift;
 	return $stmt->getSubject;
 }
 
+=item C<< predicate ( $statement ) >>
+
+Returns the predicate node of the specified C<$statement>.
+
+=cut
+
 sub predicate {
 	my $self	= shift;
 	my $stmt	= shift;
 	return $stmt->getPredicate;
 }
+
+=item C<< object ( $statement ) >>
+
+Returns the object node of the specified C<$statement>.
+
+=cut
 
 sub object {
 	my $self	= shift;
@@ -349,12 +389,24 @@ sub get_statements {
 	return RDF::Query::Stream->new( $stream, 'graph', undef, bridge => $self );
 }
 
+=item C<< add_statement ( $statement ) >>
+
+Adds the specified C<$statement> to the underlying model.
+
+=cut
+
 sub add_statement {
 	my $self	= shift;
 	my $stmt	= shift;
 	my $model	= $self->model;
 	$model->addStmt( $stmt );
 }
+
+=item C<< remove_statement ( $statement ) >>
+
+Removes the specified C<$statement> from the underlying model.
+
+=cut
 
 sub remove_statement {
 	my $self	= shift;
@@ -406,3 +458,8 @@ sub as_xml {
 1;
 
 __END__
+
+=back
+
+=cut
+

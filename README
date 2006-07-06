@@ -8,10 +8,14 @@ REQUIREMENTS
 
      * RDF::Core or RDF::Redland
      * Parse::RecDescent
-     * LWP::Simple
      * DateTime::Format::W3CDTF
      * JSON
      * Error
+     * Storable
+
+	The following additional modules are recommended for some functionality:
+
+     * LWP::Simple
 
 INSTALLATION
 
@@ -23,6 +27,26 @@ INSTALLATION
    make install
 
 VERSION HISTORY
+
+  Version 1.037 (2006-07-06)
+
+     * execute() method now takes optional 'bind' parameter for pre-binding query variables.
+     * Updated code to support basic FILTERs in SQL compilation.
+     * Fixed bug in SQL compilation where no WHERE clause was needed.
+     * Fixed bug in SQL compilation when using model-specific Statements tables.
+     * Added Storable to the list of required modules (was missing in the list).
+     * Fixed typos in metadata about past versions in DOAP Changes.ttl.
+
+  Version 1.036 (2006-06-26)
+
+     * Fixed memory leak in RDF::Query::Stream that resulted in too many database handles.
+     * Initial support for OPTIONALs in SQL compiler.
+     * Removed LWP requirement for systems without libwww.
+     * Added support for class variable to hold parsing errors. (Beware under threads.)
+     * RDF::Query now sets error variable upon parsing error. (Access with C<error()>.)
+     * Fixed POD errors, and added tests for POD coverage.
+     * Added model API methods to SQL model class.
+     * Added C<close> method to RDF::Query::Stream.
 
   Version 1.035 (2006-06-04)
 
@@ -238,4 +262,4 @@ AUTHOR
 
 	Gregory Williams <gwilliams@cpan.org>
 
-$Id: README 151 2006-06-04 20:08:40Z samofool $
+$Id: README 156 2006-07-06 04:48:03Z samofool $

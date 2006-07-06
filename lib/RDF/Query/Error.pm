@@ -82,6 +82,10 @@ package RDF::Query::Error::TypeError;
 
 use base qw(RDF::Query::Error);
 
+package RDF::Query::Error::ExecutionError;
+
+use base qw(RDF::Query::Error);
+
 
 1;
 

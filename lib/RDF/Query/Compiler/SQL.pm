@@ -17,9 +17,9 @@ use warnings;
 
 use RDF::Query::Error qw(:try);
 
+use List::Util qw(first);
 use Data::Dumper;
 use Math::BigInt;
-use LWP::Simple ();
 use Digest::MD5 ('md5');
 use Carp qw(carp croak confess);
 use Scalar::Util qw(blessed reftype);
@@ -30,11 +30,18 @@ use RDF::Query::Error qw(:try);
 
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
-	$debug		= 1;
+	$debug		= 0;
 	$VERSION	= do { my $REV = (qw$Revision: 121 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
 ######################################################################
+
+my @NODE_TYPE_TABLES	= (
+						['Resources', 'ljr', 'URI'],
+						['Literals', 'ljl', qw(Value Language Datatype)],
+						['Bnodes', 'ljb', qw(Name)]
+					);
+my %NODE_TYPE_TABLES	= map { $_->[0] => [ @{ $_ }[1 .. $#{ $_ }] ] } @NODE_TYPE_TABLES;
 
 =head1 METHODS
 
@@ -55,6 +62,7 @@ sub new {
 	my $stable;
 	if ($model) {
 		my $mhash	= _mysql_hash( $model );
+		warn "Model: $model => $mhash\n" if ($debug);
 		$stable		= "Statements${mhash}";
 	} else {
 		$stable		= 'Statements';
@@ -70,8 +78,6 @@ sub new {
 				
 	return $self;
 }
-
-
 
 
 =item C<< compile () >>
@@ -101,6 +107,12 @@ sub compile {
 }
 
 
+=item C<< emit_select >>
+
+Returns a SQL query string representing the query.
+
+=cut
+
 sub emit_select {
 	my $self	= shift;
 	my $parsed	= $self->{parsed};
@@ -111,24 +123,39 @@ sub emit_select {
 	
 	$self->patterns2sql( $parsed->{'triples'}, $level );
 	
+	my ($varcols, @cols)	= $self->add_variable_values_joins;
 	my $vars	= $self->{vars};
 	my $from	= $self->{from};
 	my $where	= $self->{where};
 	
-	my ($varcols, @cols)	= $self->add_variable_values_joins;
 	my $options				= $parsed->{options} || {};
 	my $unique				= $options->{'distinct'};
 	
+	my $from_clause;
+	foreach my $f (@$from) {
+		$from_clause	.= ', ' if ($from_clause and $from_clause =~ m/[^(]$/ and $f !~ m/^[)]|LEFT JOIN/);
+		$from_clause	.= $f;
+	}
+	
+	
+	my $where_clause	= @$where ? " WHERE " . join(' AND ', @$where) : '';
 	my $sql	= "SELECT "
 			. ($unique ? 'DISTINCT ' : '')
 			. join(', ', @cols)
-			. " FROM " . join(', ', @$from)
-			. " WHERE " . join(' AND ', @$where)
+			. " FROM " . $from_clause						# join(', ', @$from)
+			. $where_clause
 			. $self->order_by_clause( $varcols, $level )
 			. $self->limit_clause( $options )
 			;
+	
 	return $sql;
 }
+
+=item C<< limit_clause >>
+
+Returns a SQL LIMIT clause, or an empty string if the query does not need limiting.
+
+=cut
 
 sub limit_clause {
 	my $self	= shift;
@@ -139,6 +166,12 @@ sub limit_clause {
 		return "";
 	}
 }
+
+=item C<< order_by_clause >>
+
+Returns a SQL ORDER BY clause, or an empty string if the query does not use ordering.
+
+=cut
 
 sub order_by_clause {
 	my $self	= shift;
@@ -182,6 +215,13 @@ sub order_by_clause {
 }
 
 
+=item C<< add_variable_values_joins >>
+
+Modifies the query by adding LEFT JOINs to the tables in the database that
+contain the node values (for literals, resources, and blank nodes).
+
+=cut
+
 sub add_variable_values_joins {
 	my $self	= shift;
 	my $parsed	= $self->{parsed};
@@ -194,19 +234,27 @@ sub add_variable_values_joins {
 	my $where	= $self->{where};
 	
 	my @cols;
-	my $count	= 0;
-	my %seen;
-	foreach my $var (grep { not $seen{ $_ }++ } (@vars, keys %$vars)) {
+	my $uniq_count	= 0;
+	my (%seen_vars, %seen_joins);
+	foreach my $var (grep { not $seen_vars{ $_ }++ } (@vars, keys %$vars)) {
 		my $col	= $vars->{ $var };
+		unless ($col) {
+			throw RDF::Query::Error::CompilationError "*** Nothing is known about the variable ?${var}";
+		}
+		
+		my $col_table	= (split(/[.]/, $col))[0];
+		my ($count)		= ($col_table =~ /\w(\d+)/);
+		
+		warn "var: $var\t\tcol: $col\t\tcount: $count\t\tunique count: $uniq_count\n" if ($debug);
+		
 		push(@cols, "${col} AS ${var}") if ($select_vars{ $var });
-		my @value_table_data	= (['Resources', 'ljr', 'URI'], ['Literals', 'ljl', qw(Value Language Datatype)], ['Bnodes', 'ljb', qw(Name)]);
-		foreach (@value_table_data) {
+		foreach (@NODE_TYPE_TABLES) {
 			my ($table, $alias, @join_cols)	= @$_;
 			foreach my $jc (@join_cols) {
-				my $column_real_name	= "${alias}${count}.${jc}";
+				my $column_real_name	= "${alias}${uniq_count}.${jc}";
 				my $column_alias_name	= "${var}_${jc}";
 				push(@cols, "${column_real_name} AS ${column_alias_name}");
-				push( @{ $variable_value_cols{ $var } }, "${alias}${count}.${jc}");
+				push( @{ $variable_value_cols{ $var } }, $column_real_name);
 				
 				foreach my $i (0 .. $#{ $where }) {
 					if ($where->[$i] =~ /\b$column_alias_name\b/) {
@@ -217,26 +265,52 @@ sub add_variable_values_joins {
 			}
 		}
 		
-		my $col_table	= (split(/[.]/, $col))[0];
 		foreach my $i (0 .. $#{ $from }) {
 			my $f		= $from->[ $i ];
-			my $alias	= (split(/ /, $f))[1];
+			next if ($from->[ $i ] =~ m/^[()]$/);
+			
+			my ($alias)	= ($f =~ m/Statements\d* (\w\d+)/);	#split(/ /, $f))[1];
+			
 			if ($alias eq $col_table) {
-				foreach (@value_table_data) {
+			
+#				my (@tables, @where);
+				foreach (@NODE_TYPE_TABLES) {
 					my ($vtable, $vname)	= @$_;
-					my $valias	= join('', $vname, $count);
-					$f	.= " LEFT JOIN ${vtable} ${valias} ON ${col} = ${valias}.ID";
+					my $valias	= join('', $vname, $uniq_count);
+					next if ($seen_joins{ $valias }++);
+					
+#					push(@tables, "${vtable} ${valias}");
+#					push(@where, "${col} = ${valias}.ID");
+					$f	.= " LEFT JOIN (${vtable} ${valias}) ON (${col} = ${valias}.ID)";
 				}
+				
+#				my $join	= sprintf("LEFT JOIN (%s) ON (%s)", join(', ', @tables), join(' AND ', @where));
+#				$from->[ $i ]	= join(' ', $f, $join);
 				$from->[ $i ]	= $f;
 				next;
 			}
 		}
 		
-		$count++;
+		$uniq_count++;
 	}
 	
 	return (\%variable_value_cols, @cols);
 }
+
+=item C<< patterns2sql ( \@triples, \$level, %args ) >>
+
+Builds the SQL query in instance data from the supplied C<@triples>.
+C<$level> is used as a unique identifier for recursive calls.
+
+C<%args> may contain callback closures for the following keys:
+
+  'where_hook'
+  'from_hook'
+
+When present, these closures are used to add SQL FROM and WHERE clauses
+to the query instead of adding them directly to the object's instance data.
+
+=cut
 
 sub patterns2sql {
 	my $self	= shift;
@@ -277,15 +351,6 @@ sub patterns2sql {
 	};
 	
 	
-	
-
-
-
-
-
-
-
-	
 # 	[
 # 		[['VAR','person'],['URI',['foaf','name']],['VAR','name']],
 # 		['OPTIONAL', [
@@ -295,9 +360,9 @@ sub patterns2sql {
 # 	]	
 	
 	my $triple	= shift(@$triples);
-	
 	my @posmap	= qw(subject predicate object);
 	if (ref($triple->[0])) {
+		$add_from->('(');
 		my ($s,$p,$o)	= @$triple;
 		my $table	= "s${$level}";
 		my $stable	= $self->{stable};
@@ -334,21 +399,53 @@ sub patterns2sql {
 				throw RDF::Query::Error::CompilationError( -text => "Unknown node type: $type" );
 			}
 		}
+		$add_from->(')');
 	} else {
 		my $op	= $triple->[0];
 		if ($op eq 'OPTIONAL') {
 			my $pattern	= $triple->[1];
-			throw RDF::Query::Error::CompilationError( -text => "SQL compilation of OPTIONAL queries not yet implemented." );
+#			throw RDF::Query::Error::CompilationError( -text => "SQL compilation of OPTIONAL queries not yet implemented." );
 			++$$level;
 			my @w;
-			my $hook	= sub {
+			my $where_hook	= sub {
 							my $w	= shift;
 							push(@w, $w);
 							return;
 						};
-			$self->patterns2sql( $pattern, $level, where_hook => $hook );
 			
-			$add_where->( 'OPTIONAL(' . join(' AND ', @w) . ')' );
+			my @f;
+			my $from_hook	= sub {
+							my $f	= shift;
+							push(@f, $f);
+							return;
+						};
+			
+			
+			$self->patterns2sql( $pattern, $level, where_hook => $where_hook, from_hook => $from_hook );
+			
+			my $from;
+			foreach my $i (0 .. $#f) {
+				my $f	= $f[ $i ];
+				if ($f !~ m/^[()]$/) {
+					$from	= $f;
+					splice(@f, $i, 1, ());
+					last;
+				}
+			}
+			
+			for (my $i = $#f; $i > 0; $i--) {
+				if ($f[ $i - 1 ] eq '(' and $f[ $i ] eq ')') {
+					splice(@f, $i - 1, 2, ());
+				}
+			}
+			
+			$add_from->( $_ ) for (@f);
+			my $where	= join(' AND ', @w);	#shift(@w);
+#			$add_where->( $_ ) for (@w);
+			$add_from->( "LEFT JOIN ${from} ON ($where)" );
+			
+#			warn Dumper(\@w);
+#			$add_where->( 'OPTIONAL(' . join(' AND ', @w) . ')' );
 		} elsif ($op eq 'GRAPH') {
 			my $graph	= $triple->[1];
 			my $pattern	= $triple->[2];
@@ -391,7 +488,6 @@ sub patterns2sql {
 		}
 	}
 	
-	
 	if (scalar(@$triples)) {
 		++$$level;
 		$self->patterns2sql( $triples, $level );
@@ -399,6 +495,21 @@ sub patterns2sql {
 	return;
 #	return (\%vars, \@from, \@where);
 }
+
+=item C<< expr2sql ( $expression, \$level, %args ) >>
+
+Returns a SQL expression for the supplied query C<$expression>.
+C<$level> is used as a unique identifier for recursive calls.
+
+C<%args> may contain callback closures for the following keys:
+
+  'where_hook'
+  'from_hook'
+
+When present, these closures are used to add necessary SQL FROM and WHERE
+clauses to the query.
+
+=cut
 
 sub expr2sql {
 	my $self	= shift;
@@ -442,6 +553,8 @@ sub expr2sql {
 		my $literal	= $args[0];
 		my $dt		= $args[2];
 		
+		my $hash	= $self->_mysql_node_hash( [ 'LITERAL', @args ] );
+		
 		if (defined($dt)) {
 			my $uri		= $dt;
 			my $func	= $self->get_function( $self->qualify_uri( $uri ) );
@@ -456,14 +569,85 @@ sub expr2sql {
 		}
 		
 		$add_where->( $literal );
+	} elsif ($op eq 'URI') {
+		my $uri		= $self->_mysql_node_hash( ['URI', $args[0]] );
+		$add_where->( $uri );
 	} elsif ($op eq 'VAR') {
 		my $name	= $args[0];
 		my $col		= $vars->{ $name };
 		$add_where->( qq(${col}) );
-	} elsif ($op =~ m#^[<>]=?$#) {
-		++$$level; my $sql_a	= $self->expr2sql( $args[0], $level );
-		++$$level; my $sql_b	= $self->expr2sql( $args[1], $level );
-		$add_where->( "${sql_a} ${op} ${sql_b}" );
+	} elsif ($op =~ m#^(=|!=|[<>]=?|[*]|/|[-+])$#) {
+		$op	= '<>' if ($op eq '!=');
+		
+		my ($a, $b)	= @args;
+		
+		my $a_type	= $a->[0];
+		my $b_type	= $b->[0];
+		
+		foreach my $data ([$a_type, 'LHS'], [$b_type, 'RHS']) {
+			my ($type, $side)	= @$data;
+			unless ($type =~ m/^(VAR|LITERAL|FUNCTION)$/) {
+				throw RDF::Query::Error::CompilationError( -text => "Cannot use the comparison operator '${op}' on a ${side} ${type} node." );
+			}
+		}
+		
+		if ($a->[0] eq 'VAR') {
+			++$$level; my $var_name_a	= $self->expr2sql( $a, $level );
+			my $sql_a	= "(SELECT value FROM Literals WHERE ${var_name_a} = ID LIMIT 1)";
+			if ($b->[0] eq 'VAR') {
+				# ?var cmp ?var
+				++$$level; my $var_name_b	= $self->expr2sql( $b, $level );
+				my $sql_b	= "(SELECT value FROM Literals WHERE ${var_name_b} = ID LIMIT 1)";
+				$add_where->( "${sql_a} ${op} ${sql_b}" );
+			} else {
+				# ?var cmp NODE
+				++$$level; my $sql_b	= $self->expr2sql( $b, $level );
+				$add_where->( "${sql_a} ${op} ${sql_b}" );
+			}
+		} else {
+			++$$level; my $sql_a	= $self->expr2sql( $a, $level );
+			if ($b->[0] eq 'VAR') {
+				# ?var cmp NODE
+				++$$level; my $var_name	= $self->expr2sql( $b, $level );
+				my $sql_b	= "(SELECT value FROM Literals WHERE ${var_name} = ID LIMIT 1)";
+				$add_where->( "${sql_a} ${op} ${sql_b}" );
+			} else {
+				# NODE cmp NODE
+				++$$level; my $sql_b	= $self->expr2sql( $b, $level );
+				$add_where->( "${sql_a} ${op} ${sql_b}" );
+			}
+		}
+	} elsif ($op eq '==') {
+		my @w;
+		my $where_hook	= sub {
+						my $w	= shift;
+						push(@w, $w);
+						return;
+					};
+		
+		foreach my $expr (@args) {
+			$self->expr2sql( $expr, $level, %args, where_hook => $where_hook )
+		}
+		
+		$add_where->("$w[0] = $w[1]");
+	} elsif ($op eq '&&') {
+		foreach my $expr (@args) {
+			$self->expr2sql( $expr, $level, %args )
+		}
+	} elsif ($op eq '||') {
+		my @w;
+		my $where_hook	= sub {
+						my $w	= shift;
+						push(@w, $w);
+						return;
+					};
+		
+		foreach my $expr (@args) {
+			$self->expr2sql( $expr, $level, %args, where_hook => $where_hook )
+		}
+		
+		my $where	= '(' . join(' OR ', map { qq<($_)> } @w) . ')';
+		$add_where->( $where );
 	} elsif ($op eq 'FUNCTION') {
 		my $uri	= $self->qualify_uri( shift(@args) );
 		my $func	= $self->get_function( $uri );
@@ -502,6 +686,13 @@ sub expr2sql {
 	}
 }
 
+=item C<< _mysql_hash ( $data ) >>
+
+Returns a hash value for the supplied C<$data> string. This value is computed
+using the same algorithm that Redland's mysql storage backend uses.
+
+=cut
+
 sub _mysql_hash {
 	my $data	= shift;
 	my @data	= unpack('C*', md5( $data ));
@@ -517,6 +708,13 @@ sub _mysql_hash {
 #	warn "= $sum\n";
 	return $sum;
 }
+
+=item C<< _mysql_node_hash ( $node ) >>
+
+Returns a hash value (computed by C<_mysql_hash> for the supplied C<$node>.
+The hash value is based on the string value of the node and the node type.
+
+=cut
 
 sub _mysql_node_hash {
 	my $self	= shift;
@@ -545,6 +743,14 @@ sub _mysql_node_hash {
 	my $hash	= _mysql_hash( $data );
 	return $hash;
 }
+
+=item C<< qualify_uri ( $uri ) >>
+
+Returns a fully qualified URI from the supplied C<$uri>. C<$uri> may already
+be a qualified URI, or a parse tree for a qualified URI or QName. If C<$uri> is
+a QName, the namespaces defined in the query parse tree are used to fully qualify.
+
+=cut
 
 sub qualify_uri {
 	my $self	= shift;
@@ -584,6 +790,12 @@ sub add_function {
 		$functions{ $uri }	= $code;
 	}
 }
+
+=item C<get_function ( $uri )>
+
+If C<$uri> is associated with a query function, returns a CODE reference
+to the function. Otherwise returns C<undef>.
+=cut
 
 sub get_function {
 	my $self	= shift;

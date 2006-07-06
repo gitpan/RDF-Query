@@ -51,6 +51,8 @@ t/15-functions.t
 t/16-sql_compiler.t
 t/17-hooks.t
 t/18-dawg.t
+t/19-pod.t
+t/20-pod_coverage.t
 t/dawg/data/bound/bound1-result.n3
 t/dawg/data/bound/bound1.rq
 t/dawg/data/bound/data.n3

@@ -1,13 +1,22 @@
 #!/usr/bin/perl
 use strict;
-use Test::More tests => 3;
+use Test::More;
 use Test::Exception;
 use Data::Dumper;
 
 use RDF::Query;
-use LWP::Simple;
 
-{
+if (RDF::Query->loadable_bridge_class) {
+	plan( tests => 3 );
+} else {
+	plan( skip_all => "Cannot find a loadable RDF model class." );
+	return;
+}
+
+SKIP: {
+	eval { require LWP::Simple };
+	skip "LWP::Simple is not available", 3 if $@;
+	
 	my $query	= RDF::Query->new(<<"END", undef, undef, 'sparql');
 		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 		PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>

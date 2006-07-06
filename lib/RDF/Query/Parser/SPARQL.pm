@@ -1,7 +1,7 @@
 # RDF::Query::Parser::SPARQL
 # -------------
-# $Revision: 147 $
-# $Date: 2006-05-11 02:27:23 -0400 (Thu, 11 May 2006) $
+# $Revision: 152 $
+# $Date: 2006-06-26 15:15:25 -0400 (Mon, 26 Jun 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -19,7 +19,6 @@ use base qw(RDF::Query::Parser);
 use RDF::Query::Error qw(:try);
 
 use Data::Dumper;
-use LWP::Simple ();
 use Digest::SHA1  qw(sha1_hex);
 use Carp qw(carp croak confess);
 
@@ -28,7 +27,7 @@ use Carp qw(carp croak confess);
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
 	$debug		= 0 || $RDF::Query::Parser::debug;
-	$VERSION	= do { my $REV = (qw$Revision: 147 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 152 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	$lang		= 'sparql';
 	$languri	= 'http://www.w3.org/TR/rdf-sparql-query/';
 }
@@ -88,13 +87,13 @@ sub parse {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_query>
 
 Returns the parse tree for a complete SPARQL query.
 
-=end for
+=end private
 
 =cut
 
@@ -174,13 +173,13 @@ sub parse_query {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_namespaces>
 
 Returns the parse tree for zero or more namespace declarations.
 
-=end for
+=end private
 
 =cut
 
@@ -202,13 +201,13 @@ sub parse_namespaces {
 	return \%namespaces;
 }
 
-=for private
+=begin private
 
 =item C<parse_identifier>
 
 Returns the parse tree for an identifier.
 
-=end for
+=end private
 
 =cut
 
@@ -217,13 +216,13 @@ sub parse_identifier {
 	return $self->match_pattern(qr/[a-zA-Z0-9_.-]+/);
 }
 
-=for private
+=begin private
 
 =item C<parse_qURI>
 
 Returns the parse tree for a fully qualified URI.
 
-=end for
+=end private
 
 =cut
 
@@ -241,14 +240,14 @@ sub parse_qURI {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_variables>
 
 Returns the parse tree for a list of variables for a SELECT query.
 '*' is an acceptable substitute for a list of variables.
 
-=end for
+=end private
 
 =cut
 
@@ -269,13 +268,13 @@ sub parse_variables {
 	return \@variables;
 }
 
-=for private
+=begin private
 
 =item C<parse_variable>
 
 Returns the parse tree for a variable.
 
-=end for
+=end private
 
 =cut
 
@@ -293,13 +292,13 @@ sub parse_variable {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_sources>
 
 Returns the parse tree for zero or more source ('FROM' or 'FROM NAMED') declarations.
 
-=end for
+=end private
 
 =cut
 
@@ -318,13 +317,13 @@ sub parse_sources {
 	return \@sources;
 }
 
-=for private
+=begin private
 
 =item C<parse_uri>
 
 Returns the parse tree for a URI (either fully qualified or a QName).
 
-=end for
+=end private
 
 =cut
 
@@ -339,13 +338,13 @@ sub parse_uri {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_ncname_prefix>
 
 Returns the parse tree for a QName prefix.
 
-=end for
+=end private
 
 =cut
 
@@ -357,13 +356,13 @@ sub parse_ncname_prefix {
 	return $self->match_pattern(qr/${ncchar_p}/);
 }
 
-=for private
+=begin private
 
 =item C<parse_QName>
 
 Returns the parse tree for a QName.
 
-=end for
+=end private
 
 =cut
 
@@ -387,13 +386,13 @@ sub parse_QName {
 	return $self->new_qname( $ns, $localpart );
 }
 
-=for private
+=begin private
 
 =item C<parse_blankQName>
 
 Returns the parse tree for a blank QName ('_:foo').
 
-=end for
+=end private
 
 =cut
 
@@ -407,13 +406,13 @@ sub parse_blankQName {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_triple_patterns>
 
 Returns the parse tree for a (possibly nested) set of triple patterns.
 
-=end for
+=end private
 
 =cut
 
@@ -471,9 +470,9 @@ sub parse_triple_patterns {
 	}
 }
 
-=for private
+=begin private
 
-=item C<parse_triple_pattern>
+=item C<parse_triplepattern>
 
 Returns the parse tree for a single triple pattern.
 May return multiple triples if multiple-object syntax ('?subj :pred ?obj1, ?obj2'),
@@ -481,7 +480,7 @@ multiple-predicate syntax ('?subj :pred1 ?obj1 ; :pred2 ?obj2'),
 collections ('(1 2 3) :pred ?obj'), or blank nodes ('[ a foaf:Person; foaf:name "Jane" ]')
 are used.
 
-=end for
+=end private
 
 =cut
 
@@ -592,14 +591,14 @@ sub parse_triplepattern {
 # 																				}
 }
 
-=for private
+=begin private
 
 =item C<parse_object>
 
 Returns the parse tree for the object of a triple pattern (a variable, URI,
 constant or collection).
 
-=end for
+=end private
 
 =cut
 
@@ -612,14 +611,14 @@ sub parse_object {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_optional_objects>
 
 Returns the parse tree for a set of optional objects following a full triple
 pattern (', ?obj2, ?obj3').
 
-=end for
+=end private
 
 =cut
 
@@ -633,14 +632,14 @@ sub parse_optional_objects {
 	return \@objects;
 }
 
-=for private
+=begin private
 
 =item C<parse_optional_predicate_objects>
 
 Returns the parse tree for a set of optional predicate-objects following a full
 triple pattern ('; :pred2 ?obj2 ; :pred3 ?obj3').
 
-=end for
+=end private
 
 =cut
 
@@ -655,13 +654,13 @@ sub parse_optional_predicate_objects {
 	return \@pred_objs;
 }
 
-=for private
+=begin private
 
 =item C<parse_predicate_object>
 
 Returns the parse tree for a predicate-objects following a triple subject.
 
-=end for
+=end private
 
 =cut
 
@@ -677,13 +676,13 @@ sub parse_predicate_object {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_collection>
 
 Returns the parse tree for a collection.
 
-=end for
+=end private
 
 =cut
 
@@ -737,14 +736,14 @@ sub parse_collection {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_blanknode>
 
 Returns the parse tree for a blank node containing optional triples
 ('[]' or '[ :pred ?obj ]').
 
-=end for
+=end private
 
 =cut
 
@@ -767,13 +766,13 @@ sub parse_blanknode {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_filter>
 
 Returns the parse tree for a FILTER declaration.
 
-=end for
+=end private
 
 =cut
 
@@ -792,14 +791,14 @@ sub parse_filter {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_expression>
 
 Returns the parse tree for an expression (possibly multiple expressions joined
 with a logical-or).
 
-=end for
+=end private
 
 =cut
 
@@ -819,14 +818,14 @@ sub parse_expression {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_conditional_and_expression>
 
 Returns the parse tree for an expression (possibly multiple expressions joined
 with a logical-and).
 
-=end for
+=end private
 
 =cut
 
@@ -846,7 +845,7 @@ sub parse_conditional_and_expression {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_value_logical>
 
@@ -854,7 +853,7 @@ Returns the parse tree for an expression (possibly multiple expressions joined
 with a logical operator: equal, not-equal, less-than, less-than-or-equal,
 greater-than, greater-than-or-equal).
 
-=end for
+=end private
 
 =cut
 
@@ -876,14 +875,14 @@ sub parse_value_logical {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_numeric_expression>
 
 Returns the parse tree for an expression (possibly multiple expressions joined
 with a numeric operator: plus, minus).
 
-=end for
+=end private
 
 =cut
 
@@ -903,14 +902,14 @@ sub parse_numeric_expression {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_multiplicative_expression>
 
 Returns the parse tree for an expression (possibly multiple expressions joined
 with a numeric operator: multiply, divide).
 
-=end for
+=end private
 
 =cut
 
@@ -930,14 +929,14 @@ sub parse_multiplicative_expression {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_unary_expression>
 
 Returns the parse tree for a unary expression (possibly with a unary operator:
 not, negative, positive).
 
-=end for
+=end private
 
 =cut
 
@@ -961,7 +960,7 @@ sub parse_unary_expression {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_primary_expression>
 
@@ -969,7 +968,7 @@ Returns the parse tree for a primary expression: bracketted expression,
 built-in function call, blank QName, constant, blank node, variable, IRI, or
 function call.
 
-=end for
+=end private
 
 =cut
 
@@ -995,14 +994,14 @@ sub parse_primary_expression {
 	return $expr;
 }
 
-=for private
+=begin private
 
 =item C<parse_built_in_call_expression>
 
 Returns the parse tree for a built-in function call: REGEX, LANGMATCHES, LANG,
 DATATYPE, BOUND, isIRI, isURI, isBLANK, or isLITERAL.
 
-=end for
+=end private
 
 =cut
 
@@ -1104,13 +1103,13 @@ sub parse_built_in_call_expression {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_iriref_or_function>
 
 Returns the parse tree for an IRI or function call.
 
-=end for
+=end private
 
 =cut
 
@@ -1141,13 +1140,13 @@ sub parse_iriref_or_function {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_function_call>
 
 Returns the parse tree for a function call.
 
-=end for
+=end private
 
 =cut
 
@@ -1167,14 +1166,14 @@ sub parse_function_call {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_bracketted_expression>
 
 Returns the parse tree for a bracketted expression (C<parse_expression> surrounded
 by parentheses).
 
-=end for
+=end private
 
 =cut
 
@@ -1194,13 +1193,13 @@ sub parse_bracketted_expression {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_arguments>
 
 Returns the parse tree for a function's argument list.
 
-=end for
+=end private
 
 =cut
 
@@ -1215,14 +1214,14 @@ sub parse_arguments {
 	return \@args;
 }
 
-=for private
+=begin private
 
 =item C<parse_predicate>
 
 Returns the parse tree for a predicate. Either 'a' for rdf:type shortcut syntax
 ('?p a foaf:Person') or a variable or URI.
 
-=end for
+=end private
 
 =cut
 
@@ -1235,13 +1234,13 @@ sub parse_predicate {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_variable_or_uri>
 
 Returns the parse tree for a variable or URI.
 
-=end for
+=end private
 
 =cut
 
@@ -1250,13 +1249,13 @@ sub parse_variable_or_uri {
 	return $self->parse_variable || $self->parse_blankQName || $self->parse_uri;
 }
 
-=for private
+=begin private
 
 =item C<parse_variable_or_uri_or_constant>
 
 Returns the parse tree for a variable, URI, or constant.
 
-=end for
+=end private
 
 =cut
 
@@ -1265,14 +1264,14 @@ sub parse_variable_or_uri_or_constant {
 	return $self->parse_variable || $self->parse_constant || $self->parse_uri;
 }
 
-=for private
+=begin private
 
 =item C<parse_constant>
 
 Returns the parse tree for a constant. Either a quoted string (with optional data-
 or language-typing), or a number.
 
-=end for
+=end private
 
 =cut
 
@@ -1330,13 +1329,13 @@ sub parse_constant {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_order_by>
 
 Returns the parse tree for an ORDER BY clause.
 
-=end for
+=end private
 
 =cut
 
@@ -1361,13 +1360,13 @@ sub parse_order_by {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_limit>
 
 Returns the parse tree for a LIMIT clause.
 
-=end for
+=end private
 
 =cut
 
@@ -1381,13 +1380,13 @@ sub parse_limit {
 	}
 }
 
-=for private
+=begin private
 
 =item C<parse_offset>
 
 Returns the parse tree for an OFFSET clause.
 
-=end for
+=end private
 
 =cut
 
@@ -1405,7 +1404,7 @@ sub parse_offset {
 
 ######################################################################
 
-=for private
+=begin private
 
 =item C<match_literal ( $literal, $case_insensitive_flag )>
 
@@ -1414,7 +1413,7 @@ Matches the supplied C<$literal> at the beginning of the reamining text.
 If a match is found, returns the literal. Otherwise returns an error via
 C<fail> (which might throw an exception if C<set_commit> has been called).
 
-=end for
+=end private
 
 =cut
 
@@ -1452,7 +1451,7 @@ sub match_literal {
 	}
 }
 
-=for private
+=begin private
 
 =item C<match_pattern ( $pattern )>
 
@@ -1462,7 +1461,7 @@ reamining text.
 If a match is found, returns the matching text. Otherwise returns an error via
 C<fail> (which might throw an exception if C<set_commit> has been called).
 
-=end for
+=end private
 
 =cut
 
@@ -1491,13 +1490,13 @@ sub match_pattern {
 	}
 }
 
-=for private
+=begin private
 
 =item C<whitespace>
 
 Matches any whitespace at the beginning of the reamining text.
 
-=end for
+=end private
 
 =cut
 
@@ -1521,13 +1520,13 @@ sub whitespace {
 
 ######################################################################
 
-=for private
+=begin private
 
 =item C<set_input ( $input )>
 
 Sets the query string for parsing.
 
-=end for
+=end private
 
 =cut
 
@@ -1541,13 +1540,13 @@ sub set_input {
 }
 
 		
-=for private
+=begin private
 
 =item C<get_options ( $distinct, $order, $limit, $offset )>
 
 Returns a HASH of result form arguments.
 
-=end for
+=end private
 
 =cut
 

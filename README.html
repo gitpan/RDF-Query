@@ -20,10 +20,14 @@
 		<ul>
 			<li>RDF::Core <em>or</em> RDF::Redland</li>
 			<li>Parse::RecDescent</li>
-			<li>LWP::Simple</li>
 			<li>DateTime::Format::W3CDTF</li>
 			<li>JSON</li>
 			<li>Error</li>
+			<li>Storable</li>
+		</ul>
+		<p>The following additional modules are recommended for some functionality:</p>
+		<ul>
+			<li>LWP::Simple</li>
 		</ul>
 	<h2 id="installing">Installing RDF::Query</h2>
 		<p>To install, run:</p>
@@ -34,6 +38,26 @@
 			make install<br />
 		</div>
 	<h2 id="changelog">Version History</h2>
+		<h3 id="v1_037">Version 1.037 (2006-07-06)</h3>
+			<ul>
+				<li>execute() method now takes optional 'bind' parameter for pre-binding query variables.</li>
+				<li>Updated code to support basic FILTERs in SQL compilation.</li>
+				<li>Fixed bug in SQL compilation where no WHERE clause was needed.</li>
+				<li>Fixed bug in SQL compilation when using model-specific Statements tables.</li>
+				<li>Added Storable to the list of required modules (was missing in the list).</li>
+				<li>Fixed typos in metadata about past versions in DOAP Changes.ttl.</li>
+			</ul>
+		<h3 id="v1_036">Version 1.036 (2006-06-26)</h3>
+			<ul>
+				<li>Fixed memory leak in RDF::Query::Stream that resulted in too many database handles.</li>
+				<li>Initial support for OPTIONALs in SQL compiler.</li>
+				<li>Removed LWP requirement for systems without libwww.</li>
+				<li>Added support for class variable to hold parsing errors. (Beware under threads.)</li>
+				<li>RDF::Query now sets error variable upon parsing error. (Access with error().)</li>
+				<li>Fixed POD errors, and added tests for POD coverage.</li>
+				<li>Added model API methods to SQL model class.</li>
+				<li>Added close() method to RDF::Query::Stream.</li>
+			</ul>
 		<h3 id="v1_035">Version 1.035 (2006-06-04)</h3>
 			<ul>
 				<li>Added DAWG tests and harness.</li>
@@ -241,5 +265,5 @@
 	<h2>Copyright</h2>
 		<p>Copyright &copy; 2005&#8211;2006 Gregory Williams. All rights reserved. This program is free software; you can redistribute it and/or modify it under the same terms as Perl itself.</p>
 	
-	$Id: README.html 151 2006-06-04 20:08:40Z samofool $
+	$Id: README.html 156 2006-07-06 04:48:03Z samofool $
 </body></html>

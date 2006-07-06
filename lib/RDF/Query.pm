@@ -1,7 +1,7 @@
 # RDF::Query
 # -------------
-# $Revision: 151 $
-# $Date: 2006-06-04 16:08:40 -0400 (Sun, 04 Jun 2006) $
+# $Revision: 156 $
+# $Date: 2006-07-06 00:48:03 -0400 (Thu, 06 Jul 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -10,7 +10,7 @@ RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF
 
 =head1 VERSION
 
-This document describes RDF::Query version 1.035.
+This document describes RDF::Query version 1.037.
 
 =head1 SYNOPSIS
 
@@ -52,7 +52,6 @@ use warnings;
 use Carp qw(carp croak confess);
 
 use Data::Dumper;
-use LWP::Simple ();
 use Storable qw(dclone);
 use Scalar::Util qw(blessed reftype looks_like_number);
 use DateTime::Format::W3CDTF;
@@ -68,8 +67,8 @@ use RDF::Query::Error qw(:try);
 our ($REVISION, $VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$REVISION	= do { my $REV = (qw$Revision: 151 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
-	$VERSION	= 1.035;
+	$REVISION	= do { my $REV = (qw$Revision: 156 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= '1.037';
 }
 
 ######################################################################
@@ -104,6 +103,7 @@ sub new {
 				}, $class );
 	
 	unless ($parsed->{'triples'}) {
+		$class->set_error( $parser->error );
 		warn $parser->error if ($debug);
 		return undef;
 	}
@@ -140,7 +140,7 @@ sub execute {
 	my %args	= @_;
 	my $parsed	= $self->{parsed};
 	
-	my ($stream, $bridge);
+	my $stream;
 	$self->{model}		= $model;
 	
 	if (my $dsn = $args{'dsn'}) {
@@ -149,10 +149,16 @@ sub execute {
 			my $dbh			= DBI->connect( @$dsn );
 			$self->{dbh}	= $dbh;
 		};
+	} elsif (blessed($model) and $model->isa('DBI::db')) {
+		$self->{dbh}	= $model;
 	}
 	
+	my %bound	= ($args{ 'bind' }) ? %{ $args{ 'bind' } } : ();
 	if (my $dbh = $self->{'dbh'} || $args{'dbh'}) {
 		try {
+			if (%bound) {
+				throw RDF::Query::Error::CompilationError ( -text => 'SQL compilation does not yet support pre-bound query variables.' );
+			}
 			my $compiler	= RDF::Query::Compiler::SQL->new( dclone($parsed), $args{'model'} );
 			my $sql			= $compiler->compile();
 			my $sth			= $dbh->prepare( $sql );
@@ -162,7 +168,6 @@ sub execute {
 			}
 			$self->{sql}	= $sql;
 			$self->{sth}	= $sth;
-#			warn $sql;
 		} catch RDF::Query::Error::CompilationError with {
 			my $err	= shift;
 			if ($args{'require_sql'}) {
@@ -175,18 +180,21 @@ sub execute {
 		};
 	}
 	
-	$bridge	= $self->get_bridge( $model, %args );
-	$self->{bridge}		= $bridge;
+	my $bridge	= $self->get_bridge( $model, %args );
+	if ($bridge) {
+		$self->{bridge}		= $bridge;
+	} else {
+		throw RDF::Query::Error::ModelError ( -text => "Could not create a model object." );
+	}
 	
 	if (my $sth = $self->{sth}) {
 		$stream	= $bridge->stream( $parsed, $sth );
+	} elsif ($args{'require_sql'}) {
+		throw RDF::Query::Error::CompilationError ( -text => 'Failed to compile query to SQL' );
 	} else {
-		if ($args{'require_sql'}) {
-			throw RDF::Query::Error::CompilationError;
-		}
+		$parsed		= $self->fixup( $self->{parsed} );
+		$stream		= $self->query_more( bound => \%bound, triples => [@{ $parsed->{'triples'} }], variables => [ $self->variables ] );
 		
-		$parsed	= $self->fixup( $self->{parsed} );
-		$stream	= $self->query_more( bound => {}, triples => [@{ $parsed->{'triples'} }], variables => [ $self->variables ] );
 		_debug( "got stream: $stream" );
 		$stream		= RDF::Query::Stream->new(
 						$self->sort_rows( $stream, $parsed ),
@@ -213,13 +221,13 @@ sub execute {
 	}
 }
 
-=for private
+=begin private
 
 =item C<describe ( $stream )>
 
 Takes a stream of matching statements and constructs a DESCRIBE graph.
 
-=end for
+=end private
 
 =cut
 
@@ -261,14 +269,14 @@ sub describe {
 	return RDF::Query::Stream->new( $ret, 'graph', undef, bridge => $bridge );
 }
 
-=for private
+=begin private
 
 =item C<construct ( $stream )>
 
 Takes a stream of matching statements and constructs a result graph matching the
 uery's CONSTRUCT graph patterns.
 
-=end for
+=end private
 
 =cut
 
@@ -325,13 +333,13 @@ sub construct {
 	return RDF::Query::Stream->new( $ret, 'graph', undef, bridge => $bridge );
 }
 
-=for private
+=begin private
 
 =item C<ask ( $stream )>
 
 Takes a stream of matching statements and returns a boolean query result stream.
 
-=end for
+=end private
 
 =cut
 
@@ -343,13 +351,13 @@ sub ask {
 
 ######################################################################
 
-=for private
+=begin private
 
 =item C<supports ( $model, $feature )>
 
 Returns a boolean value representing the support of $feature for the given model.
 
-=end for
+=end private
 
 =cut
 
@@ -360,14 +368,14 @@ sub supports {
 	return $bridge->supports( @_ );
 }
 
-=for private
+=begin private
 
 =item C<set_named_graph_query ()>
 
 Makes appropriate changes for the current query to use named graphs.
 This entails creating a new context-aware bridge (and model) object.
 
-=end for
+=end private
 
 =cut
 
@@ -378,41 +386,60 @@ sub set_named_graph_query {
 	$self->{bridge}	= $bridge;
 }
 
-=for private
+=begin private
+
+=item C<loadable_bridge_class ()>
+
+Returns the class name of a model backend that is present and loadable on the system.
+
+=end private
+
+=cut
+
+sub loadable_bridge_class {
+	my $self	= shift;
+	
+	eval "use RDF::Query::Model::Redland;";
+	if (RDF::Query::Model::Redland->can('new')) {
+		return 'RDF::Query::Model::Redland';
+	}
+	
+	eval "use RDF::Query::Model::RDFCore;";
+	if (RDF::Query::Model::RDFCore->can('new')) {
+		return 'RDF::Query::Model::RDFCore';
+	}
+	
+	return undef;
+}
+
+=begin private
 
 =item C<new_bridge ()>
 
 Returns a new bridge object representing a new, empty model.
 
-=end for
+=end private
 
 =cut
 
 sub new_bridge {
 	my $self	= shift;
 	
-	eval "use RDF::Query::Model::Redland;";
-	if (RDF::Query::Model::Redland->can('new')) {
-		my $bridge	= RDF::Query::Model::Redland->new();
-		return $bridge;
+	my $bridge_class	= $self->loadable_bridge_class;
+	if ($bridge_class) {
+		return $bridge_class->new();
+	} else {
+		return undef;
 	}
-	
-	eval "use RDF::Query::Model::RDFCore;";
-	if (RDF::Query::Model::RDFCore->can('new')) {
-		my $bridge	= RDF::Query::Model::RDFCore->new();
-		return $bridge;
-	}
-	
-	return undef;
 }
 
-=for private
+=begin private
 
 =item C<get_bridge ( $model )>
 
 Returns a bridge object for the specified model object.
 
-=end for
+=end private
 
 =cut
 
@@ -426,9 +453,15 @@ sub get_bridge {
 	my $bridge;
 	if (not $model) {
 		$bridge	= $self->new_bridge();
+	} elsif (blessed($model) and $model->isa('DBD')) {
+		$bridge	= RDF::Query::Model::SQL->new( $model, $args{'model'}, parsed => $parsed );
 	} elsif (my $dbh = (ref($self) ? $self->{'dbh'} : undef) || $args{'dbh'}) {
 		require RDF::Query::Model::SQL;
-		$bridge	= RDF::Query::Model::SQL->new( $dbh, 'db1', parsed => $parsed );	# XXXXXXXXXXXXXXXXXXXXX
+		if (not length($args{'model'})) {
+			throw RDF::Query::Error::ExecutionError ( -text => 'No model specified for DBI-based triplestore' );
+		}
+		
+		$bridge	= RDF::Query::Model::SQL->new( $dbh, $args{'model'}, parsed => $parsed );
 	} elsif (blessed($model) and $model->isa('RDF::Redland::Model')) {
 		require RDF::Query::Model::Redland;
 		$bridge	= RDF::Query::Model::Redland->new( $model, parsed => $parsed );
@@ -443,7 +476,7 @@ sub get_bridge {
 	return $bridge;
 }
 
-=for private
+=begin private
 
 =item C<fixup ()>
 
@@ -453,7 +486,7 @@ Does last-minute fix-up on the parse tree. This involves:
 	* Converting URIs and strings to model-specific objects.
 	* Fixing variable list in the case of 'SELECT *' queries.
 
-=end for
+=end private
 
 =cut
 
@@ -555,13 +588,13 @@ sub fixup {
 	return $parsed;
 }
 
-=for private
+=begin private
 
 =item C<fixup_triple_bridge_variables ()>
 
 Called by C<fixup()> to replace URIs and strings with model-specific objects.
 
-=end for
+=end private
 
 =cut
 
@@ -600,7 +633,7 @@ sub fixup_triple_bridge_variables {
 #	}
 }
 
-=for private
+=begin private
 
 =item C<query_more ( bound => $bound, triples => \@triples )>
 
@@ -844,14 +877,14 @@ sub query_more {
 	};	
 }
 
-=for private
+=begin private
 
 =item C<union ( bound => \%bound, triples => \@triples )>
 
 Called by C<query_more()> to handle UNION queries.
 Calls C<query_more()> with each UNION branch, and returns an aggregated data stream.
 
-=end for
+=end private
 
 =cut
 
@@ -887,7 +920,7 @@ sub union {
 	};	
 }
 
-=for private
+=begin private
 
 =item C<optional ( bound => \%bound, triples => \@triples )>
 
@@ -895,7 +928,7 @@ Called by C<query_more()> to handle OPTIONAL query patterns.
 Calls C<query_more()> with the OPTIONAL pattern, binding variables if the
 pattern succeeds. Returns by calling C<query_more()> with any remaining triples.
 
-=end for
+=end private
 
 =cut
 
@@ -967,7 +1000,7 @@ sub optional {
 
 
 
-=for private
+=begin private
 
 =item C<named_graph ( bound => \%bound, triples => \@triples )>
 
@@ -975,7 +1008,7 @@ Called by C<query_more()> to handle NAMED graph query patterns.
 Matches graph context (binding the graph to a variable if applicable).
 Returns by calling C<query_more()> with any remaining triples.
 
-=end for
+=end private
 
 =cut
 
@@ -1041,7 +1074,7 @@ sub named_graph {
 	}
 }
 
-=for private
+=begin private
 
 =item C<qualify_uri ( [ 'URI', [ $prefix, $localPart ] ] )>
 
@@ -1052,7 +1085,7 @@ For already-qualified URIs, simply returns the URI.
 For QNames, looks up the QName prefix in the parse-tree namespaces, and
 concatenates with the QName local part.
 
-=end for
+=end private
 
 =cut
 
@@ -1075,14 +1108,14 @@ sub qualify_uri {
 	return $uri;
 }
 
-=for private
+=begin private
 
 =item C<check_constraints ( \%bound, \@data )>
 
 Returns the value returned by evaluating the expression structures in C<@data>
 with the bound variables in C<%bound>.
 
-=end for
+=end private
 
 =cut
 
@@ -1250,14 +1283,14 @@ sub check_constraints {
 }
 }
 
-=for private
+=begin private
 
 =item C<get_value ( $value )>
 
 Returns the scalar value (string literal, URI value, or blank node identifier)
 for the specified model-specific node object.
 
-=end for
+=end private
 
 =cut
 
@@ -1305,6 +1338,17 @@ sub add_function {
 	}
 }
 
+=begin private
+
+=item C<get_function ( $uri )>
+
+If C<$uri> is associated with a query function, returns a CODE reference
+to the function. Otherwise returns C<undef>.
+
+=end private
+
+=cut
+
 sub get_function {
 	my $self	= shift;
 	my $uri		= shift;
@@ -1336,6 +1380,18 @@ sub add_hook {
 	}
 }
 
+=begin private
+
+=item C<get_hooks ( $uri )>
+
+If C<$uri> is associated with any query callback functions ("hooks"),
+returns an ARRAY reference to the functions. If no hooks are associated
+with C<$uri>, returns a reference to an empty array.
+
+=end private
+
+=cut
+
 sub get_hooks {
 	my $self	= shift;
 	my $uri		= shift;
@@ -1344,6 +1400,18 @@ sub get_hooks {
 				|| [];
 	return $func;
 }
+
+=begin private
+
+=item C<run_hook ( $uri, @args )>
+
+Calls any query callback functions associated with C<$uri>. Each callback
+is called with the query object as the first argument, followed by any
+caller-supplied arguments from C<@args>.
+
+=end private
+
+=cut
 
 sub run_hook {
 	my $self	= shift;
@@ -1355,13 +1423,13 @@ sub run_hook {
 	}
 }
 
-=for private
+=begin private
 
 =item C<ncmp ( $value )>
 
 General-purpose sorting function for both numbers and strings.
 
-=end for
+=end private
 
 =cut
 
@@ -1398,12 +1466,23 @@ sub ncmp ($$) {
 	return $cmp;
 }
 
+=begin private
+
+=item C<is_numeric_type ( $type )>
+
+Returns true if the specified C<$type> URI represents a numeric type.
+This includes XSD numeric, double and integer types.
+	
+=end private
+
+=cut
+
 sub is_numeric_type {
 	my $type	= shift || '';
 	return $type =~ m<^http://www.w3.org/2001/XMLSchema#(numeric|double|integer)>;
 }
 
-=for private
+=begin private
 
 =item C<sort_rows ( $nodes, $parsed )>
 
@@ -1413,7 +1492,7 @@ Called by C<execute> to handle result forms including:
 	* Limiting result count
 	* Offset in result set
 	
-=end for
+=end private
 
 =cut
 
@@ -1499,7 +1578,7 @@ sub sort_rows {
 	return $nodes;
 }
 
-=for private
+=begin private
 
 =item C<parse_url ( $url, $named )>
 
@@ -1518,13 +1597,13 @@ sub parse_url {
 	$bridge->add_uri( $url, $named );
 }
 
-=for private
+=begin private
 
 =item C<variables ()>
 
 Returns a list of the ordered variables the query is selecting.
 	
-=end for
+=end private
 
 =cut
 
@@ -1534,6 +1613,16 @@ sub variables {
 	my @vars	= map { $_->[1] } @{ $parsed->{'variables'} };
 	return @vars;
 }
+
+=begin private
+
+=item C<all_variables ()>
+
+Returns a list of all variables referenced in the query.
+	
+=end private
+
+=cut
 
 sub all_variables {
 	my $self	= shift;
@@ -1551,36 +1640,40 @@ Returns the last error the parser experienced.
 
 sub error {
 	my $self	= shift;
-	if (defined $self->{error}) {
+	if (blessed($self)) {
 		return $self->{error};
 	} else {
-		return '';
+		our $_ERROR;
+		return $_ERROR;
 	}
 }
 
-=for private
+=begin private
 
 =item C<set_error ( $error )>
 
 Sets the object's error variable.
 
-=end for
+=end private
 
 =cut
 
 sub set_error {
 	my $self	= shift;
 	my $error	= shift;
-	$self->{error}	= $error;
+	if (blessed($self)) {
+		$self->{error}	= $error;
+	}
+	our $_ERROR	= $error;
 }
 
-=for private
+=begin private
 
 =item C<clear_error ()>
 
 Clears the object's error variable.
 
-=end for
+=end private
 
 =cut
 
@@ -1590,13 +1683,13 @@ sub clear_error {
 }
 
 
-=for private
+=begin private
 
 =item C<_debug_closure ( $code )>
 
 Debugging function to print out a deparsed (textual) version of a closure.
 	
-=end for
+=end private
 
 =cut
 
@@ -1610,14 +1703,14 @@ sub _debug_closure {
 	carp $body;
 }
 
-=for private
+=begin private
 
 =item C<_debug ( $message, $level, $trace )>
 
 Debugging function to print out C<$message> at or above the specified debugging
 C<$level>, with an optional stack C<$trace>.
 	
-=end for
+=end private
 
 =cut
 
@@ -2085,6 +2178,7 @@ $functions{"java:com.ldodds.sparql.Distance"}	= sub {
 				);
 	return $dist;
 };
+
 
 
 

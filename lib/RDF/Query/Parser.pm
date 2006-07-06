@@ -18,7 +18,6 @@ use warnings;
 use RDF::Query::Error qw(:try);
 
 use Data::Dumper;
-use LWP::Simple ();
 use Carp qw(carp croak confess);
 
 ######################################################################
@@ -254,13 +253,13 @@ sub error {
 	}
 }
 
-=for private
+=begin private
 
 =item C<set_error ( $error )>
 
 Sets the object's error variable.
 
-=end for
+=end private
 
 =cut
 
@@ -270,13 +269,13 @@ sub set_error {
 	$self->{error}	= $error;
 }
 
-=for private
+=begin private
 
 =item C<clear_error ()>
 
 Clears the object's error variable.
 
-=end for
+=end private
 
 =cut
 
@@ -285,13 +284,13 @@ sub clear_error {
 	$self->{error}	= undef;
 }
 
-=for private
+=begin private
 
 =item C<set_commit ( [ $value ] )>
 
 Sets the object's commit state.
 
-=end for
+=end private
 
 =cut
 
@@ -304,13 +303,13 @@ sub set_commit {
 	}
 }
 
-=for private
+=begin private
 
 =item C<unset_commit ()>
 
 Clears the object's commit state.
 
-=end for
+=end private
 
 =cut
 
@@ -319,13 +318,13 @@ sub unset_commit {
 	$self->{commit}	= 0;
 }
 
-=for private
+=begin private
 
 =item C<get_commit ()>
 
 Returns the object's commit state.
 
-=end for
+=end private
 
 =cut
 

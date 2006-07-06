@@ -22,7 +22,7 @@ if (not $@ and not $ENV{RDFQUERY_NO_REDLAND_MYSQL}) {
 	push(@models, $model);
 }
 
-eval "use RDF::Core::Storage::Mysql; use Kasei::Common;";
+eval "use RDF::Core::Storage::Mysql; use RDF::Core::Model; use Kasei::Common;";
 if (not $@ and not $ENV{RDFQUERY_NO_RDFCORE}) {
 	my $dbh	= Kasei::Common::dbh();
 	my $storage	= new RDF::Core::Storage::Mysql ( dbh => $dbh, Model => 'db1' );

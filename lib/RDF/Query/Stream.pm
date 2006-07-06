@@ -1,12 +1,16 @@
 # RDF::Query::Stream
 # -------------
-# $Revision: 147 $
-# $Date: 2006-05-11 02:27:23 -0400 (Thu, 11 May 2006) $
+# $Revision: 152 $
+# $Date: 2006-06-26 15:15:25 -0400 (Mon, 26 Jun 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
 
 RDF::Query::Stream - Stream (iterator) class for query results.
+
+=head1 METHODS
+
+=over 4
 
 =cut
 
@@ -15,15 +19,23 @@ package RDF::Query::Stream;
 use strict;
 use warnings;
 
+use JSON;
 use Data::Dumper;
 use Carp qw(carp);
-
-use JSON;
+use Scalar::Util qw(weaken);
 
 our ($debug);
 BEGIN {
 	$debug		= $RDF::Query::debug;
 }
+
+=item C<new ( $closure, $type, $names, %args )>
+
+Returns a new stream (interator) object. C<$closure> must be a CODE
+reference that acts as an iterator, returning successive items when
+called, and returning undef when the iterator is exhausted.
+
+=cut
 
 sub new {
 	my $class		= shift;
@@ -37,6 +49,7 @@ sub new {
 	my $row;
 	my $self;
 	
+	my $selfref;
 	$self	= bless(sub {
 		my $arg	= shift;
 		if ($arg) {
@@ -46,7 +59,7 @@ sub new {
 				return $args{ $1 };
 			} elsif ($arg eq 'next_result' or $arg eq 'next') {
 				$open	= 1;
-				$row	= $self->();
+				$row	= $selfref->();
 				if ($args{named}) {
 					if ($args{bridge}->supports('named_graph') and my $bridge = $args{bridge}) {
 						$args{context}	= $bridge->get_context( $stream, %args );
@@ -57,7 +70,7 @@ sub new {
 				}
 			} elsif ($arg eq 'current') {
 				unless ($open) {
-					$self->next_result;
+					$selfref->next_result;
 				}
 				return $row;
 			} elsif ($arg eq 'binding_names') {
@@ -69,24 +82,24 @@ sub new {
 				my $name	= shift;
 				foreach my $i (0 .. $#{ $names }) {
 					if ($names->[$i] eq $name) {
-						return $self->binding_value( $i );
+						return $selfref->binding_value( $i );
 					}
 				}
 				warn "No variable named '$name' is present in query results.\n";
 			} elsif ($arg eq 'binding_value') {
 				unless ($open) {
-					$self->next_result;
+					$selfref->next_result;
 				}
 				my $val	= shift;
 				return $row->[ $val ];
 			} elsif ($arg eq 'binding_values') {
 				unless ($open) {
-					$self->next_result;
+					$selfref->next_result;
 				}
 				return @{ $row };
 			} elsif ($arg eq 'bindings_count') {
 				unless ($open) {
-					$self->next_result;
+					$selfref->next_result;
 				}
 				
 				return scalar( @{ $names } )if (scalar(@$names));
@@ -96,13 +109,17 @@ sub new {
 				return $open;
 			} elsif ($arg eq 'finished' or $arg eq 'end') {
 				unless ($open) {
-					$self->next_result;
+					$selfref->next_result;
 				}
 				return $finished;
 			} elsif ($arg eq 'context') {
 				my $bridge	= $args{bridge};
 				my $context	= $bridge->get_context( $stream, %args );
 				return $context;
+			} elsif ($arg eq 'close') {
+				$open	= 0;
+				undef $stream;
+				return undef;
 			} elsif ($arg eq 'debug') {
 				local($RDF::Query::debug)	= 2;
 				RDF::Query::_debug_closure( $stream );
@@ -113,14 +130,29 @@ sub new {
 			return $data;
 		}
 	}, $class);
+	
+	$selfref	= $self;
+	weaken($selfref);
 	return $self;
 }
+
+=item C<get_boolean>
+
+Returns the boolean value of the first item in the stream.
+
+=cut
 
 sub get_boolean {
 	my $self	= shift;
 	my $data	= $self->();
 	return +$data;
 }
+
+=item C<get_all>
+
+Returns an array containing all the items in the stream.
+
+=cut
 
 sub get_all {
 	my $self	= shift;
@@ -130,6 +162,16 @@ sub get_all {
 	}
 	return @data;
 }
+
+=item C<to_string ( $format )>
+
+Returns a string representation of the stream data in the specified
+C<$format>. If C<$format> is missing, defaults to XML serialization.
+Other options are:
+
+  http://www.w3.org/2001/sw/DataAccess/json-sparql/
+
+=cut
 
 sub to_string {
 	my $self	= shift;
@@ -145,6 +187,12 @@ sub to_string {
 	}
 }
 
+=item C<as_xml ( $max_size )>
+
+Returns an XML serialization of the stream data.
+
+=cut
+
 sub as_xml {
 	my $self			= shift;
 	my $max_result_size	= shift || 0;
@@ -157,6 +205,12 @@ sub as_xml {
 	}
 }
 
+=item C<as_json ( $max_size )>
+
+Returns a JSON serialization of the stream data.
+
+=cut
+
 sub as_json {
 	my $self			= shift;
 	my $max_result_size	= shift || 0;
@@ -168,6 +222,12 @@ sub as_json {
 		return $self->boolean_as_json();
 	}
 }
+
+=item C<boolean_as_xml>
+
+Returns an XML serialization of the first stream item, interpreted as a boolean value.
+
+=cut
 
 sub boolean_as_xml {
 	my $self			= shift;
@@ -184,12 +244,24 @@ END
 	return $xml;
 }
 
+=item C<boolean_as_json>
+
+Returns a JSON serialization of the first stream item, interpreted as a boolean value.
+
+=cut
+
 sub boolean_as_json {
 	my $self	= shift;
 	my $value	= $self->get_boolean ? JSON::True : JSON::False;
 	my $data	= { head => { vars => [] }, boolean => $value };
 	return objToJson( $data );
 }
+
+=item C<bindings_as_xml ( $max_size )>
+
+Returns an XML serialization of the stream data, interpreted as query variable binding results.
+
+=cut
 
 sub bindings_as_xml {
 	my $self			= shift;
@@ -232,6 +304,12 @@ EOT
 	return $xml;
 }
 
+=item C<bindings_as_json ( $max_size )>
+
+Returns a JSON serialization of the stream data, interpreted as query variable binding results.
+
+=cut
+
 sub bindings_as_json {
 	my $self			= shift;
 	my $max_result_size	= shift;
@@ -271,10 +349,26 @@ sub bindings_as_json {
 	return objToJson( $data );
 }
 
+=item C<graph_as_xml>
+
+Returns an XML serialization of the stream data, interpreted as a results graph.
+
+=cut
+
 sub graph_as_xml {
 	my $self	= shift;
 	return $self->_bridge->as_xml( $self );
 }
+
+=begin private
+
+=item C<format_node_xml ( $node, $name )>
+
+Returns a string representation of C<$node> for use in an XML serialization.
+
+=end private
+
+=cut
 
 sub format_node_xml ($$$) {
 	my $bridge	= shift;
@@ -309,6 +403,16 @@ sub format_node_xml ($$$) {
 	}
 	return qq(<binding name="${name}">${node_label}</binding>);
 }
+
+=begin private
+
+=item C<format_node_json ( $node, $name )>
+
+Returns a string representation of C<$node> for use in a JSON serialization.
+
+=end private
+
+=cut
 
 sub format_node_json ($$$) {
 	my $bridge	= shift;
@@ -349,10 +453,16 @@ sub AUTOLOAD {
 	}
 }
 
+sub DESTROY {
+	my $self	= shift;
+	$self->close;
+}
 
 1;
 
 __END__
+
+=back
 
 =head1 REVISION HISTORY
 

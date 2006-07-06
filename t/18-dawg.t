@@ -8,9 +8,9 @@ use Data::Dumper;
 use RDF::Query;
 use Test::More;
 
-eval "use RDF::Query::Model::Redland; use Test::RDF;";
+eval "use RDF::Query::Model::Redland;";
 if ($@) {
-	plan skip_all => "Can't load Redland or Test::RDF";
+	plan skip_all => "Failed to load RDF::Redland";
 	exit;
 } else {
 	plan 'no_plan';
@@ -154,20 +154,7 @@ sub compare_results {
 }
 
 
-
-
 ######################################################################
-
-
-
-
-
-
-
-
-
-
-
 
 
 use Encode;

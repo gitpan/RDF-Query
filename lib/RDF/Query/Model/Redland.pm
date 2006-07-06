@@ -19,10 +19,20 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 151 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 152 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
 ######################################################################
+
+=head1 METHODS
+
+=over 4
+
+=item C<new ( $model )>
+
+Returns a new bridge object for the specified C<$model>.
+
+=cut
 
 sub new {
 	my $class	= shift;
@@ -38,6 +48,12 @@ sub new {
 					parsed	=> $args{parsed},
 				}, $class );
 }
+
+=item C<model ()>
+
+Returns the underlying model object.
+
+=cut
 
 sub model {
 	my $self	= shift;
@@ -106,6 +122,8 @@ sub new_statement {
 	return RDF::Redland::Statement->new(@_);
 }
 
+=item C<is_node ( $node )>
+
 =item C<isa_node ( $node )>
 
 Returns true if C<$node> is a node object for the current model.
@@ -117,6 +135,8 @@ sub isa_node {
 	my $node	= shift;
 	return UNIVERSAL::isa($node,'RDF::Redland::Node');
 }
+
+=item C<is_resource ( $node )>
 
 =item C<isa_resource ( $node )>
 
@@ -130,6 +150,8 @@ sub isa_resource {
 	return (ref($node) and $node->is_resource);
 }
 
+=item C<is_literal ( $node )>
+
 =item C<isa_literal ( $node )>
 
 Returns true if C<$node> is a literal object for the current model.
@@ -141,6 +163,8 @@ sub isa_literal {
 	my $node	= shift;
 	return (ref($node) and $node->is_literal);
 }
+
+=item C<is_blank ( $node )>
 
 =item C<isa_blank ( $node )>
 
@@ -157,6 +181,12 @@ sub isa_blank {
 *RDF::Query::Model::Redland::is_resource	= \&isa_resource;
 *RDF::Query::Model::Redland::is_literal		= \&isa_literal;
 *RDF::Query::Model::Redland::is_blank		= \&isa_blank;
+
+=item C<< equals ( $node_a, $node_b ) >>
+
+Returns true if C<$node_a> and C<$node_b> are equal
+
+=cut
 
 sub equals {
 	my $self	= shift;
@@ -278,17 +308,35 @@ sub statement_method_map {
 	return qw(subject predicate object);
 }
 
+=item C<< subject ( $statement ) >>
+
+Returns the subject node of the specified C<$statement>.
+
+=cut
+
 sub subject {
 	my $self	= shift;
 	my $stmt	= shift;
 	return $stmt->subject;
 }
 
+=item C<< predicate ( $statement ) >>
+
+Returns the predicate node of the specified C<$statement>.
+
+=cut
+
 sub predicate {
 	my $self	= shift;
 	my $stmt	= shift;
 	return $stmt->predicate;
 }
+
+=item C<< object ( $statement ) >>
+
+Returns the object node of the specified C<$statement>.
+
+=cut
 
 sub object {
 	my $self	= shift;
@@ -398,12 +446,24 @@ sub get_statements {
 	return RDF::Query::Stream->new( $stream, 'graph', undef, %args );
 }
 
+=item C<< add_statement ( $statement ) >>
+
+Adds the specified C<$statement> to the underlying model.
+
+=cut
+
 sub add_statement {
 	my $self	= shift;
 	my $stmt	= shift;
 	my $model	= $self->model;
 	$model->add_statement( $stmt );
 }
+
+=item C<< remove_statement ( $statement ) >>
+
+Removes the specified C<$statement> from the underlying model.
+
+=cut
 
 sub remove_statement {
 	my $self	= shift;
@@ -491,3 +551,7 @@ sub RDF::Redland::Node::getLabel {
 1;
 
 __END__
+
+=back
+
+=cut
