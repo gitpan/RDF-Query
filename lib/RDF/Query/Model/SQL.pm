@@ -410,7 +410,7 @@ sub get_statements {
 			return undef;
 		}
 		
-		my @const	= ([qw(new_resource URI)],  [qw(new_blank Name)], [qw(new_literal Value)]);
+		my @const	= ([qw(new_resource uri)],  [qw(new_blank name)], [qw(new_literal value)]);
 		my @sql	= (
 					"SELECT * FROM Resources WHERE ID = ? LIMIT 1",
 					"SELECT * FROM Bnodes WHERE ID = ? LIMIT 1",
@@ -507,17 +507,24 @@ sub stream {
 	my $vars	= $parsed->{variables};
 	my @vars	= map { $_->[1] } @$vars;
 	
+	warn "Variables: " . Dumper(\@vars) if ($debug);
+	
 	my $code	= sub {
 		my $data	= $sth->fetchrow_hashref;
 		return unless ref($data);
+		warn "row from sth: " . Dumper($data) if ($debug);
+		
 		my @row;
 		foreach my $var (@vars) {
-			my ($l, $r, $b)	= @{ $data }{ map { "${var}_$_" } qw(Value URI Name) };
+			my ($l, $r, $b)	= @{ $data }{ map { "${var}_$_" } qw(value uri name) };
 			if (defined $l) {
-				push(@row, $self->new_literal( $l, @{ $data }{ map { "${var}_$_" } qw(Language Datatype) } ) );
+				warn "Literal: " . $l if ($debug);
+				push(@row, $self->new_literal( $l, @{ $data }{ map { "${var}_$_" } qw(language datatype) } ) );
 			} elsif (defined $r) {
+				warn "Resource: " . $r if ($debug);
 				push(@row, $self->new_resource( $r ));
 			} elsif (defined $b) {
+				warn "Blank: " . $b if ($debug);
 				push(@row, $self->new_blank( $b ));
 			} else {
 				push(@row, undef);

@@ -1,7 +1,7 @@
 # RDF::Query::Parser::SPARQL
 # -------------
-# $Revision: 152 $
-# $Date: 2006-06-26 15:15:25 -0400 (Mon, 26 Jun 2006) $
+# $Revision: 160 $
+# $Date: 2006-07-07 18:11:20 -0400 (Fri, 07 Jul 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -27,7 +27,7 @@ use Carp qw(carp croak confess);
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
 	$debug		= 0 || $RDF::Query::Parser::debug;
-	$VERSION	= do { my $REV = (qw$Revision: 152 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 160 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	$lang		= 'sparql';
 	$languri	= 'http://www.w3.org/TR/rdf-sparql-query/';
 }
@@ -768,6 +768,32 @@ sub parse_blanknode {
 
 =begin private
 
+=item C<parse_blanknode_expr>
+
+Returns a parse tree for an anonymous (empty) blank node ('[]').
+
+=end private
+
+=cut
+
+sub parse_blanknode_expr {
+	my $self	= shift;
+	if ($self->match_literal('[')) {
+		my $id		= 'a' . ++$self->{blank_ids};
+		my $subj	= $self->new_blank( $id );
+		
+		$self->set_commit;
+		$self->match_literal(']');
+		$self->unset_commit;
+		
+		return $subj;
+	} else {
+		return $self->fail( 'Expecting a Blank node expression []' );
+	}
+}
+
+=begin private
+
 =item C<parse_filter>
 
 Returns the parse tree for a FILTER declaration.
@@ -980,8 +1006,7 @@ sub parse_primary_expression {
 	} elsif ($expr = $self->parse_built_in_call_expression) {
 	} elsif ($expr = $self->parse_blankQName) {
 	} elsif ($expr = $self->parse_constant) {
-	} elsif (my $data = $self->parse_blanknode) {
-		(undef, $expr)	= @$data;
+	} elsif ($expr = $self->parse_blanknode_expr) {
 	} elsif ($expr = $self->parse_variable) {
 	} elsif ($expr = $self->parse_iriref_or_function) {
 	}

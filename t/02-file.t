@@ -10,7 +10,7 @@ BAIL_OUT( "RDF::Query not loaded" ) unless ($loaded);
 eval "use LWP::Simple ();";
 our $LWP_SUPPORT	= ($@) ? 0 : 1;
 
-my $file	= 'file://' . File::Spec->rel2abs( "data/foaf.xrdf" );
+my $file	= 'file://' . File::Spec->rel2abs( File::Spec->catfile("data", "foaf.xrdf") );
 
 SKIP: {
 	eval "use RDF::Query::Model::Redland;";

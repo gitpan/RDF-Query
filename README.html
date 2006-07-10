@@ -38,6 +38,16 @@
 			make install<br />
 		</div>
 	<h2 id="changelog">Version History</h2>
+		<h3 id="v1_038">Version 1.038 (2006-07-09)</h3>
+			<ul>
+				<li>Fixed DBI case-sensitivity for PostgreSQL support.</li>
+				<li>Cleaned up SQL syntax for easier debugging.</li>
+				<li>Removed extra parens in SQL that were causing postgresql to break.</li>
+				<li>Reference test foaf file using File::Spec->catfile() instead of directly.</li>
+				<li>Fixed SPARQL parsing bug for anonymous nodes in FILTER expressions.</li>
+				<li>Fixed major SQL compilation bugs for testing equality in FILTER expressions.</li>
+				<li>Fixed bug in hashing code for blank nodes in SQL compiler.</li>
+			</ul>
 		<h3 id="v1_037">Version 1.037 (2006-07-06)</h3>
 			<ul>
 				<li>execute() method now takes optional 'bind' parameter for pre-binding query variables.</li>
@@ -265,5 +275,5 @@
 	<h2>Copyright</h2>
 		<p>Copyright &copy; 2005&#8211;2006 Gregory Williams. All rights reserved. This program is free software; you can redistribute it and/or modify it under the same terms as Perl itself.</p>
 	
-	$Id: README.html 156 2006-07-06 04:48:03Z samofool $
+	$Id: README.html 161 2006-07-10 03:08:30Z samofool $
 </body></html>

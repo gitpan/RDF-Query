@@ -1,7 +1,7 @@
 # RDF::Query
 # -------------
-# $Revision: 156 $
-# $Date: 2006-07-06 00:48:03 -0400 (Thu, 06 Jul 2006) $
+# $Revision: 161 $
+# $Date: 2006-07-09 23:08:30 -0400 (Sun, 09 Jul 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -10,7 +10,7 @@ RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF
 
 =head1 VERSION
 
-This document describes RDF::Query version 1.037.
+This document describes RDF::Query version 1.038.
 
 =head1 SYNOPSIS
 
@@ -67,8 +67,8 @@ use RDF::Query::Error qw(:try);
 our ($REVISION, $VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$REVISION	= do { my $REV = (qw$Revision: 156 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
-	$VERSION	= '1.037';
+	$REVISION	= do { my $REV = (qw$Revision: 161 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= '1.038';
 }
 
 ######################################################################
@@ -161,13 +161,20 @@ sub execute {
 			}
 			my $compiler	= RDF::Query::Compiler::SQL->new( dclone($parsed), $args{'model'} );
 			my $sql			= $compiler->compile();
-			my $sth			= $dbh->prepare( $sql );
-			$sth->execute;
-			if (my $err = $sth->errstr) {
-				throw RDF::Query::Error::CompilationError ( -text => $err );
-			}
-			$self->{sql}	= $sql;
-			$self->{sth}	= $sth;
+			try {
+				$dbh->{FetchHashKeyName}	= 'NAME_lc';
+				my $sth			= $dbh->prepare( $sql );
+				$sth->execute;
+				if (my $err = $sth->errstr) {
+					throw RDF::Query::Error::CompilationError ( -text => $err );
+				}
+				$self->{sql}	= $sql;
+				$self->{sth}	= $sth;
+			} catch RDF::Query::Error::CompilationError with {
+				my $err	= shift;
+				my $text	= $err->text;
+				throw RDF::Query::Error::CompilationError ( -text => "$text : $sql" );
+			};
 		} catch RDF::Query::Error::CompilationError with {
 			my $err	= shift;
 			if ($args{'require_sql'}) {

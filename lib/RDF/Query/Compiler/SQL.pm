@@ -36,6 +36,7 @@ BEGIN {
 
 ######################################################################
 
+use constant INDENT		=> "\t";
 my @NODE_TYPE_TABLES	= (
 						['Resources', 'ljr', 'URI'],
 						['Literals', 'ljl', qw(Value Language Datatype)],
@@ -133,21 +134,27 @@ sub emit_select {
 	
 	my $from_clause;
 	foreach my $f (@$from) {
-		$from_clause	.= ', ' if ($from_clause and $from_clause =~ m/[^(]$/ and $f !~ m/^[)]|LEFT JOIN/);
+		$from_clause	.= ",\n" . INDENT if ($from_clause and $from_clause =~ m/[^(]$/ and $f !~ m/^([)]|LEFT JOIN)/);
 		$from_clause	.= $f;
 	}
 	
 	
-	my $where_clause	= @$where ? " WHERE " . join(' AND ', @$where) : '';
-	my $sql	= "SELECT "
-			. ($unique ? 'DISTINCT ' : '')
-			. join(', ', @cols)
-			. " FROM " . $from_clause						# join(', ', @$from)
-			. $where_clause
-			. $self->order_by_clause( $varcols, $level )
-			. $self->limit_clause( $options )
-			;
+	my $where_clause	= @$where ? "WHERE\n"
+						. INDENT . join(" AND\n" . INDENT, @$where) : '';
 	
+	
+	my @sql	= (
+				"SELECT" . ($unique ? ' DISTINCT' : ''),
+				INDENT . join(",\n" . INDENT, @cols),
+				"FROM",
+				INDENT . $from_clause,
+				$where_clause,
+			);
+	
+	push(@sql, $self->order_by_clause( $varcols, $level ) );
+	push(@sql, $self->limit_clause( $options ) );
+	
+	my $sql	= join("\n", grep {length} @sql);
 	return $sql;
 }
 
@@ -161,7 +168,7 @@ sub limit_clause {
 	my $self	= shift;
 	my $options	= shift;
 	if (my $limit = $options->{limit}) {
-		return " LIMIT ${limit}";
+		return "LIMIT ${limit}";
 	} else {
 		return "";
 	}
@@ -190,7 +197,8 @@ sub order_by_clause {
 		my $dir		= $data->[0];
 		if ($data->[1][0] eq 'VAR') {
 			my $var		= $data->[1][1];
-			$sql	.= " ORDER BY ${var}_Value $dir, ${var}_URI $dir, ${var}_Name $dir";
+			$sql	.= "ORDER BY\n"
+					. INDENT . "${var}_Value $dir, ${var}_URI $dir, ${var}_Name $dir";
 		} elsif ($data->[1][0] eq 'FUNCTION') {
 			my $uri		= $self->qualify_uri( $data->[1][1] );
 			my $col	= $self->expr2sql( $data->[1], $level );
@@ -202,7 +210,8 @@ sub order_by_clause {
 					$l		=~ s/$varcol/${l_sort_col}/;
 					$r		=~ s/$varcol/${r_sort_col}/;
 					$b		=~ s/$varcol/${b_sort_col}/;
-					$sql	.= " ORDER BY $l $dir, $r $dir, $b $dir";
+					$sql	.= "ORDER BY\n"
+							. INDENT . "$l $dir, $r $dir, $b $dir";
 					last;
 				}
 			}
@@ -281,7 +290,7 @@ sub add_variable_values_joins {
 					
 #					push(@tables, "${vtable} ${valias}");
 #					push(@where, "${col} = ${valias}.ID");
-					$f	.= " LEFT JOIN (${vtable} ${valias}) ON (${col} = ${valias}.ID)";
+					$f	.= " LEFT JOIN ${vtable} ${valias} ON (${col} = ${valias}.ID)";
 				}
 				
 #				my $join	= sprintf("LEFT JOIN (%s) ON (%s)", join(', ', @tables), join(' AND ', @where));
@@ -362,7 +371,7 @@ sub patterns2sql {
 	my $triple	= shift(@$triples);
 	my @posmap	= qw(subject predicate object);
 	if (ref($triple->[0])) {
-		$add_from->('(');
+#		$add_from->('(');
 		my ($s,$p,$o)	= @$triple;
 		my $table	= "s${$level}";
 		my $stable	= $self->{stable};
@@ -399,12 +408,11 @@ sub patterns2sql {
 				throw RDF::Query::Error::CompilationError( -text => "Unknown node type: $type" );
 			}
 		}
-		$add_from->(')');
+#		$add_from->(')');
 	} else {
 		my $op	= $triple->[0];
 		if ($op eq 'OPTIONAL') {
 			my $pattern	= $triple->[1];
-#			throw RDF::Query::Error::CompilationError( -text => "SQL compilation of OPTIONAL queries not yet implemented." );
 			++$$level;
 			my @w;
 			my $where_hook	= sub {
@@ -517,6 +525,9 @@ sub expr2sql {
 	my $level	= shift || \do{ my $a = 0 };
 	my %args	= @_;
 	
+	
+	my $equality	= do { no warnings 'uninitialized'; ($args{'equality'} eq 'rdf') ? 'rdf' : 'xpath' };
+	
 	my $from	= $self->{from};
 	my $where	= $self->{where};
 	my $vars	= $self->{vars};
@@ -555,20 +566,27 @@ sub expr2sql {
 		
 		my $hash	= $self->_mysql_node_hash( [ 'LITERAL', @args ] );
 		
-		if (defined($dt)) {
-			my $uri		= $dt;
-			my $func	= $self->get_function( $self->qualify_uri( $uri ) );
-			if ($func) {
-				my ($v, $f, $w)	= $func->( $self, $parsed_vars, $level, [ 'LITERAL', $literal ] );
-				$literal	= $w->[0];
-			} else {
-				$literal	= qq("${literal}");
-			}
+		if ($equality eq 'rdf') {
+			$literal	= $hash;
 		} else {
-			$literal	= qq("${literal}");
+			if (defined($dt)) {
+				my $uri		= $dt;
+				my $func	= $self->get_function( $self->qualify_uri( $uri ) );
+				if ($func) {
+					my ($v, $f, $w)	= $func->( $self, $parsed_vars, $level, [ 'LITERAL', $literal ] );
+					$literal	= $w->[0];
+				} else {
+					$literal	= qq("${literal}");
+				}
+			} else {
+				$literal	= qq('${literal}');
+			}
 		}
 		
 		$add_where->( $literal );
+	} elsif ($op eq 'BLANK') {
+		my $hash		= $self->_mysql_node_hash( ['BLANK', $args[0]] );
+		$add_where->( $hash );
 	} elsif ($op eq 'URI') {
 		my $uri		= $self->_mysql_node_hash( ['URI', $args[0]] );
 		$add_where->( $uri );
@@ -576,60 +594,83 @@ sub expr2sql {
 		my $name	= $args[0];
 		my $col		= $vars->{ $name };
 		$add_where->( qq(${col}) );
-	} elsif ($op =~ m#^(=|!=|[<>]=?|[*]|/|[-+])$#) {
+	} elsif ($op =~ m#^(=|==|!=|[<>]=?|[*]|/|[-+])$#) {
+		
 		$op	= '<>' if ($op eq '!=');
+		$op	= '=' if ($op eq '==');
 		
 		my ($a, $b)	= @args;
-		
 		my $a_type	= $a->[0];
 		my $b_type	= $b->[0];
 		
-		foreach my $data ([$a_type, 'LHS'], [$b_type, 'RHS']) {
-			my ($type, $side)	= @$data;
-			unless ($type =~ m/^(VAR|LITERAL|FUNCTION)$/) {
-				throw RDF::Query::Error::CompilationError( -text => "Cannot use the comparison operator '${op}' on a ${side} ${type} node." );
+		try {
+			if ($op eq '=') {
+				if ($a_type eq 'VAR' and $b_type eq 'VAR') {
+					# comparing equality on two type-unknown variables.
+					# could need rdf-term equality, so punt to the
+					# catch block below.
+					throw RDF::Query::Error::ComparisonError;
+				}
 			}
-		}
-		
-		if ($a->[0] eq 'VAR') {
-			++$$level; my $var_name_a	= $self->expr2sql( $a, $level );
-			my $sql_a	= "(SELECT value FROM Literals WHERE ${var_name_a} = ID LIMIT 1)";
-			if ($b->[0] eq 'VAR') {
-				# ?var cmp ?var
-				++$$level; my $var_name_b	= $self->expr2sql( $b, $level );
-				my $sql_b	= "(SELECT value FROM Literals WHERE ${var_name_b} = ID LIMIT 1)";
-				$add_where->( "${sql_a} ${op} ${sql_b}" );
+			
+			foreach my $data ([$a_type, 'LHS'], [$b_type, 'RHS']) {
+				my ($type, $side)	= @$data;
+				unless ($type =~ m/^(VAR|LITERAL|FUNCTION)$/) {
+					if ($op =~ m/^!?=$/) {
+						# throw to the catch block below.
+						throw RDF::Query::Error::ComparisonError( -text => "Using comparison operator '${op}' on unknown node type requires RDF-Term semantics." );
+					} else {
+						# throw error out of the compiler.
+						throw RDF::Query::Error::CompilationError( -text => "Cannot use the comparison operator '${op}' on a ${side} ${type} node." );
+					}
+				}
+			}
+			
+			if ($a->[0] eq 'VAR') {
+				++$$level; my $var_name_a	= $self->expr2sql( $a, $level, equality => $equality );
+				my $sql_a	= "(SELECT value FROM Literals WHERE ${var_name_a} = ID LIMIT 1)";
+				if ($b->[0] eq 'VAR') {
+					# ?var cmp ?var
+					++$$level; my $var_name_b	= $self->expr2sql( $b, $level, equality => $equality );
+					my $sql_b	= "(SELECT value FROM Literals WHERE ${var_name_b} = ID LIMIT 1)";
+					$add_where->( "${sql_a} ${op} ${sql_b}" );
+				} else {
+					# ?var cmp NODE
+					++$$level; my $sql_b	= $self->expr2sql( $b, $level, equality => $equality );
+					$add_where->( "${sql_a} ${op} ${sql_b}" );
+				}
 			} else {
-				# ?var cmp NODE
-				++$$level; my $sql_b	= $self->expr2sql( $b, $level );
-				$add_where->( "${sql_a} ${op} ${sql_b}" );
+				++$$level; my $sql_a	= $self->expr2sql( $a, $level, equality => $equality );
+				if ($b->[0] eq 'VAR') {
+					# ?var cmp NODE
+					++$$level; my $var_name	= $self->expr2sql( $b, $level, equality => $equality );
+					my $sql_b	= "(SELECT value FROM Literals WHERE ${var_name} = ID LIMIT 1)";
+					$add_where->( "${sql_a} ${op} ${sql_b}" );
+				} else {
+					# NODE cmp NODE
+					++$$level; my $sql_b	= $self->expr2sql( $b, $level, equality => $equality );
+					$add_where->( "${sql_a} ${op} ${sql_b}" );
+				}
 			}
-		} else {
-			++$$level; my $sql_a	= $self->expr2sql( $a, $level );
-			if ($b->[0] eq 'VAR') {
-				# ?var cmp NODE
-				++$$level; my $var_name	= $self->expr2sql( $b, $level );
-				my $sql_b	= "(SELECT value FROM Literals WHERE ${var_name} = ID LIMIT 1)";
-				$add_where->( "${sql_a} ${op} ${sql_b}" );
-			} else {
-				# NODE cmp NODE
-				++$$level; my $sql_b	= $self->expr2sql( $b, $level );
-				$add_where->( "${sql_a} ${op} ${sql_b}" );
+		} catch RDF::Query::Error::ComparisonError with {
+			# we can't compare these terms using the XPath semantics (for literals),
+			# so fall back on RDF-Term semantics.
+			my $err	= shift;
+			
+			my @w;
+			my $where_hook	= sub {
+							my $w	= shift;
+							push(@w, $w);
+							return;
+						};
+			
+			foreach my $expr (@args) {
+				$self->expr2sql( $expr, $level, %args, %args, equality => 'rdf', where_hook => $where_hook )
 			}
-		}
-	} elsif ($op eq '==') {
-		my @w;
-		my $where_hook	= sub {
-						my $w	= shift;
-						push(@w, $w);
-						return;
-					};
-		
-		foreach my $expr (@args) {
-			$self->expr2sql( $expr, $level, %args, where_hook => $where_hook )
-		}
-		
-		$add_where->("$w[0] = $w[1]");
+			
+			$add_where->("$w[0] ${op} $w[1]");
+			
+		};
 	} elsif ($op eq '&&') {
 		foreach my $expr (@args) {
 			$self->expr2sql( $expr, $level, %args )
@@ -729,8 +770,8 @@ sub _mysql_node_hash {
 			$value	= $self->qualify_uri( $value );
 		}
 		$data	= 'R' . $value;
-	} elsif ($type eq 'B') {
-		$data	= 'BLANK' . $value;
+	} elsif ($type eq 'BLANK') {
+		$data	= 'B' . $value;
 	} elsif ($type eq 'LITERAL') {
 		my ($lang, $dt)	= splice(@node, 0, 2, ());
 		no warnings 'uninitialized';

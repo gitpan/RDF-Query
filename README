@@ -28,6 +28,16 @@ INSTALLATION
 
 VERSION HISTORY
 
+  Version 1.038 (2006-07-09)
+
+     * Fixed DBI case-sensitivity for PostgreSQL support.
+     * Cleaned up SQL syntax for easier debugging.
+     * Removed extra parens in SQL that were causing postgresql to break.
+     * Reference test foaf file using File::Spec->catfile() instead of directly.
+     * Fixed SPARQL parsing bug for anonymous nodes in FILTER expressions.
+     * Fixed major SQL compilation bugs for testing equality in FILTER expressions.
+     * Fixed bug in hashing code for blank nodes in SQL compiler.
+
   Version 1.037 (2006-07-06)
 
      * execute() method now takes optional 'bind' parameter for pre-binding query variables.
@@ -262,4 +272,4 @@ AUTHOR
 
 	Gregory Williams <gwilliams@cpan.org>
 
-$Id: README 156 2006-07-06 04:48:03Z samofool $
+$Id: README 161 2006-07-10 03:08:30Z samofool $

@@ -70,6 +70,10 @@ package RDF::Query::Error::CompilationError;
 
 use base qw(RDF::Query::Error);
 
+package RDF::Query::Error::ComparisonError;
+
+use base qw(RDF::Query::Error::CompilationError);
+
 package RDF::Query::Error::SerializationError;
 
 use base qw(RDF::Query::Error);

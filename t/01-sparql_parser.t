@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 use strict;
-use Test::More tests => 81;
+use Test::More tests => 80;
 use Data::Dumper;
 
 use_ok( 'RDF::Query::Parser::SPARQL' );
@@ -222,7 +222,7 @@ END
 		WHERE	{
 					?person foaf:name "Gregory Todd Williams" .
 					?person ?pred ?homepage .
-					FILTER( isBLANK([]) ) .
+					FILTER( isBLANK([  ]) ) .
 				}
 END
 	my $correct	= {
@@ -230,35 +230,7 @@ END
 		'triples' => [
 						[['VAR','person'],['URI',['foaf','name']],['LITERAL','Gregory Todd Williams']],
 						[['VAR','person'],['VAR','pred'],['VAR','homepage']],
-						['FILTER',['FUNCTION',['URI','sop:isBlank'],[]]],
-					],
-		'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/','rdf' => 'http://www.w3.org/1999/02/22-rdf-syntax-ns#','geo' => 'http://www.w3.org/2003/01/geo/wgs84_pos#','dcterms' => 'http://purl.org/dc/terms/'},
-		'sources' => [],
-		'variables' => [['VAR','person'],['VAR','homepage']]
-	};
-	my $parsed	= $parser->parse( $sparql );
-	is_deeply( $parsed, $correct, "filter with variable/function-call equality" );
-}
-
-{
-	my $sparql	= <<"END";
-		PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-		PREFIX	dcterms: <http://purl.org/dc/terms/>
-		PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
-		SELECT	?person ?homepage
-		WHERE	{
-					?person foaf:name "Gregory Todd Williams" .
-					?person ?pred ?homepage .
-					FILTER( isBLANK([ a foaf:Person ]) ) .
-				}
-END
-	my $correct	= {
-		'method' => 'SELECT',
-		'triples' => [
-						[['VAR','person'],['URI',['foaf','name']],['LITERAL','Gregory Todd Williams']],
-						[['VAR','person'],['VAR','pred'],['VAR','homepage']],
-						['FILTER',['FUNCTION',['URI','sop:isBlank'],[[['BLANK','a1'],['URI','http://www.w3.org/1999/02/22-rdf-syntax-ns#type'],['URI',['foaf','Person']]]]]],
+						['FILTER',['FUNCTION',['URI','sop:isBlank'],['BLANK', 'a1']]],
 					],
 		'namespaces' => {'foaf' => 'http://xmlns.com/foaf/0.1/','rdf' => 'http://www.w3.org/1999/02/22-rdf-syntax-ns#','geo' => 'http://www.w3.org/2003/01/geo/wgs84_pos#','dcterms' => 'http://purl.org/dc/terms/'},
 		'sources' => [],

@@ -6,9 +6,28 @@
 @prefix asc:     <http://aaronland.info/ns/changefile/> .
                                      
 <>
-        dc:identifier           "$Id: Changes.ttl 156 2006-07-06 04:48:03Z samofool $" ;
+        dc:identifier           "$Id: Changes.ttl 161 2006-07-10 03:08:30Z samofool $" ;
         dc:description          "Changes for RDF::Query" ;
         dcterms:references      <http://kasei.us/code/rdf-query/> .
+
+<http://kasei.us/code/files/RDF-Query-1.038.tar.gz>
+        dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
+        dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.037.tar.gz> ;
+
+        doap:Version    [
+                        doap:revision     "1.038" ;
+                        doap:created      "2006-07-09" ;
+                        ];
+        asc:changes     [
+                        asc:update        "Fixed DBI case-sensitivity for PostgreSQL support." .
+                        asc:update        "Cleaned up SQL syntax for easier debugging." .
+                        asc:update        "Removed extra parens in SQL that were causing postgresql to break." .
+                        asc:update        "Reference test foaf file using File::Spec->catfile() instead of directly." .
+                        asc:update        "Fixed SPARQL parsing bug for anonymous nodes in FILTER expressions." .
+                        asc:update        "Fixed major SQL compilation bugs for testing equality in FILTER expressions." .
+                        asc:update        "Fixed bug in hashing code for blank nodes in SQL compiler." .
+                        ] .
+
 
 <http://kasei.us/code/files/RDF-Query-1.037.tar.gz>
         dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
