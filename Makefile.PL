@@ -1,19 +1,27 @@
+# use ExtUtils::MakeMaker;
+use inc::Module::Install;
 
-use ExtUtils::MakeMaker;
+license				'perl';
+
+recommends			'LWP::Simple'				=> 0;
+recommends			'RDF::Redland'				=> 1;
+
+build_requires		'Test::JSON'				=> 0;
+build_requires		'Test::More'				=> 0.61;
+build_requires		'Test::Exception'			=> 0;
+
 WriteMakefile(
-				NAME			=> 'RDF::Query',
-				VERSION_FROM	=> 'lib/RDF/Query.pm',
-				AUTHOR			=> 'Gregory Todd Williams <gwilliams@cpan.org>',
-				PREREQ_PM		=> {
-										'Storable'					=> 0,
-										'RDF::Core'					=> 0,
-										'Parse::RecDescent'			=> 0,
-										'DateTime::Format::W3CDTF'	=> 0,
-										'Scalar::Util'				=> 0,
-										'Error'						=> 0,
-										'JSON'						=> 0,
-										'Test::JSON'				=> 0,
-										'Test::More'				=> 0.61,
-										'Test::Exception'			=> 0,
-								}
-			);
+	NAME			=> 'RDF::Query',
+	ABSTRACT		=> 'A pure-perl impelmentation of the RDF query languages SPARQL and RDQL.',
+	VERSION_FROM	=> 'lib/RDF/Query.pm',
+	AUTHOR			=> 'Gregory Todd Williams <gwilliams@cpan.org>',
+	PREREQ_PM		=> {
+					'Storable'					=> 0,
+					'RDF::Core'					=> 0,
+					'Parse::RecDescent'			=> 0,
+					'DateTime::Format::W3CDTF'	=> 0,
+					'Scalar::Util'				=> 0,
+					'Error'						=> 0,
+					'JSON'						=> 0,
+				}
+);

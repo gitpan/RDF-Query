@@ -6,9 +6,24 @@
 @prefix asc:     <http://aaronland.info/ns/changefile/> .
                                      
 <>
-        dc:identifier           "$Id: Changes.ttl 161 2006-07-10 03:08:30Z samofool $" ;
+        dc:identifier           "$Id: Changes.ttl 163 2006-07-14 22:32:58Z samofool $" ;
         dc:description          "Changes for RDF::Query" ;
         dcterms:references      <http://kasei.us/code/rdf-query/> .
+
+<http://kasei.us/code/files/RDF-Query-1.039.tar.gz>
+        dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
+        dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.038.tar.gz> ;
+
+        doap:Version    [
+                        doap:revision     "1.039" ;
+                        doap:created      "2006-07-14" ;
+                        ];
+        asc:changes     [
+                        asc:update        "Removed dawg tests from distribution. Only used as developer tests now." .
+                        asc:update        "Updated package to use Module::Install instead of ExtUtils::MakeMaker." .
+                        asc:update        "Fixed a spurious uninitialized warning in RDF::Query::get_bridge." .
+                        ] .
+
 
 <http://kasei.us/code/files/RDF-Query-1.038.tar.gz>
         dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;

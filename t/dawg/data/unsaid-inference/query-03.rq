@@ -1,3 +1,0 @@
-PREFIX : <http://example.com/#>
-
-ASK UNSAID (?x rdf:type :C2)

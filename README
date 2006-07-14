@@ -28,6 +28,12 @@ INSTALLATION
 
 VERSION HISTORY
 
+  Version 1.039 (2006-07-14)
+
+     * Removed dawg tests from distribution. Only used as developer tests now.
+     * Updated package to use Module::Install instead of ExtUtils::MakeMaker.
+     * Fixed a spurious uninitialized warning in RDF::Query::get_bridge.
+
   Version 1.038 (2006-07-09)
 
      * Fixed DBI case-sensitivity for PostgreSQL support.
@@ -272,4 +278,4 @@ AUTHOR
 
 	Gregory Williams <gwilliams@cpan.org>
 
-$Id: README 161 2006-07-10 03:08:30Z samofool $
+$Id: README 163 2006-07-14 22:32:58Z samofool $

@@ -1,3 +1,0 @@
-SELECT ?x ?y ?z
-FROM <file:simple-data-1.n3> <file:simple-data-2.n3>
-WHERE SOURCE ?src (?x ?y ?z)

@@ -8,6 +8,13 @@ use Data::Dumper;
 use RDF::Query;
 use Test::More;
 
+if ($ENV{RDFQUERY_BIGTEST}) {
+	plan qw(no_plan);
+} else {
+	plan skip_all => 'Developer tests. Set RDFQUERY_BIGTEST to run these tests.';
+	exit;
+}
+
 eval "use RDF::Query::Model::Redland;";
 if ($@) {
 	plan skip_all => "Failed to load RDF::Redland";

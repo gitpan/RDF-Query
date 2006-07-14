@@ -1,7 +1,7 @@
 # RDF::Query
 # -------------
-# $Revision: 161 $
-# $Date: 2006-07-09 23:08:30 -0400 (Sun, 09 Jul 2006) $
+# $Revision: 162 $
+# $Date: 2006-07-14 18:27:29 -0400 (Fri, 14 Jul 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -10,7 +10,7 @@ RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF
 
 =head1 VERSION
 
-This document describes RDF::Query version 1.038.
+This document describes RDF::Query version 1.039.
 
 =head1 SYNOPSIS
 
@@ -67,8 +67,8 @@ use RDF::Query::Error qw(:try);
 our ($REVISION, $VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$REVISION	= do { my $REV = (qw$Revision: 161 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
-	$VERSION	= '1.038';
+	$REVISION	= do { my $REV = (qw$Revision: 162 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= '1.039';
 }
 
 ######################################################################
@@ -464,6 +464,7 @@ sub get_bridge {
 		$bridge	= RDF::Query::Model::SQL->new( $model, $args{'model'}, parsed => $parsed );
 	} elsif (my $dbh = (ref($self) ? $self->{'dbh'} : undef) || $args{'dbh'}) {
 		require RDF::Query::Model::SQL;
+		no warnings 'uninitialized';
 		if (not length($args{'model'})) {
 			throw RDF::Query::Error::ExecutionError ( -text => 'No model specified for DBI-based triplestore' );
 		}
