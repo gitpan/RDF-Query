@@ -50,7 +50,7 @@ END
 			my ($p,$n)	= @{ $row };
 			ok( $query->bridge->isa_node( $p ), 'isa_node' );
 			ok( $query->bridge->isa_literal( $n ), 'isa_literal(nick)' );
-			like( ($n and $n->getLabel), qr/kasei|The Samo Fool/, ($n and $n->getLabel) );
+			like( ($n and $query->bridge->as_string( $n )), qr/kasei|The Samo Fool/, ($n and $query->bridge->as_string( $n )) );
 			last;
 		} continue { $stream->next }
 	}
@@ -76,7 +76,7 @@ END
 			ok( $query->bridge->isa_literal( $n ), 'isa_literal(nick)' );
 			ok( $query->bridge->isa_resource( $h ), 'isa_resource(homepage)' );
 			is( $query->bridge->uri_value( $h ), 'http://kasei.us/' );
-			like( ($n and $n->getLabel), qr/kasei|The Samo Fool/, ($n and $n->getLabel) );
+			like( ($n and $query->bridge->as_string( $n )), qr/kasei|The Samo Fool/, ($n and $query->bridge->as_string( $n )) );
 			last;
 		} continue { $stream->next }
 	}

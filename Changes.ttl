@@ -6,9 +6,34 @@
 @prefix asc:     <http://aaronland.info/ns/changefile/> .
                                      
 <>
-        dc:identifier           "$Id: Changes.ttl 163 2006-07-14 22:32:58Z samofool $" ;
+        dc:identifier           "$Id: Changes.ttl 171 2006-07-21 13:55:52Z samofool $" ;
         dc:description          "Changes for RDF::Query" ;
         dcterms:references      <http://kasei.us/code/rdf-query/> .
+
+<http://kasei.us/code/files/RDF-Query-1.040.tar.gz>
+        dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
+        dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.039.tar.gz> ;
+
+        doap:Version    [
+                        doap:revision     "1.040" ;
+                        doap:created      "2006-07-21" ;
+                        ];
+        asc:changes     [
+                        asc:addition      "Added support for BOUND() fiters in SQL compilation." .
+                        asc:addition      "Added peephole optimizer code with naive and cost-analysis strategies." .
+                        asc:addition      "Added add_string method to RDF::Query::Model::Redland." .
+                        asc:addition      "Added node_count method to RDF::Query::Model::Redland (only used for testing at this point)." .
+                        asc:update        "RDF::Query::execute() now uses the peephole optimizer." .
+                        asc:update        "SQL compiler now produces valid SQL when query variable names are SQL reserved keywords." .
+                        asc:update        "Moved SPARQL parser test data into YAML." .
+                        asc:update        "Added YAML as a build-time prerequisite." .
+                        asc:update        "Fixed SPARQL parsing bug for blank nodes as statement objects." .
+                        asc:update        "Removed punting code in RDF::Query::execute that tried to do JIT optimization." .
+                        asc:update        "Removed calls to getLabel() on model objects in test files." .
+                        asc:update        "Fixed dawg tests (was dying because of multiple plans being printed)." .
+                        asc:update        "Fixed cost-based peephole optimizer tests (by forcing Redland to do node counting)." .
+                        ] .
+
 
 <http://kasei.us/code/files/RDF-Query-1.039.tar.gz>
         dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;

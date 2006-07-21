@@ -256,7 +256,7 @@ sub add_variable_values_joins {
 		
 		warn "var: $var\t\tcol: $col\t\tcount: $count\t\tunique count: $uniq_count\n" if ($debug);
 		
-		push(@cols, "${col} AS ${var}") if ($select_vars{ $var });
+		push(@cols, "${col} AS ${var}_Node") if ($select_vars{ $var });
 		foreach (@NODE_TYPE_TABLES) {
 			my ($table, $alias, @join_cols)	= @$_;
 			foreach my $jc (@join_cols) {
@@ -888,6 +888,18 @@ $functions{ '~~' }	= sub {
 	return ({}, \@from, \@where);
 };
 
+$functions{ 'sop:isBound' }	= sub {
+	my $self	= shift;
+	my $parsed_vars	= shift;
+	my $level	= shift || \do{ my $a = 0 };
+	my @args	= @_;
+	my (@from, @where);
+	
+	my $literal	= $self->expr2sql( $args[0], $level );
+	push(@where, sprintf(qq(%s IS NOT NULL), $literal));
+	return ({}, \@from, \@where);
+};
+
 $functions{ 'http://www.w3.org/2001/XMLSchema#integer' }	= sub {
 	my $self	= shift;
 	my $parsed_vars	= shift;
@@ -916,7 +928,8 @@ $functions{ 'http://www.w3.org/2001/XMLSchema#decimal' }	= sub {
 	push(@where, sprintf(qq((0.0 + %s)), $literal));
 	return ({}, \@from, \@where);
 };
-$functions{ 'http://www.w3.org/2001/XMLSchema#double' }	= $functions{ 'http://www.w3.org/2001/XMLSchema#decimal' };
+$functions{'sop:numeric'}	= $functions{ 'http://www.w3.org/2001/XMLSchema#double' }
+							= $functions{ 'http://www.w3.org/2001/XMLSchema#decimal' };
 
 
 

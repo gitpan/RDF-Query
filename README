@@ -28,6 +28,22 @@ INSTALLATION
 
 VERSION HISTORY
 
+  Version 1.040 (2006-07-21)
+
+     * Added support for BOUND() fiters in SQL compilation.
+     * SQL compiler now produces valid SQL when query variable names are SQL reserved keywords.
+     * Moved SPARQL parser test data into YAML.
+     * Added YAML as a build-time prerequisite.
+     * Fixed SPARQL parsing bug for blank nodes as statement objects.
+     * Added peephole optimizer code with naive and cost-analysis strategies.
+     * Added add_string method to RDF::Query::Model::Redland.
+     * Added node_count method to RDF::Query::Model::Redland (only used for testing at this point).
+     * RDF::Query::execute() now uses the peephole optimizer.
+     * Removed punting code in RDF::Query::execute that tried to do JIT optimization.
+     * Removed calls to getLabel() on model objects in test files.
+     * Fixed dawg tests (was dying because of multiple plans being printed).
+     * Fixed cost-based peephole optimizer tests (by forcing Redland to do node counting).
+
   Version 1.039 (2006-07-14)
 
      * Removed dawg tests from distribution. Only used as developer tests now.
@@ -278,4 +294,4 @@ AUTHOR
 
 	Gregory Williams <gwilliams@cpan.org>
 
-$Id: README 163 2006-07-14 22:32:58Z samofool $
+$Id: README 171 2006-07-21 13:55:52Z samofool $

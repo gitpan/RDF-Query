@@ -19,7 +19,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 152 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 166 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
 ######################################################################
@@ -68,8 +68,9 @@ Returns a new resource object.
 
 sub new_resource {
 	my $self	= shift;
-	my $uri		= RDF::Redland::URI->new( shift );
-	return RDF::Redland::Node->new_from_uri( $uri );
+	my $uri		= shift;
+	my $node	= RDF::Redland::URI->new( $uri );
+	return RDF::Redland::Node->new_from_uri( $node );
 }
 
 =item C<new_literal ( $string, $language, $datatype )>
@@ -272,7 +273,7 @@ sub blank_identifier {
 	return $node->blank_identifier;
 }
 
-=item C<add_uri ( $uri, $named )>
+=item C<add_uri ( $uri, $named, $format )>
 
 Addsd the contents of the specified C<$uri> to the model.
 If C<$named> is true, the data is added to the model using C<$uri> as the
@@ -284,9 +285,10 @@ sub add_uri {
 	my $self	= shift;
 	my $uri		= shift;
 	my $named	= shift;
+	my $format	= shift || 'guess';
 	
 	my $model		= $self->{model};
-	my $parser		= RDF::Redland::Parser->new('guess');
+	my $parser		= RDF::Redland::Parser->new($format);
 	my $redlanduri	= RDF::Redland::URI->new( $uri );
 	
 	if ($named) {
@@ -294,6 +296,32 @@ sub add_uri {
 		$model->add_statements( $stream, $redlanduri );
 	} else {
 		$parser->parse_into_model( $redlanduri, $redlanduri, $model );
+	}
+}
+
+=item C<add_string ( $data, $base_uri, $named, $format )>
+
+Addsd the contents of C<$data> to the model. If C<$named> is true,
+the data is added to the model using C<$base_uri> as the named context.
+
+=cut
+
+sub add_string {
+	my $self	= shift;
+	my $data	= shift;
+	my $uri		= shift;
+	my $named	= shift;
+	my $format	= shift || 'guess';
+	
+	my $model		= $self->{model};
+	my $parser		= RDF::Redland::Parser->new($format);
+	my $redlanduri	= RDF::Redland::URI->new( $uri );
+	
+	if ($named) {
+		my $stream		= $parser->parse_string_as_stream($data, $redlanduri);
+		$model->add_statements( $stream, $redlanduri );
+	} else {
+		$parser->parse_string_into_model( $data, $redlanduri, $model );
 	}
 }
 
@@ -508,6 +536,7 @@ Returns true if the underlying model supports the named C<$feature>.
 Possible features include:
 
 	* named_graph
+	* node_counts
 
 =cut
 
@@ -515,8 +544,36 @@ sub supports {
 	my $self	= shift;
 	my $feature	= shift;
 	return 1 if ($feature eq 'named_graph');
+#	return 1 if ($feature eq 'node_counts');	# XXX just used for testing -- redland doesn't have efficient statement counting. see C<node_count> below.
 	return 0;
 }
+
+=item C<node_count ( $subj, $pred, $obj )>
+
+Returns a number representing the frequency of statements in the
+model matching the given triple. This number is used in cost analysis
+for query optimization, and has a range of [0, 1] where zero represents
+no matching triples in the model and one represents matching all triples
+in the model.
+
+=cut
+
+sub node_count {
+	my $self	= shift;
+	my $model	= $self->model;
+	my $total	= $model->size;
+	my $st		= RDF::Redland::Statement->new( @_ );
+	my $stream	= $model->find_statements( $st );
+	my $count	= 0;
+	while ($stream and not $stream->end) {
+		$count++;
+		$stream->next;
+	}
+	
+	return 0 unless ($total);
+	return $count / $total;
+}
+
 
 =item C<as_xml ($stream)>
 

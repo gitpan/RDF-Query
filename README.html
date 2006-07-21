@@ -38,6 +38,22 @@
 			make install<br />
 		</div>
 	<h2 id="changelog">Version History</h2>
+		<h3 id="v1_040">Version 1.040 (2006-07-21)</h3>
+			<ul>
+				<li>Added support for BOUND() fiters in SQL compilation.</li>
+				<li>SQL compiler now produces valid SQL when query variable names are SQL reserved keywords.</li>
+				<li>Moved SPARQL parser test data into YAML.</li>
+				<li>Added YAML as a build-time prerequisite.</li>
+				<li>Fixed SPARQL parsing bug for blank nodes as statement objects.</li>
+				<li>Added peephole optimizer code with naive and cost-analysis strategies.</li>
+				<li>Added add_string method to RDF::Query::Model::Redland.</li>
+				<li>Added node_count method to RDF::Query::Model::Redland (only used for testing at this point).</li>
+				<li>RDF::Query::execute() now uses the peephole optimizer.</li>
+				<li>Removed punting code in RDF::Query::execute that tried to do JIT optimization.</li>
+				<li>Removed calls to getLabel() on model objects in test files.</li>
+				<li>Fixed dawg tests (was dying because of multiple plans being printed).</li>
+				<li>Fixed cost-based peephole optimizer tests (by forcing Redland to do node counting).</li>
+			</ul>
 		<h3 id="v1_039">Version 1.039 (2006-07-14)</h3>
 			<ul>
 				<li>Removed dawg tests from distribution. Only used as developer tests now.</li>
@@ -281,5 +297,5 @@
 	<h2>Copyright</h2>
 		<p>Copyright &copy; 2005&#8211;2006 Gregory Williams. All rights reserved. This program is free software; you can redistribute it and/or modify it under the same terms as Perl itself.</p>
 	
-	$Id: README.html 163 2006-07-14 22:32:58Z samofool $
+	$Id: README.html 171 2006-07-21 13:55:52Z samofool $
 </body></html>

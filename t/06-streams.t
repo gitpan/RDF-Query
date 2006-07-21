@@ -30,7 +30,7 @@ END
 		my $count;
 		while (not $stream->finished) {
 			my ($node)	= $stream->binding_value( 0 );
-			my $name	= $node->getLabel;
+			my $name	= $query->bridge->as_string( $node );
 			ok( $name, $name );
 		} continue {
 			last if ++$count >= 100;
@@ -52,7 +52,7 @@ END
 		my $count;
 		while (my $row = $stream->()) {
 			my ($node)	= $row->[0];
-			my $name	= $node->getLabel;
+			my $name	= $query->bridge->as_string( $node );
 			ok( $name, $name );
 		} continue { last if ++$count >= 100 };
 	}

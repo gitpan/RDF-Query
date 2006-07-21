@@ -9,7 +9,7 @@ use RDF::Query;
 use Test::More;
 
 if ($ENV{RDFQUERY_BIGTEST}) {
-	plan qw(no_plan);
+#	plan qw(no_plan);
 } else {
 	plan skip_all => 'Developer tests. Set RDFQUERY_BIGTEST to run these tests.';
 	exit;
@@ -20,8 +20,10 @@ if ($@) {
 	plan skip_all => "Failed to load RDF::Redland";
 	exit;
 } else {
-	plan 'no_plan';
+#	plan 'no_plan';
 }
+
+plan qw(no_plan);
 	
 my @tests	= (
 				['t/dawg/data/simple/', 'dawg-data-*.n3', 'data-*%02d.n3', 'dawg-tp-%02d.rq', 'result*%02d.n3', 4],

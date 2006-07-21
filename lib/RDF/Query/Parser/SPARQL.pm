@@ -1,7 +1,7 @@
 # RDF::Query::Parser::SPARQL
 # -------------
-# $Revision: 160 $
-# $Date: 2006-07-07 18:11:20 -0400 (Fri, 07 Jul 2006) $
+# $Revision: 165 $
+# $Date: 2006-07-19 22:57:39 -0400 (Wed, 19 Jul 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -27,7 +27,7 @@ use Carp qw(carp croak confess);
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
 	$debug		= 0 || $RDF::Query::Parser::debug;
-	$VERSION	= do { my $REV = (qw$Revision: 160 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 165 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	$lang		= 'sparql';
 	$languri	= 'http://www.w3.org/TR/rdf-sparql-query/';
 }
@@ -521,6 +521,9 @@ sub parse_triplepattern {
 					if (my $data = $self->parse_collection) {
 						($obj, my $collection_triples)	= @$data;
 						push(@$triples, @{ $collection_triples });
+					} elsif ($data = $self->parse_blanknode) {
+						($obj, my $blank_triples)	= @$data;
+						push(@$triples, @{ $blank_triples });
 					} else {
 						$obj		= $self->parse_object;
 					}
@@ -541,9 +544,13 @@ sub parse_triplepattern {
 		} else {
 			$pred		= $self->parse_predicate;
 			if ($pred) {
-				if (my $data = $self->parse_collection) {
+				my $data;
+				if ($data = $self->parse_collection) {
 					($obj, my $collection_triples)	= @$data;
 					push(@$triples, @{ $collection_triples });
+				} elsif ($data = $self->parse_blanknode) {
+					($obj, my $blank_triples)	= @$data;
+					push(@$triples, @{ $blank_triples });
 				} else {
 					$obj		= $self->parse_object;
 				}
@@ -604,6 +611,7 @@ constant or collection).
 
 sub parse_object {
 	my $self	= shift;
+	
 	if (my $object = $self->parse_variable_or_uri_or_constant) {
 		return $object;
 	} else {

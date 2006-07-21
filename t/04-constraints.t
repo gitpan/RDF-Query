@@ -34,7 +34,7 @@ SKIP: {
 END
 		my ($person, $homepage)	= $query->get( $model );
 		ok( $query->bridge->isa_resource( $person ), 'Resource with regex match' );
-		is( $person->getLabel, 'http://kasei.us/about/foaf.xrdf#greg', 'Person uri' );
+		is( $query->bridge->uri_value( $person ), 'http://kasei.us/about/foaf.xrdf#greg', 'Person uri' );
 	}
 	
 	{
@@ -75,8 +75,8 @@ END
 END
 		my ($point, $lat, $lon)	= $query->get( $model );
 		ok( $query->bridge->isa_node( $point ), 'Point isa Node' );
-		cmp_ok( abs( $lat->getLabel - 52.97277 ), '<', 0.001, 'latitude' );
-		cmp_ok( abs( $lon->getLabel + 9.430733 ), '<', 0.001, 'longitude' );
+		cmp_ok( abs( $query->bridge->as_string( $lat ) - 52.97277 ), '<', 0.001, 'latitude' );
+		cmp_ok( abs( $query->bridge->as_string( $lon ) + 9.430733 ), '<', 0.001, 'longitude' );
 	}
 	
 	{
@@ -98,8 +98,8 @@ END
 END
 		my ($point, $lat, $lon)	= $query->get( $model );
 		ok( $query->bridge->isa_node( $point ), 'Point isa Node' );
-		cmp_ok( abs( $lat->getLabel - 52.97277 ), '<', 0.001, 'latitude' );
-		cmp_ok( abs( $lon->getLabel + 9.430733 ), '<', 0.001, 'longitude' );
+		cmp_ok( abs( $query->bridge->as_string( $lat ) - 52.97277 ), '<', 0.001, 'latitude' );
+		cmp_ok( abs( $query->bridge->as_string( $lon ) + 9.430733 ), '<', 0.001, 'longitude' );
 	}
 	
 	{
@@ -120,7 +120,7 @@ END
 END
 		my ($image, $point, $lat)	= $query->get( $model );
 		ok( $query->bridge->isa_resource( $image ), 'Image isa Resource' );
-		is( $image->getLabel, 'http://kasei.us/pictures/2004/20040909-Ireland/images/DSC_5705.jpg', 'Image url' );
+		is( $query->bridge->uri_value( $image ), 'http://kasei.us/pictures/2004/20040909-Ireland/images/DSC_5705.jpg', 'Image url' );
 	}
 }
 

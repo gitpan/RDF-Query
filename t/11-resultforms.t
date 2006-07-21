@@ -37,9 +37,9 @@ END
 			my $name	= $node->literal_value;
 			$seen{ $name }++;
 			if (defined($last)) {
-				cmp_ok( $name, 'ge', $last, "In order: $name (" . $p->getLabel . ")" );
+				cmp_ok( $name, 'ge', $last, "In order: $name (" . $query->bridge->as_string( $p ) . ")" );
 			} else {
-				ok( $name, "First: $name (" . $p->getLabel . ")" );
+				ok( $name, "First: $name (" . $query->bridge->as_string( $p ) . ")" );
 			}
 			$last	= $name;
 		} continue { ++$count };
@@ -66,9 +66,9 @@ END
 			my $name	= $node->literal_value;
 			is( exists($seen{ $name }), '', "not seen before with offset" );
 			if (defined($last)) {
-				cmp_ok( $name, 'ge', $last, "In order: $name (" . $p->getLabel . ")" );
+				cmp_ok( $name, 'ge', $last, "In order: $name (" . $query->bridge->as_string( $p ) . ")" );
 			} else {
-				ok( $name, "First: $name (" . $p->getLabel . ")" );
+				ok( $name, "First: $name (" . $query->bridge->as_string( $p ) . ")" );
 			}
 			$last	= $name;
 		} continue { ++$count };

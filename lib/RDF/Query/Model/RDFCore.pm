@@ -22,7 +22,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 152 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 167 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	eval "use LWP::Simple ();";
 	our $LWP_SUPPORT	= ($@) ? 0 : 1;
 }
@@ -222,6 +222,7 @@ Returns a string version of the node object.
 sub as_string {
 	my $self	= shift;
 	my $node	= shift;
+	return unless blessed($node);
 	return $node->getLabel;
 }
 

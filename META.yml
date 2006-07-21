@@ -4,6 +4,7 @@ build_requires:
   Test::Exception: 0
   Test::JSON: 0
   Test::More: 0.61
+  YAML: 0
 distribution_type: module
 generated_by: Module::Install version 0.63
 license: perl
@@ -24,4 +25,4 @@ requires:
   RDF::Core: 0
   Scalar::Util: 0
   Storable: 0
-version: 1.039
+version: 1.040

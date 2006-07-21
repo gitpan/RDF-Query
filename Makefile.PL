@@ -9,6 +9,7 @@ recommends			'RDF::Redland'				=> 1;
 build_requires		'Test::JSON'				=> 0;
 build_requires		'Test::More'				=> 0.61;
 build_requires		'Test::Exception'			=> 0;
+build_requires		'YAML'						=> 0;
 
 WriteMakefile(
 	NAME			=> 'RDF::Query',

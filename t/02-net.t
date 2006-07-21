@@ -47,7 +47,7 @@ END
 	isa_ok( $results[0], 'ARRAY' );
 	is( scalar(@{$results[0]}), 1, 'Got one field' );
 	ok( $query->bridge->isa_resource( $results[0][0] ), 'Resource' );
-	is( $results[0][0]->getLabel, 'http://kasei.us/', 'Got homepage url' );
+	is( $query->bridge->uri_value( $results[0][0] ), 'http://kasei.us/', 'Got homepage url' );
 }
 
 SKIP: {
@@ -78,7 +78,7 @@ END
 	isa_ok( $results[0], 'ARRAY' );
 	is( scalar(@{$results[0]}), 1, 'Got one field' );
 	ok( $query->bridge->isa_resource( $results[0][0] ), 'Resource' );
-	is( $results[0][0]->getLabel, 'http://kasei.us/', 'Got homepage url' );
+	is( $query->bridge->uri_value( $results[0][0] ), 'http://kasei.us/', 'Got homepage url' );
 }
 
 SKIP: {
@@ -99,5 +99,5 @@ END
 	isa_ok( $results[0], 'ARRAY' );
 	is( scalar(@{$results[0]}), 1, 'Got one field' );
 	ok( $query->bridge->isa_resource( $results[0][0] ), 'Resource' );
-	is( $results[0][0]->getLabel, 'http://kasei.us/', 'Got homepage url' );
+	is( $query->bridge->uri_value( $results[0][0] ), 'http://kasei.us/', 'Got homepage url' );
 }

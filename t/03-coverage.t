@@ -14,7 +14,7 @@ my @models	= test_models( @files );
 
 use Test::More;
 
-plan tests => 1 + (57 * scalar(@models)) + 3;
+plan tests => 1 + (58 * scalar(@models)) + 3;
 
 use_ok( 'RDF::Query' );
 foreach my $model (@models) {
@@ -388,6 +388,14 @@ END
 		my @values	= $stream->binding_values;
 		ok( $query->bridge->isa_node( $values[0] ), 'binding_value_by_name' );
 		
+	}
+
+	{
+		print "# SPARQL query; Stream accessors\n" if ($debug);
+		my $query	= new RDF::Query ( 'ASK	{ ?s ?p ?o }', undef, undef, 'sparql' );
+		my $stream	= $query->execute( $model );
+		my $bridge	= $query->bridge;
+		is( $bridge->as_string( undef ), undef );
 	}
 }
 

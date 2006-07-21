@@ -1,7 +1,7 @@
 # RDF::Query
 # -------------
-# $Revision: 162 $
-# $Date: 2006-07-14 18:27:29 -0400 (Fri, 14 Jul 2006) $
+# $Revision: 171 $
+# $Date: 2006-07-21 09:55:52 -0400 (Fri, 21 Jul 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -10,7 +10,7 @@ RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF
 
 =head1 VERSION
 
-This document describes RDF::Query version 1.039.
+This document describes RDF::Query version 1.040.
 
 =head1 SYNOPSIS
 
@@ -61,14 +61,16 @@ use RDF::Query::Parser::RDQL;
 use RDF::Query::Parser::SPARQL;
 use RDF::Query::Compiler::SQL;
 use RDF::Query::Error qw(:try);
+use RDF::Query::Optimizer::Peephole::Naive;
+use RDF::Query::Optimizer::Peephole::Cost;
 
 ######################################################################
 
 our ($REVISION, $VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$REVISION	= do { my $REV = (qw$Revision: 162 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
-	$VERSION	= '1.039';
+	$REVISION	= do { my $REV = (qw$Revision: 171 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= '1.040';
 }
 
 ######################################################################
@@ -199,6 +201,9 @@ sub execute {
 	} elsif ($args{'require_sql'}) {
 		throw RDF::Query::Error::CompilationError ( -text => 'Failed to compile query to SQL' );
 	} else {
+		my $opt		= RDF::Query::Optimizer::Peephole->new( $self, $bridge );
+		my $cost	= $opt->optimize;
+		
 		$parsed		= $self->fixup( $self->{parsed} );
 		$stream		= $self->query_more( bound => \%bound, triples => [@{ $parsed->{'triples'} }], variables => [ $self->variables ] );
 		
@@ -699,10 +704,6 @@ sub query_more {
 	}
 	
 	my $triple		= shift(@triples);
-	unless (ref($triple)) {
-		Carp::cluck "Something went wrong. No triple passed to query_more";
-		return undef;
-	}
 	my @triple		= @{ $triple };
 	
 	no warnings 'uninitialized';
@@ -725,22 +726,8 @@ sub query_more {
 				if ($bridge->isa_node($val)) {
 					_debug( "${indent}-> already have value for $tmpvar: " . $bridge->as_string( $val ) . "\n" );
 					$triple[$idx]	= $val;
-				} elsif (++$vars > 2) {
-					_debug( "${indent}-> we've seen $vars variables in this triple... punt\n" );
-					if (1 + $self->{punt} >= scalar(@{$self->{parsed}{triples}})) {
-						_debug( "${indent}-> we've punted too many times. binding on ?$tmpvar" );
-						$triple[$idx]	= undef;
-						$vars[$idx]		= $tmpvar;
-						$methods[$idx]	= $methodmap[ $idx ];
-					} elsif (scalar(@triples)) {
-						$self->{punt}++;
-						push(@triples, $triple);
-						return $self->query_more( bound => { %{ $bound } }, triples => [@triples], variables => $variables );
-					} else {
-						carp "Something went wrong. Not enough triples passed to query_more";
-						return undef;
-					}
 				} else {
+					++$vars;
 					_debug( "${indent}-> found variable $tmpvar (we've seen $vars variables already)\n" );
 					$triple[$idx]	= undef;
 					$vars[$idx]		= $tmpvar;
@@ -753,11 +740,8 @@ sub query_more {
 	_debug( "${indent}getting: " . join(', ', grep defined, @vars) . "\n" );
 	_debug( 'query_more triple: ' . Dumper([map { blessed($_) ? $bridge->as_string($_) : ($_) ? Dumper($_) : 'undef' } (@triple, (($bridge->isa_node($context)) ? $context : ()))]) );
 	
-	my @streams;
-	my $stream;
-	
 	my @graph;
-	if (UNIVERSAL::isa($context, 'ARRAY') and ($context->[0] eq 'VAR')) {
+	if (ref($context) and reftype($context) eq 'ARRAY' and ($context->[0] eq 'VAR')) {
 		my $context_var	= $context->[1];
 		my $graph		= $bound->{ $context_var };
 		if ($graph) {
@@ -768,7 +752,8 @@ sub query_more {
 	}
 	
 	
-#	my @graph		= (($bridge->isa_node($context)) ? $context : ());
+	my $stream;
+	my @streams;
 	my $statments	= $bridge->get_statements( @triple, @graph );
 	if ($statments) {
 		push(@streams, sub {
@@ -782,13 +767,12 @@ sub query_more {
 			}
 			
 			my $context_var;
-			if (UNIVERSAL::isa($context, 'ARRAY') and ($context->[0] eq 'VAR')) {
+			if (ref($context) and reftype($context) eq 'ARRAY' and ($context->[0] eq 'VAR')) {
 				warn "Trying to get context of current statement..." if ($debug);
 				my $graph	= $statments->context;
 				if ($graph) {
 					$context_var				= $context->[1];
 					$bound->{ $context_var }	= $graph;
-#					$context					= $graph;
 					_debug( "Got context ($context_var) from iterator: " . $bridge->as_string( $graph ) );
 				} else {
 					_debug( "No context returned by iterator." );

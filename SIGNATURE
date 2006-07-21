@@ -14,12 +14,12 @@ not run its Makefile.PL or Build.PL.
 -----BEGIN PGP SIGNED MESSAGE-----
 Hash: SHA1
 
-SHA1 427b857b1ebcce095a872d1bc45194a937192cf8 Changes.ttl
-SHA1 abc7c74a210848585dd6d6c746cd0302d47eb963 MANIFEST
-SHA1 269f701f48e61a0cff08000ee69f9bf35d47f95f META.yml
-SHA1 34d8862ebf470ed74d179a68f53a30b6bbbc68c9 Makefile.PL
-SHA1 a05d653c8016559dd9ae7a187ba9d04c6d755608 README
-SHA1 280ec4be473160716ca73ca6aaf6935dc89cde70 README.html
+SHA1 2cff1ccfe71491980c48bbb58616dcc92fd061dc Changes.ttl
+SHA1 919ba66cdf8acbd16ce0debe16455fdadbc4b25c MANIFEST
+SHA1 3d38351676c43bb0bd5b3e843f2bddce625fe86b META.yml
+SHA1 11ebb7ddb2190afcaf24f0156e19a4225473e5d5 Makefile.PL
+SHA1 d9a0960f1fc4c9241d7d7c2c1c5eeca806a20841 README
+SHA1 9d0daa449788e980bcff9b56ec1072d90f86169a README.html
 SHA1 14c583933ced0bdc27a81bb7d5cd9e7ef2d9a520 data/Flower-2.rdf
 SHA1 4fbea175bca8ba872ff39da28f248bcd31d60eb1 data/about.xrdf
 SHA1 815c8b2eb008948e613439f289e0a5973a3f4cbe data/foaf.xrdf
@@ -29,55 +29,60 @@ SHA1 b4e13d1fee09c406cdffd6e93d8f10f95d806cc0 data/named_graphs/bob.rdf
 SHA1 e3a79398e61eed62efca7367dabfddf89c2338d6 data/named_graphs/bob.ttl
 SHA1 f6499f4b7a5c39ebc1e30c301c2a47ab95be69bf data/named_graphs/meta.rdf
 SHA1 39fbdd47c713d59167ed03301ad794963c8837f0 data/named_graphs/meta.ttl
-SHA1 2418972cc2afbdd395a5d51bfa69ee4415e5daa8 doap.rdf
+SHA1 cf04ad53c6eb99dd9af9c549c66fde95519f6611 doap.rdf
 SHA1 017bedfcba1e0c72b36301e6ef21b8712b84d175 inc/Module/Install.pm
 SHA1 b1a70869c098ba602151631386fc510b5bfd3511 inc/Module/Install/Base.pm
 SHA1 d864f4a0dd148e4651cbe29c54c2ffc94d0f05f7 inc/Module/Install/MakeMaker.pm
 SHA1 176d68fe7c07b6ab7cfe09093078b8127bbde786 inc/Module/Install/Makefile.pm
 SHA1 8b37b38215d14f922b3d5132ce33d11d21d531ba inc/Module/Install/Metadata.pm
-SHA1 17ff080118f0973d315c5d13ee39810e2457bbff lib/RDF/Query.pm
-SHA1 519cbce9f230e38fbb35ceb18087b8e5b1275376 lib/RDF/Query/Compiler/SQL.pm
+SHA1 0d6a5a4bb4f82975d66432647055c605cee07e13 lib/RDF/Query.pm
+SHA1 b2155219d7f1cfb17e3df60ea345981af96feafa lib/RDF/Query/Compiler/SQL.pm
 SHA1 e0042a55f1ccbb06dedbf89002d4772b681a72c3 lib/RDF/Query/Error.pm
 SHA1 e8ca12ad29a785d967446c0ae27f5ae5477d64ba lib/RDF/Query/Model.pm
-SHA1 8349fa20c067243fbbd3062551117efcbc215296 lib/RDF/Query/Model/RDFCore.pm
-SHA1 99c31bd46cc06e3f81ae6e2679f2d96e38eba1ea lib/RDF/Query/Model/Redland.pm
+SHA1 8c73d196d5b408337b0095d7cb4747a09d4974e6 lib/RDF/Query/Model/RDFCore.pm
+SHA1 187c34d917c36879970b980eed06b2bd879ccf7d lib/RDF/Query/Model/Redland.pm
 SHA1 1d3dbff60106e860dd3113698fd169a7bffd0cdb lib/RDF/Query/Model/SQL.pm
 SHA1 58c09ba7efe7dcddef75cf98526cf504a69b6af4 lib/RDF/Query/Model/SQL/Statement.pm
+SHA1 8b911e7de9850aae227d89753d26385ee8a02a62 lib/RDF/Query/Optimizer/Peephole.pm
+SHA1 4cdc813cb7c4e6ed6901cdd071d68c931a17224b lib/RDF/Query/Optimizer/Peephole/Cost.pm
+SHA1 e4fcc0e73b53badf44614a354033b1fa003e21d1 lib/RDF/Query/Optimizer/Peephole/Naive.pm
 SHA1 8da395876bc32b0c87962cfe39c06cf671964be1 lib/RDF/Query/Parser.pm
 SHA1 5d2199cb1a0b259cba388137883034dce48a9f6c lib/RDF/Query/Parser/RDQL.pm
-SHA1 b3ce7136ea6ebdf3c1b45fe7706bfd4065585e87 lib/RDF/Query/Parser/SPARQL.pm
+SHA1 3e5fab9be2fdd7a3d7ea68fdea928c81f2d53e77 lib/RDF/Query/Parser/SPARQL.pm
 SHA1 d4fec14f651bd92f534df6b7b083380ec9ef8f02 lib/RDF/Query/Stream.pm
 SHA1 8dae40eae965adeb94f0ac371d99db98abe6aa84 t/00-simple.t
 SHA1 2c850c900f26e91d0477c3c6776f3a44146a6a56 t/01-rdql_parser.t
-SHA1 5e48af4ddf487bc0026e73d2d2f21bb990e93de3 t/01-sparql_parser.t
-SHA1 906ef1e4dd2ed80b676969f4df0966e6aaa59b39 t/02-file.t
-SHA1 852e3520b4ef90184900821c9b3829b02f2e6985 t/02-net.t
-SHA1 2c645af2121213f657557e9dae0ece618842ebb1 t/03-coverage.t
-SHA1 93be42cfdf9291ae66ed4368cfa9cb7da4181dc2 t/04-constraints.t
+SHA1 c4875c9a3c2b1ad94c39b51795fa67935274d420 t/01-sparql_parser.t
+SHA1 d5e7beeaa1cee71f136e9936ad66389b24a08f11 t/02-file.t
+SHA1 057dbf0129e984e27fc3de517d2f6ff1fef7bacd t/02-net.t
+SHA1 d8e438edfeb140faec9b265fe0c7e3b3d5f6abf6 t/03-coverage.t
+SHA1 bcb1cf99fee3387823e4483b64a963e226e03f1c t/04-constraints.t
 SHA1 3e40a28bb381b6d2ba994e0160d08d755be8c730 t/05-stress.t
 SHA1 59f112bb836c29c195b87ee13ec5d26b3f3ecd2c t/06-ask.t
 SHA1 8483d6829fa76d190bc45d153980a71e28e11324 t/06-construct.t
 SHA1 6cbeba692e5226555b965e75dd1b51f77a9b54d5 t/06-describe.t
-SHA1 1225473d982fd36a08d0bfd3d8ca909085fa4efa t/06-streams.t
+SHA1 b4c0c6bdfe3154e64e19ce552e6cc542c83ea95c t/06-streams.t
 SHA1 bfe6488f670c196bbe5e6f3f28c6aefb94bbde7f t/07-filters.t
-SHA1 26c4f072f63749c4589f1d5def49bcf262fe2829 t/08-optionals.t
+SHA1 2064a5c809d0dcd47052d59a61b06ce12b7c38c4 t/08-optionals.t
 SHA1 3be50d0b315e3df362042bf607688d3619ad06a7 t/09-union.t
 SHA1 0b0bf6cc295263564cbf0d852ca09abd5a600520 t/10-sparql_protocol.t
-SHA1 d45200a9fd5180d589ef1b84bcca6903675c6260 t/11-resultforms.t
+SHA1 7bc7aa8f156e429223ea958914431fd700ab266e t/11-resultforms.t
 SHA1 a854d90935a60c5d0da36fa1ac6c653a7fffd723 t/12-literals.t
 SHA1 e8505993aeeb17c6235da8477b44c502ba7b7612 t/13-sparql-2_8-syntactic_forms.t
 SHA1 07add09248d3a39880ddf48e5c2dc552310222fc t/14-sparql-9_2-named_graphs.t
 SHA1 4841a60b45f2809c7ce9d0e799246f99a038afda t/15-functions.t
-SHA1 0ba95b73072cbd7cb44e6631c8cf76748401067f t/16-sql_compiler.t
+SHA1 e294817aa9efccc9bfc8c7e708088d0d0d5b7a6f t/16-sql_compiler.t
 SHA1 2a0576482baf303ee38c3245086486cde0f3d8ff t/17-hooks.t
-SHA1 d398d26286fa36c84c2279d88050f58b24da45ee t/18-dawg.t
+SHA1 73c65271df1b66562415bd77465134a5b8e84d47 t/18-dawg.t
 SHA1 fada08a138c7f5d0c435fbd184ebfbd975f5da7d t/19-pod.t
 SHA1 7dfbc25c2ead100477bc171b71bb85ba596adcc7 t/20-pod_coverage.t
+SHA1 69662409a0f94ec4c3c2ab1a823326c7b2eebd18 t/21-optimizer-peephole-naive.t
+SHA1 a0040b465dc264a23a2f395bbafa932371ed347c t/22-optimizer-peephole-cost.t
 SHA1 e8c7059dafb4fbcacf7217ff61d5505209b3553b t/models.pl
 -----BEGIN PGP SIGNATURE-----
 Version: GnuPG v1.2.4 (Darwin)
 
-iD8DBQFEuBvEhPK6VMqoyC0RAqEvAKC1udv+kUcziZmzeCxW/dP/T3sYfQCfTJsa
-nm5sjGSaIC2+5nba2QAcMYk=
-=wsUz
+iD8DBQFEwN1WhPK6VMqoyC0RAktyAKCxbXfrEipefYUl5dM+wgVb91RL9gCfVtn3
+sMCLF0ce1+0tptHJIkNIkZ8=
+=Ggl/
 -----END PGP SIGNATURE-----
