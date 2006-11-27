@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use File::Spec;
+use URI::file;
 
 use lib qw(. t);
 BEGIN { require "models.pl"; }
@@ -12,9 +12,9 @@ my $tests	= 36;
 my @models	= test_models();
 plan tests => 1 + ($tests * scalar(@models));
 
-my $alice	= 'file://' . File::Spec->rel2abs( 'data/named_graphs/alice.rdf' );
-my $bob		= 'file://' . File::Spec->rel2abs( 'data/named_graphs/bob.rdf' );
-my $meta	= 'file://' . File::Spec->rel2abs( 'data/named_graphs/meta.rdf' );
+my $alice	= URI::file->new_abs( 'data/named_graphs/alice.rdf' );
+my $bob		= URI::file->new_abs( 'data/named_graphs/bob.rdf' );
+my $meta	= URI::file->new_abs( 'data/named_graphs/meta.rdf' );
 
 use_ok( 'RDF::Query' );
 foreach my $model (@models) {
@@ -35,9 +35,10 @@ foreach my $model (@models) {
 END
 			my ($src, $name)	= $query->get( $model );
 			ok( $src, 'got source' );
+			
 			ok( $name, 'got name' );		
 			is( $query->bridge->uri_value( $src ), $alice, 'graph uri' );
-			is( $query->bridge->as_string( $name ), 'Alice', 'name literal' );
+			is( $query->bridge->literal_value( $name ), 'Alice', 'name literal' );
 		}
 		
 		{

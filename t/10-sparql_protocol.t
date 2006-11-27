@@ -1,12 +1,12 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use File::Spec;
+use URI::file;
 
 use lib qw(. t);
 require "models.pl";
 
-my @files	= map { File::Spec->rel2abs( "data/$_" ) } qw(about.xrdf foaf.xrdf Flower-2.rdf);
+my @files	= map { "data/$_" } qw(about.xrdf foaf.xrdf Flower-2.rdf);
 my @models	= test_models( @files );
 
 use Test::More;
@@ -22,7 +22,7 @@ foreach my $model (@models) {
 	print "\n#################################\n";
 	print "### Using model: $model\n";
 	
-	{
+	SKIP: {
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 			SELECT	?person ?homepage
@@ -33,6 +33,7 @@ foreach my $model (@models) {
 					}
 			LIMIT 1
 END
+		skip "This model does not support xml serialization", 2 unless (RDF::Query->supports( $model, 'xml' ));
 		my $stream	= $query->execute( $model );
 		ok( $stream->is_bindings, 'Bindings result' );
 		my $xml		= $stream->as_xml;
@@ -53,18 +54,22 @@ END
 END
 	}
 	
-	{
+	SKIP: {
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 			ASK { ?person foaf:name "Gregory Todd Williams" }
 END
+		skip "This model does not support xml serialization", 2 unless (RDF::Query->supports( $model, 'xml' ));
 		my $stream	= $query->execute( $model );
 		ok( $stream->is_boolean, 'Boolean result' );
 		my $xml		= $stream->as_xml;
 		like( $xml, qr%<boolean>true</boolean>%sm, 'XML Boolean Results formatting' );
 	}
 	
-	{
+	TODO: {
+		### XXX Remove the eval {} below when removing the TODO.
+		local $TODO	= 'This model does not support xml serialization yet' unless (RDF::Query->supports( $model, 'xml' ));
+		
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 			PREFIX foaf: <http://xmlns.com/foaf/0.1/>
 			PREFIX dc: <http://purl.org/dc/elements/1.1/>
@@ -74,7 +79,7 @@ END
 		my $stream	= $query->execute( $model );
 		ok( $stream->is_graph, 'Graph result' );
 				
-		my $xml		= $stream->as_xml;
+		my $xml		= eval { $stream->as_xml };	# XXX remove eval when removing the TODO!
 		like( $xml, qr%:name.*?>Greg Williams<%ms, 'XML Results formatting' );
 		like( $xml, qr%:made\s+.*?rdf:resource="http://kasei\.us/pictures/2004/20040909-Ireland/images/DSC_5705\.jpg"%ms, 'XML Results formatting' );
 	}

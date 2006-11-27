@@ -66,6 +66,10 @@ package RDF::Query::Error::QueryPatternError;
 
 use base qw(RDF::Query::Error);
 
+package RDF::Query::Error::SimpleQueryPatternError;
+
+use base qw(RDF::Query::Error::QueryPatternError);
+
 package RDF::Query::Error::CompilationError;
 
 use base qw(RDF::Query::Error);

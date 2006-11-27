@@ -38,6 +38,29 @@
 			make install<br />
 		</div>
 	<h2 id="changelog">Version History</h2>
+		<h3 id="v1_041">Version 1.041 (2006-11-24)</h3>
+			<ul>
+				<li>Removed unwanted '+' signs on stringified bigints when running under perl 5.6.x.</li>
+				<li>Fixed unicode errors when running under perl 5.6.x.</li>
+				<li>Added tests for model bridge classes.</li>
+				<li>Fixed bugs in SQL bridge class.</li>
+				<li>RDFCore and Redland bridge classes now throw error when passed a bad model object.</li>
+				<li>Bridge class support() method now responds to feature requests for 'temp_model'.</li>
+				<li>Fixed bug in RDF::Query::Model::RDFCore::isa_resource returning true for blank nodes.</li>
+				<li>Fixed code in RDF::Query::Model::::SQL::equals().</li>
+				<li>Added partial support for new RDF::Storage::DBI storage class.</li>
+				<li>Added support for RDF::Query:::Model::SQL models in RDF::Query bridge code.</li>
+				<li>Removed RDF::Query::Model::SQL::* code that's now in RDF::Storage::DBI.</li>
+				<li>Added tests for backend bridge classes (RDF::Query::Model::*).</li>
+				<li>Added checks for which backends support XML serialization.</li>
+				<li>Fixed naive peephole tests in cases where model supports cost-based analysis.</li>
+				<li>Fixed bugs in tests that were relying on C<as_string> to act like C<literal_value>.</li>
+				<li>Added RDF::Base support.</li>
+				<li>Fixed bug in C<fixup> that prevented running queries against multiple models.</li>
+				<li>Added SimpleQueryPatternError exception class for future work on multi-get optimizations.</li>
+				<li>Removed forced dependence on Digest::SHA1.</li>
+				<li>Makefile.PL now recommends Digest::SHA1 (for jena function) and Geo::Distance (for 07-filters.t).</li>
+			</ul>
 		<h3 id="v1_040">Version 1.040 (2006-07-21)</h3>
 			<ul>
 				<li>Added support for BOUND() fiters in SQL compilation.</li>

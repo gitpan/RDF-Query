@@ -7,7 +7,7 @@ use_ok( 'RDF::Query' );
 use lib qw(. t);
 require "models.pl";
 
-my @files	= map { File::Spec->rel2abs( "data/$_" ) } qw(about.xrdf foaf.xrdf);
+my @files	= map { "data/$_" } qw(about.xrdf foaf.xrdf);
 my @models	= test_models( @files );
 
 foreach my $model (@models) {

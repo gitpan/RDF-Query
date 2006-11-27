@@ -1,12 +1,12 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use File::Spec;
+use URI::file;
 
 use lib qw(. t);
 BEGIN { require "models.pl"; }
 
-my @files	= map { File::Spec->rel2abs( "data/$_" ) } qw(about.xrdf foaf.xrdf);
+my @files	= map { "data/$_" } qw(about.xrdf foaf.xrdf);
 my @models	= test_models( @files );
 
 use Test::More;
@@ -37,7 +37,7 @@ foreach my $model (@models) {
 END
 		my ($x)	= $query->get( $model );
 		ok( $x, 'got collection element' );
-		is( $query->bridge->as_string( $x ), 2 );
+		is( $query->bridge->literal_value( $x ), 2 );
 	}
 
 	# - Collections: (1 ?x 3)
@@ -50,7 +50,7 @@ END
 END
 		my ($x)	= $query->get( $model );
 		ok( $x, 'got collection triples' );
-		is( $query->bridge->as_string( $x ), 2 );
+		is( $query->bridge->literal_value( $x ), 2 );
 	}
 
 	# - Collections: ?s ?p (1 ?x 3)
@@ -64,7 +64,7 @@ END
 END
 		my ($x)	= $query->get( $model );
 		ok( $x, 'got object collection triples' );
-		is( $query->bridge->as_string( $x ), 2 );
+		is( $query->bridge->literal_value( $x ), 2 );
 	}
 
 	# - Object Lists: ?x foaf:nick "kasei", "kasei_" .

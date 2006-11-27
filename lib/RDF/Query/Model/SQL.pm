@@ -17,15 +17,9 @@ use warnings;
 use base qw(RDF::Query::Model);
 use Carp qw(carp croak confess);
 
-use Scalar::Util qw(blessed);
-use File::Spec;
-use Data::Dumper;
-use Encode;
-use DBI;
-use URI;
-
+use RDF::Storage::DBI;
 use RDF::Query::Stream;
-use RDF::Query::Model::SQL::Statement;
+use Scalar::Util qw(blessed);
 
 ######################################################################
 
@@ -41,7 +35,7 @@ BEGIN {
 
 =over 4
 
-=item C<new ( $dbh, $model )>
+=item C<new ( $model )>
 
 Returns a new bridge object for the database accessibly with the C<$dbh> handle,
 using the specified C<$model> name.
@@ -50,12 +44,19 @@ using the specified C<$model> name.
 
 sub new {
 	my $class	= shift;
-	my $dbh		= shift;
 	my $model	= shift;
+	my %args	= @_;
+	
+	if (not defined $model) {
+		$model	= RDF::Storage::DBI->new();
+	}
+
+	throw RDF::Query::Error::MethodInvocationError ( -text => 'Not a RDF::Storage::DBI passed to bridge constructor' )
+		unless (blessed($model) and $model->isa('RDF::Storage::DBI'));
+	
 	my $self	= bless( {
-					dbh				=> $dbh,
 					model			=> $model,
-					model_number	=> get_model_number( $dbh, $model ),
+					parsed			=> $args{parsed},
 					sttime			=> time
 				}, $class );
 }
@@ -69,7 +70,7 @@ underlying RDBMS triplestore.
 
 sub model {
 	my $self	= shift;
-	return [ @{ $self }{qw(dbh model)} ];
+	return $self->{'model'};
 }
 
 =item C<new_resource ( $uri )>
@@ -81,7 +82,7 @@ Returns a new resource object.
 sub new_resource {
 	my $self	= shift;
 	my $uri		= shift;
-	return bless({ uri => $uri }, 'RDF::Query::Model::SQL::Resource');
+	return RDF::Node::Resource->new( uri => $uri );
 }
 
 =item C<new_literal ( $string, $language, $datatype )>
@@ -95,7 +96,15 @@ sub new_literal {
 	my $value	= shift;
 	my $lang	= shift;
 	my $type	= shift;
-	return RDF::Query::Model::SQL::Literal->new( $value, $lang, $type );
+	
+	my %args	= ( value => $value );
+	if ($lang) {
+		$args{ language }	= $lang;
+	} elsif ($type) {
+		$args{ datatype }	= $type;
+	}
+	
+	return RDF::Node::Literal->new( %args );
 }
 
 =item C<new_blank ( $identifier )>
@@ -110,7 +119,7 @@ sub new_blank {
 	unless ($id) {
 		$id	= 'r' . $self->{'sttime'} . 'r' . $self->{'counter'}++;
 	}
-	return bless({ identifier => $id }, 'RDF::Query::Model::SQL::Blank');
+	return RDF::Node::Blank->new( name => $id );
 }
 
 =item C<new_statement ( $s, $p, $o )>
@@ -120,8 +129,9 @@ Returns a new statement object.
 =cut
 
 sub new_statement {
-	my $self	= shift;
-	return RDF::Query::Model::SQL::Statement->new( @_ );
+	my $self		= shift;
+	my ($s,$p,$o)	= @_;
+	return RDF::Statement->new( subject => $s, predicate => $p, object => $o );
 }
 
 =item C<is_node ( $node )>
@@ -135,11 +145,8 @@ Returns true if C<$node> is a node object for the current model.
 sub is_node {
 	my $self	= shift;
 	my $node	= shift;
-	return unless ref($node);
-	return 1 if $node->isa_resource;
-	return 1 if $node->isa_literal;
-	return 1 if $node->isa_blank;
-	return 0 ;
+	return unless blessed($node);
+	return $node->isa('RDF::Node');
 }
 
 =item C<is_resource ( $node )>
@@ -153,8 +160,8 @@ Returns true if C<$node> is a resource object for the current model.
 sub is_resource {
 	my $self	= shift;
 	my $node	= shift;
-	return unless ref($node);
-	return $node->isa('RDF::Query::Model::SQL::Resource');
+	return unless blessed($node);
+	return $node->isa('RDF::Node::Resource');
 }
 
 =item C<is_literal ( $node )>
@@ -168,8 +175,8 @@ Returns true if C<$node> is a literal object for the current model.
 sub is_literal {
 	my $self	= shift;
 	my $node	= shift;
-	return unless ref($node);
-	return $node->isa('RDF::Query::Model::SQL::Literal');
+	return unless blessed($node);
+	return $node->isa('RDF::Node::Literal');
 }
 
 =item C<is_blank ( $node )>
@@ -183,13 +190,16 @@ Returns true if C<$node> is a blank node object for the current model.
 sub is_blank {
 	my $self	= shift;
 	my $node	= shift;
-	return unless ref($node);
-	return $node->isa('RDF::Query::Model::SQL::Blank');
+	return unless blessed($node);
+	return $node->isa('RDF::Node::Blank');
 }
 
 *RDF::Query::Model::SQL::isa_node		= \&is_node;
 *RDF::Query::Model::SQL::isa_resource	= \&is_resource;
 *RDF::Query::Model::SQL::isa_literal	= \&is_literal;
+*RDF::Query::Model::SQL::isa_blank		= \&is_blank;
+
+
 
 =item C<< equals ( $node_a, $node_b ) >>
 
@@ -201,9 +211,30 @@ sub equals {
 	my $self	= shift;
 	my $nodea	= shift;
 	my $nodeb	= shift;
-	
-	return 0 unless (blessed($nodea));
-	return $nodea->equals( $nodeb );
+	if ($self->is_resource( $nodea ) and $self->is_resource( $nodeb )) {
+		return ($nodea->uri_value eq $nodeb->uri_value);
+	} elsif ($self->is_literal( $nodea ) and $self->is_literal( $nodeb )) {
+		my @values	= map { $self->literal_value( $_ ) } ($nodea, $nodeb);
+		my @langs	= map { $self->literal_value_language( $_ ) } ($nodea, $nodeb);
+		my @types	= map { $self->literal_datatype( $_ ) } ($nodea, $nodeb);
+		
+		if ($values[0] eq $values[1]) {
+			no warnings 'uninitialized';
+			if (@langs) {
+				return ($langs[0] eq $langs[1]);
+			} elsif (@types) {
+				return ($types[0] eq $types[1]);
+			} else {
+				return 1;
+			}
+		} else {
+			return 0;
+		}
+	} elsif ($self->is_blank( $nodea ) and $self->is_blank( $nodeb )) {
+		return ($nodea->blank_identifier eq $nodeb->blank_identifier);
+	} else {
+		return 0;
+	}
 }
 
 =item C<as_string ( $node )>
@@ -233,7 +264,8 @@ Returns the string value of the literal object.
 sub literal_value {
 	my $self	= shift;
 	my $node	= shift;
-	return $node->{ value };
+	return unless (blessed($node));
+	return $node->literal_value;
 }
 
 =item C<literal_datatype ( $node )>
@@ -245,7 +277,8 @@ Returns the datatype of the literal object.
 sub literal_datatype {
 	my $self	= shift;
 	my $node	= shift;
-	return $node->{ type };
+	return unless (blessed($node));
+	return $node->datatype;
 }
 
 =item C<literal_value_language ( $node )>
@@ -257,7 +290,8 @@ Returns the language of the literal object.
 sub literal_value_language {
 	my $self	= shift;
 	my $node	= shift;
-	return $node->{ lang };
+	return unless (blessed($node));
+	return $node->language;
 }
 
 =item C<uri_value ( $node )>
@@ -269,7 +303,8 @@ Returns the URI string of the resource object.
 sub uri_value {
 	my $self	= shift;
 	my $node	= shift;
-	return $node->{ uri };
+	return unless (blessed($node));
+	return $node->uri_value;
 }
 
 =item C<blank_identifier ( $node )>
@@ -281,7 +316,8 @@ Returns the identifier for the blank node object.
 sub blank_identifier {
 	my $self	= shift;
 	my $node	= shift;
-	return $node->{ identifier };
+	return unless (blessed($node));
+	return $node->blank_identifier;
 }
 
 =item C<add_uri ( $uri, $named )>
@@ -355,103 +391,8 @@ predicate and objects. Any of the arguments may be undef to match any value.
 sub get_statements {
 	my $self	= shift;
 	my @triple	= @_;
-	Carp::confess "get_statements";
 	
-	my $dbh		= $self->{'dbh'};
-	my $model	= $self->{'model'};
-	my $mnum	= $self->{'model_number'};
-	
-	my @where;
-	my @bind;
-	my @map		= qw(Subject Predicate Object);
-	foreach my $i (0 .. 2) {
-		my $node	= $triple[$i];
-		my $id;
-		if ($self->is_node($node)) {
-			if (ref($node) and $node->{ID}) {
-				$id	= $node->{ID};
-			} elsif ($self->is_resource($node)) {
-				my $sth	= $dbh->prepare('SELECT ID FROM Resources WHERE URI = ?');
-				$sth->execute( $self->uri_value($node) );
-				($id)	= $sth->fetchrow_array;
-				warn "Got uri $id = [" . $self->uri_value($node) . "]\n" if ($debug);
-			} elsif ($self->is_blank($node)) {
-				my $sth	= $dbh->prepare('SELECT ID FROM Bnodes WHERE Name = ?');
-				$sth->execute( $self->blank_identifier($node) );
-				($id)	= $sth->fetchrow_array;
-				warn "Got blank $id = (" . $self->blank_identifier($node) . ")\n" if ($debug);
-			} elsif ($self->is_literal($node)) {
-				my $sth	= $dbh->prepare('SELECT ID FROM Literals WHERE Value = ?');
-				$sth->execute( $self->literal_value($node) );
-				($id)	= $sth->fetchrow_array;
-				warn "Got literal $id = \"" . $self->literal_value($node) . "\"\n" if ($debug);
-			}
-			
-			if ($id) {
-				$node->{ID}	= $id;
-				$self->{cache}{$id}	= $node;
-				push(@where, join(' ', $map[$i], '=', $id));
-			} else {
-				return undef; # RDF::Query::Stream->new( sub { return undef } );
-			}
-		}
-	}
-	
-	my $sql	= "SELECT Subject, Predicate, Object FROM Statements${mnum} WHERE " . join(' AND ', @where);
-	my $sth	= $dbh->prepare( $sql );
-	$sth->execute();
-	
-	my $finished	= 0;
-	my $stream	= sub {
-		return undef if ($finished);
-		my @data	= $sth->fetchrow_array;
-		unless (@data) {
-			$finished	= 1;
-			return undef;
-		}
-		
-		my @const	= ([qw(new_resource uri)],  [qw(new_blank name)], [qw(new_literal value)]);
-		my @sql	= (
-					"SELECT * FROM Resources WHERE ID = ? LIMIT 1",
-					"SELECT * FROM Bnodes WHERE ID = ? LIMIT 1",
-					"SELECT * FROM Literals WHERE ID = ? LIMIT 1"
-				);
-		my @nodes;
-		foreach my $id (@data) {
-			my $added	= 0;
-			if (exists $self->{cache}{$id}) {
-				$added	= 1;
-				push(@nodes, $self->{cache}{$id});
-			} else {
-				foreach my $i (0 .. 2) {
-					my $method	= $const[ $i ][0];
-					my $sql		= $sql[$i];
-					$sql		=~ s/\?/$id/;
-					my $sth		= $dbh->prepare( $sql );
-					$sth->execute();
-					warn "$sql\t\t($id)\n" if ($debug);
-					my $data	= $sth->fetchrow_hashref;
-					if (ref $data) {
-						my $node		= $self->$method( @{ $data }{ @{ $const[$i] }[1 .. $#{ $const[$i] }] } );
-						$node->{ ID }	= $id;
-						$self->{cache}{$id}	= $node;
-						warn '-> yes: ' . join(', ', @{ $data }{ @{ $const[$i] }[1 .. $#{ $const[$i] }] } ) if ($debug);
-						push(@nodes, $node);
-						$added++;
-						last;
-					} else {
-						warn "-> no: " . $dbh->errstr . "\n" if ($debug);
-					}
-				}
-				unless ($added) {
-					warn "Uh oh.";
-					return undef;
-				}
-			}
-		}
-		
-		my $st		= $self->new_statement( @nodes );
-	};
+	my $stream	= $self->model->get_statements( @triple );
 	return RDF::Query::Stream->new( $stream, 'graph', undef, bridge => $self );
 }
 
@@ -469,23 +410,24 @@ sub as_xml {
 	return '';
 }
 
-=begin private
+=item C<supports ($feature)>
 
-=item C<< get_model_number ( $model ) >>
+Returns true if the underlying model supports the named C<$feature>.
+Possible features include:
 
-Returns the identifier for the named C<$model>.
-
-=end private
+	* named_graph
+	* node_counts
+	* temp_model
+	* xml
 
 =cut
 
-sub get_model_number {
-	my $dbh		= shift;
-	my $model	= shift;
-	my $sth		= $dbh->prepare( 'SELECT ID FROM Models WHERE Name = ?' );
-	$sth->execute( $model );
-	my ($id)	= $sth->fetchrow_array;
-	return $id;
+sub supports {
+	my $self	= shift;
+	my $feature	= shift;
+	
+	return 1 if ($feature eq 'temp_model');
+	return 0;
 }
 
 
@@ -535,195 +477,6 @@ sub stream {
 	return RDF::Query::Stream->new( $code, 'bindings', \@vars, bridge => $self );
 }
 
-
-package RDF::Query::Model::SQL::Node;
-use base qw(RDF::Query::Model::SQL);
-
-=begin private
-
-=item C<< is_node >>
-
-Returns true.
-
-=end private
-
-=cut
-
-sub is_node {
-	my $self	= shift;
-	return 1;
-	return RDF::Query::Model::SQL->is_node( $self );
-}
-
-=begin private
-
-=item C<< is_resource >>
-
-Returns true if the node is a resource object.
-
-=end private
-
-=cut
-
-sub is_resource {
-	my $self	= shift;
-	return RDF::Query::Model::SQL->is_resource( $self );
-}
-
-=begin private
-
-=item C<< is_literal >>
-
-Returns true if the node is a literal object.
-
-=end private
-
-=cut
-
-sub is_literal {
-	my $self	= shift;
-	return RDF::Query::Model::SQL->is_literal( $self );
-}
-
-=begin private
-
-=item C<< is_blank >>
-
-Returns true if the node is a blank object.
-
-=end private
-
-=cut
-
-sub is_blank {
-	my $self	= shift;
-	return RDF::Query::Model::SQL->is_blank( $self );
-}
-
-package RDF::Query::Model::SQL::Resource;
-use base qw(RDF::Query::Model::SQL::Node);
-use URI;
-
-=begin private
-
-=item C<< uri >>
-
-Returns a URI object for the resource node.
-
-=end private
-
-=cut
-
-sub uri {
-	my $self	= shift;
-	return URI->new( $self->{uri} );
-}
-
-=begin private
-
-=item C<< uri_value >>
-
-Returns the URI value of the resource node.
-
-=end private
-
-=cut
-
-sub uri_value {
-	my $self	= shift;
-	my $value	= RDF::Query::Model::SQL->uri_value( $self );
-	return $value;
-}
-
-package RDF::Query::Model::SQL::Blank;
-use base qw(RDF::Query::Model::SQL::Node);
-
-=begin private
-
-=item C<< blank_identifier >>
-
-Returns the identifier of the blank node.
-
-=end private
-
-=cut
-
-sub blank_identifier {
-	my $self	= shift;
-	my $value	= RDF::Query::Model::SQL->blank_identifier( $self );
-	return $value;
-}
-
-package RDF::Query::Model::SQL::Literal;
-use base qw(RDF::Query::Model::SQL::Node);
-
-=begin private
-
-=item C<< new ( $value, $language, $datatype ) >>
-
-Returns a new literal node object with the specified C<$value>, C<$language>, and C<$datatype>.
-
-=end private
-
-=cut
-
-sub new {
-	my $class	= shift;
-	my $value	= shift;
-	my $lang	= shift;
-	my $type	= shift;
-	return bless({ value => $value, lang => $lang, type => $type }, 'RDF::Query::Model::SQL::Literal');
-}
-
-=begin private
-
-=item C<< literal_value >>
-
-Returns the string value of the literal node.
-
-=end private
-
-=cut
-
-sub literal_value {
-	my $self	= shift;
-	my $value	= RDF::Query::Model::SQL->literal_value( $self );
-	return $value;
-}
-
-=begin private
-
-=item C<< literal_value_language >>
-
-Returns the language of the literal node.
-
-=end private
-
-=cut
-
-sub literal_value_language {
-	my $self	= shift;
-	my $lang	= RDF::Query::Model::SQL->literal_value_language( $self );
-	return unless $lang;
-	return $self->new( $lang, undef, undef );
-}
-
-=begin private
-
-=item C<< literal_datatype >>
-
-Returns the datatype value of the literal node.
-
-=end private
-
-=cut
-
-sub literal_datatype {
-	my $self	= shift;
-	my $dt		= RDF::Query::Model::SQL->literal_datatype( $self );
-	return unless $dt;
-	return $self->new( $dt );
-}
 
 
 __END__

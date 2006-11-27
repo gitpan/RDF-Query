@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
+use URI::file;
 use Test::More tests => 16;
 use Data::Dumper;
 
@@ -10,7 +11,8 @@ SKIP: {
 	eval "use RDF::Query::Model::Redland;";
 	skip "Failed to load RDF::Redland", 15 if $@;
 	
-	my @data	= map { RDF::Redland::URI->new( 'file://' . File::Spec->rel2abs( "data/$_" ) ) } qw(about.xrdf foaf.xrdf);
+	my @uris	= map { URI::file->new_abs( "data/$_" ) } qw(about.xrdf foaf.xrdf Flower-2.rdf);
+	my @data	= map { RDF::Redland::URI->new( "$_" ) } @uris;
 	my $storage	= new RDF::Redland::Storage("hashes", "test", "new='yes',hash-type='memory'");
 	my $model	= new RDF::Redland::Model($storage, "");
 	my $parser	= new RDF::Redland::Parser("rdfxml");

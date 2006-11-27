@@ -18,10 +18,11 @@ lib/RDF/Query.pm
 lib/RDF/Query/Compiler/SQL.pm
 lib/RDF/Query/Error.pm
 lib/RDF/Query/Model.pm
+lib/RDF/Query/Model/RDFBase.pm
 lib/RDF/Query/Model/RDFCore.pm
 lib/RDF/Query/Model/Redland.pm
 lib/RDF/Query/Model/SQL.pm
-lib/RDF/Query/Model/SQL/Statement.pm
+lib/RDF/Query/Optimizer/Multiget.pm
 lib/RDF/Query/Optimizer/Peephole.pm
 lib/RDF/Query/Optimizer/Peephole/Cost.pm
 lib/RDF/Query/Optimizer/Peephole/Naive.pm
@@ -59,8 +60,10 @@ t/19-pod.t
 t/20-pod_coverage.t
 t/21-optimizer-peephole-naive.t
 t/22-optimizer-peephole-cost.t
+t/23-model_bridge.t
+t/24-optimizer-multiget.t
 t/models.pl
-
+examples/livejournal.pl
 inc/Module/Install/Base.pm
 inc/Module/Install/Makefile.pm
 inc/Module/Install/MakeMaker.pm

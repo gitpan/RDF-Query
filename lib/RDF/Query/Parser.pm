@@ -24,7 +24,7 @@ use Carp qw(carp croak confess);
 
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
-	$debug		= 1;
+	$debug		= 0;
 	$VERSION	= do { my $REV = (qw$Revision: 121 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
@@ -221,6 +221,7 @@ sub fail {
 	my $self	= shift;
 	my $error	= shift;
 	
+	no warnings 'uninitialized';
 	my $parsed	= substr($self->{input}, 0, $self->{position});
 	my $line	= ($parsed =~ tr/\n//) + 1;
 	my ($lline)	= $parsed =~ m/^(.*)\Z/mx;

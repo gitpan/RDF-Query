@@ -1,7 +1,7 @@
 # RDF::Query
 # -------------
-# $Revision: 171 $
-# $Date: 2006-07-21 09:55:52 -0400 (Fri, 21 Jul 2006) $
+# $Revision: 181 $
+# $Date: 2006-11-24 14:56:44 -0500 (Fri, 24 Nov 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -61,17 +61,21 @@ use RDF::Query::Parser::RDQL;
 use RDF::Query::Parser::SPARQL;
 use RDF::Query::Compiler::SQL;
 use RDF::Query::Error qw(:try);
+
+use RDF::Query::Optimizer::Multiget;
 use RDF::Query::Optimizer::Peephole::Naive;
 use RDF::Query::Optimizer::Peephole::Cost;
 
 ######################################################################
 
 our ($REVISION, $VERSION, $debug);
+use constant DEBUG	=> 0;
 BEGIN {
 	$debug		= 0;
-	$REVISION	= do { my $REV = (qw$Revision: 171 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
-	$VERSION	= '1.040';
+	$REVISION	= do { my $REV = (qw$Revision: 181 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= '1.041';
 }
+
 
 ######################################################################
 
@@ -102,6 +106,7 @@ sub new {
 					dateparser	=> $f,
 					parser		=> $parser,
 					parsed		=> $parsed,
+					parsed_orig	=> $parsed,
 				}, $class );
 	
 	unless ($parsed->{'triples'}) {
@@ -140,6 +145,9 @@ sub execute {
 	my $self	= shift;
 	my $model	= shift;
 	my %args	= @_;
+	
+	
+	$self->{parsed}	= dclone( $self->{parsed_orig} );
 	my $parsed	= $self->{parsed};
 	
 	my $stream;
@@ -201,17 +209,27 @@ sub execute {
 	} elsif ($args{'require_sql'}) {
 		throw RDF::Query::Error::CompilationError ( -text => 'Failed to compile query to SQL' );
 	} else {
-		my $opt		= RDF::Query::Optimizer::Peephole->new( $self, $bridge );
-		my $cost	= $opt->optimize;
+		unless ($self->{optimized}{'peephole'}++) {
+			my $opt		= RDF::Query::Optimizer::Peephole->new( $self, $bridge );
+			my $cost	= $opt->optimize;
+		}
+		
+		unless ($self->{optimized}{'multi_get'}++) {
+			if ($bridge->supports('multi_get')) {
+				my $mopt	= RDF::Query::Optimizer::Multiget->new( $self, $bridge, size => 3 );
+				$mopt->optimize;
+			}
+		}
 		
 		$parsed		= $self->fixup( $self->{parsed} );
-		$stream		= $self->query_more( bound => \%bound, triples => [@{ $parsed->{'triples'} }], variables => [ $self->variables ] );
+		my @vars	= $self->variables( $parsed );
+		$stream		= $self->query_more( bound => \%bound, triples => [@{ $parsed->{'triples'} }], variables => \@vars );
 		
 		_debug( "got stream: $stream" );
 		$stream		= RDF::Query::Stream->new(
 						$self->sort_rows( $stream, $parsed ),
 						'bindings',
-						[ $self->variables() ],
+						\@vars,
 						bridge	=> $bridge
 					);
 		
@@ -221,7 +239,7 @@ sub execute {
 	if ($parsed->{'method'} eq 'DESCRIBE') {
 		$stream	= $self->describe( $stream );
 	} elsif ($parsed->{'method'} eq 'CONSTRUCT') {
-		$stream	= $self->construct( $stream );
+		$stream	= $self->construct( $stream, $parsed );
 	} elsif ($parsed->{'method'} eq 'ASK') {
 		$stream	= $self->ask( $stream );
 	}
@@ -295,20 +313,21 @@ uery's CONSTRUCT graph patterns.
 sub construct {
 	my $self	= shift;
 	my $stream	= shift;
+	my $parsed	= shift;
 	my $bridge	= $self->bridge;
 	my @streams;
 	
 	my %seen;
 	my %variable_map;
 	my %blank_map;
-	foreach my $var_count (0 .. $#{ $self->parsed->{'variables'} }) {
-		$variable_map{ $self->parsed->{'variables'}[ $var_count ][1] }	= $var_count;
+	foreach my $var_count (0 .. $#{ $parsed->{'variables'} }) {
+		$variable_map{ $parsed->{'variables'}[ $var_count ][1] }	= $var_count;
 	}
 	
 	while ($stream and not $stream->finished) {
 		my $row	= $stream->current;
 		my @triples;
-		foreach my $triple (@{ $self->parsed->{'construct_triples'} }) {
+		foreach my $triple (@{ $parsed->{'construct_triples'} }) {
 			my @triple	= @{ $triple };
 			for my $i (0 .. 2) {
 				if (reftype($triple[$i]) eq 'ARRAY') {
@@ -411,9 +430,19 @@ Returns the class name of a model backend that is present and loadable on the sy
 sub loadable_bridge_class {
 	my $self	= shift;
 	
+	eval "use RDF::Query::Model::RDFBase;";
+	if (RDF::Query::Model::RDFBase->can('new')) {
+		return 'RDF::Query::Model::RDFBase';
+	}
+	
 	eval "use RDF::Query::Model::Redland;";
 	if (RDF::Query::Model::Redland->can('new')) {
 		return 'RDF::Query::Model::Redland';
+	}
+	
+	eval "use RDF::Query::Model::SQL;";
+	if (RDF::Query::Model::SQL->can('new')) {
+		return 'RDF::Query::Model::SQL';
 	}
 	
 	eval "use RDF::Query::Model::RDFCore;";
@@ -466,7 +495,9 @@ sub get_bridge {
 	if (not $model) {
 		$bridge	= $self->new_bridge();
 	} elsif (blessed($model) and $model->isa('DBD')) {
-		$bridge	= RDF::Query::Model::SQL->new( $model, $args{'model'}, parsed => $parsed );
+		require RDF::Query::Model::SQL;
+		my $storage	= RDF::Storage::DBI->new( $model, $args{'model'} );
+		$bridge	= RDF::Query::Model::SQL->new( $storage, parsed => $parsed );
 	} elsif (my $dbh = (ref($self) ? $self->{'dbh'} : undef) || $args{'dbh'}) {
 		require RDF::Query::Model::SQL;
 		no warnings 'uninitialized';
@@ -474,7 +505,10 @@ sub get_bridge {
 			throw RDF::Query::Error::ExecutionError ( -text => 'No model specified for DBI-based triplestore' );
 		}
 		
-		$bridge	= RDF::Query::Model::SQL->new( $dbh, $args{'model'}, parsed => $parsed );
+		my $storage	= RDF::Storage::DBI->new( $dbh, $args{'model'} );
+		$bridge	= RDF::Query::Model::SQL->new( $storage, parsed => $parsed );
+	} elsif (blessed($model) and $model->isa('RDF::Base::Model')) {
+		$bridge	= RDF::Query::Model::RDFBase->new( $model, parsed => $parsed );
 	} elsif (blessed($model) and $model->isa('RDF::Redland::Model')) {
 		require RDF::Query::Model::Redland;
 		$bridge	= RDF::Query::Model::Redland->new( $model, parsed => $parsed );
@@ -505,8 +539,9 @@ Does last-minute fix-up on the parse tree. This involves:
 
 sub fixup {
 	my $self		= shift;
-	my $parsed		= shift;
+	my $orig		= shift;
 	my $bridge		= $self->{bridge};
+	my $parsed		= dclone( $orig );
 	
 	my %known_variables;
 	
@@ -546,7 +581,7 @@ sub fixup {
 		} elsif ($triple->[0] eq 'FILTER') {
 			my @constraints	= ($triple->[1]);
 			while (my $data = shift @constraints) {
-				_debug( "FIXING CONSTRAINT DATA: " . Dumper($data), 2 );
+				_debug( "FIXING CONSTRAINT DATA: " . Dumper($data), 2 ) if (DEBUG);
 				if (reftype($data) eq 'ARRAY') {
 					my ($op, @rest)	= @$data;
 					if ($op eq 'URI') {
@@ -562,11 +597,18 @@ sub fixup {
 					}
 				}
 			}
+		} elsif ($triple->[0] eq 'MULTI') {
+			foreach my $i (1 .. $#{ $triple }) {
+				push(@triples, $triple->[ $i ]);
+			}
 		} else {
-			my @vars	= map { $_->[1] } grep { reftype($_) eq 'ARRAY' and $_->[0] eq 'VAR' } @{ $triple };
+			my @vars	= map { $_->[1] }
+							grep { ref($_) and reftype($_) eq 'ARRAY' and $_->[0] eq 'VAR' }
+								@{ $triple };
 			foreach my $var (@vars) {
 				$known_variables{ $var }++
 			}
+			
 			$self->fixup_triple_bridge_variables( $triple );
 		}
 	}
@@ -615,6 +657,9 @@ sub fixup_triple_bridge_variables {
 	my $self	= shift;
 	my $triple	= shift;
 	my ($sub,$pred,$obj)	= @{ $triple };
+	
+	Carp::cluck unless ref($pred);
+	
 	if (reftype($pred) eq 'ARRAY' and $pred->[0] eq 'URI') {
 		my $preduri		= $self->qualify_uri( $pred );
 		$triple->[1]	= $self->bridge->new_resource($preduri);
@@ -696,20 +741,37 @@ sub query_more {
 			}
 		} elsif ($triples[0][0] eq 'UNION') {
 			return $self->union( bound => $bound, triples => \@triples, %args );
+		} elsif ($triples[0][0] eq 'MULTI') {
+			return $self->multi( bound => $bound, triples => \@triples, %args );
 		}
 	} else {
+		# no more triples. return what we've got.
 		my @values	= map { $bound->{$_} } @$variables;
 		my @rows	= [@values];
 		return sub { shift(@rows) };
 	}
 	
+	
+# 	if ($bridge->supports('multi_get') and scalar(@triples) == 4) {
+# 		try {
+# 			my $iter	= $bridge->multi_get( triples => [@triples] );
+# 			warn $iter;
+# 		} catch RDF::Query::Error::SimpleQueryPatternError with {
+# 			my $e	= shift;
+# #			warn "caught $e";
+# 		};
+# 	}
+	
+	
 	my $triple		= shift(@triples);
 	my @triple		= @{ $triple };
 	
 	no warnings 'uninitialized';
-	_debug( "${indent}query_more: " . join(' ', map { (($bridge->isa_node($_)) ? '<' . $bridge->as_string($_) . '>' : (reftype($_) eq 'ARRAY') ? $_->[1] : Dumper($_)) } @triple) . "\n" );
-	_debug( "${indent}-> with " . scalar(@triples) . " triples to go\n" );
-	_debug( "${indent}-> more: " . (($_->[0] =~ m/^(OPTIONAL|GRAPH|FILTER)$/) ? "$1 block" : join(' ', map { $bridge->isa_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
+	if (DEBUG) {
+		_debug( "${indent}query_more: " . join(' ', map { (($bridge->isa_node($_)) ? '<' . $bridge->as_string($_) . '>' : (reftype($_) eq 'ARRAY') ? $_->[1] : Dumper($_)) } @triple) . "\n" );
+		_debug( "${indent}-> with " . scalar(@triples) . " triples to go\n" );
+		_debug( "${indent}-> more: " . (($_->[0] =~ m/^(OPTIONAL|GRAPH|FILTER)$/) ? "$1 block" : join(' ', map { $bridge->isa_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
+	}
 	
 	my $vars	= 0;
 	my ($var, $method);
@@ -737,8 +799,10 @@ sub query_more {
 		}
 	}
 	
-	_debug( "${indent}getting: " . join(', ', grep defined, @vars) . "\n" );
-	_debug( 'query_more triple: ' . Dumper([map { blessed($_) ? $bridge->as_string($_) : ($_) ? Dumper($_) : 'undef' } (@triple, (($bridge->isa_node($context)) ? $context : ()))]) );
+	if (DEBUG) {
+		_debug( "${indent}getting: " . join(', ', grep defined, @vars) . "\n" );
+		_debug( 'query_more triple: ' . Dumper([map { blessed($_) ? $bridge->as_string($_) : ($_) ? Dumper($_) : 'undef' } (@triple, (($bridge->isa_node($context)) ? $context : ()))]) );
+	}
 	
 	my @graph;
 	if (ref($context) and reftype($context) eq 'ARRAY' and ($context->[0] eq 'VAR')) {
@@ -754,6 +818,7 @@ sub query_more {
 	
 	my $stream;
 	my @streams;
+	
 	my $statments	= $bridge->get_statements( @triple, @graph );
 	if ($statments) {
 		push(@streams, sub {
@@ -807,9 +872,12 @@ sub query_more {
 			}
 			
 			if (scalar(@triples)) {
-				_debug( "${indent}-> now for more triples...\n" );
-				_debug( "${indent}-> more: " . (($_->[0] =~ m/^(OPTIONAL|GRAPH|FILTER)$/) ? "$1 block" : join(' ', map { $bridge->isa_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
-				_debug( "${indent}-> " . Dumper(\@triples) );
+				if (DEBUG) {
+					_debug( "${indent}-> now for more triples...\n" );
+					_debug( "${indent}-> more: " . (($_->[0] =~ m/^(OPTIONAL|GRAPH|FILTER)$/) ? "$1 block" : join(' ', map { $bridge->isa_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
+					_debug( "${indent}-> " . Dumper(\@triples) );
+				}
+				
 				$indent	.= '  ';
 				_debug( 'adding a new stream for more triples' );
 				unshift(@streams, $self->query_more( bound => { %{ $bound } }, triples => [@triples], variables => $variables, ($context ? (context => $context ) : ()) ) );
@@ -832,8 +900,11 @@ sub query_more {
 			}
 			
 			if ($result) {
-				local($Data::Dumper::Indent)	= 0;
-				_debug( 'found a result: ' . Dumper($result) );
+				if (DEBUG) {
+					local($Data::Dumper::Indent)	= 0;
+					_debug( 'found a result: ' . Dumper($result) );
+				}
+				
 				return ($result);
 			} else {
 				_debug( 'no results yet...' );
@@ -910,6 +981,58 @@ sub union {
 		}
 		return undef;
 	};	
+}
+
+=begin private
+
+=item C<multi ( bound => \%bound, triples => \@triples )>
+
+Called by C<query_more()> to handle multi-get queries (where multiple triples
+have been combined into one functional unit). Returns by calling C<query_more()>
+with any remaining triples.
+
+=end private
+
+=cut
+
+sub multi {
+	my $self		= shift;
+	my %args	= @_;
+	
+	my $bound	= delete($args{bound});
+	my $triples	= delete($args{triples});
+	my $context	= $args{context};
+	
+	my @triples	= @{$triples};
+	my $multi	= shift(@triples);
+	
+	my $bridge	= $self->bridge;
+	my $stream	= $bridge->multi_get( triples => [ @{ $multi }[ 1 .. $#{ $multi } ] ] );
+	
+	my $closed	= 0;
+	my $more_stream;
+	my $multi_bindings	= $stream->next;
+	return sub {
+		while (1) {
+			if (not($more_stream)) {
+				$multi_bindings	= $stream->next;
+				if ($multi_bindings) {
+					$more_stream	= $self->query_more( bound => { %{ $bound }, %{ $multi_bindings } }, triples => [@triples], %args );
+				} else {
+					$closed	= 1;
+					undef $stream;
+				}
+			}
+			
+			return undef if ($closed);
+			my $value	= $more_stream->();
+			if ($value) {
+				return $value;
+			} else {
+				undef $more_stream;
+			}
+		}
+	};
 }
 
 =begin private
@@ -1020,7 +1143,7 @@ sub named_graph {
 	my (undef, $context, $named_triples)	= @{ $triple };
 	my @named_triples	= @{ $named_triples };
 	
-	_debug( 'named triples: ' . Dumper(\@named_triples), 1 );
+	_debug( 'named triples: ' . Dumper(\@named_triples), 1 ) if (DEBUG);
 	my $nstream	= $self->query_more( bound => $bound, triples => \@named_triples, variables => $variables, context => $context );
 	
 	_debug( 'named stream: ' . $nstream, 1 );
@@ -1252,7 +1375,8 @@ sub check_constraints {
 	my $self	= shift;
 	my $values	= shift;
 	my $data	= shift;
-	_debug( 'check_constraints: ' . Dumper($data), 2 );
+	
+	_debug( 'check_constraints: ' . Dumper($data), 2 ) if (DEBUG);
 	return 1 unless scalar(@$data);
 	my $op		= $data->[0];
 	my $code	= $dispatch{ $op };
@@ -1266,7 +1390,7 @@ sub check_constraints {
 		} catch RDF::Query::Error::TypeError with {
 			$result	= undef;
 		};
-		_debug( "OP: $op -> " . Dumper($data), 2 );
+		_debug( "OP: $op -> " . Dumper($data), 2 ) if (DEBUG);
 #		warn "RESULT: " . $result . "\n\n";
 		return $result;
 	} else {
@@ -1498,11 +1622,11 @@ sub sort_rows {
 	my $unique		= $args->{'distinct'};
 	my $orderby		= $args->{'orderby'};
 	my $offset		= $args->{'offset'} || 0;
-	my @variables	= $self->variables;
+	my @variables	= $self->variables( $parsed );
 	my %colmap		= map { $variables[$_] => $_ } (0 .. $#variables);
 	
 	if ($unique or $orderby or $offset or $limit) {
-		_debug( 'sort_rows column map: ' . Dumper(\%colmap) );
+		_debug( 'sort_rows column map: ' . Dumper(\%colmap) ) if (DEBUG);
 	}
 	
 	if ($unique) {
@@ -1531,7 +1655,7 @@ sub sort_rows {
 		
 		my @nodes;
 		while (my $node = $nodes->()) {
-			_debug( "node for sorting: " . Dumper($node) );
+			_debug( "node for sorting: " . Dumper($node) ) if (DEBUG);
 			push(@nodes, $node);
 		}
 		
@@ -1601,7 +1725,7 @@ Returns a list of the ordered variables the query is selecting.
 
 sub variables {
 	my $self	= shift;
-	my $parsed	= $self->parsed;
+	my $parsed	= shift || $self->parsed;
 	my @vars	= map { $_->[1] } @{ $parsed->{'variables'} };
 	return @vars;
 }
@@ -1623,6 +1747,20 @@ sub all_variables {
 	return @vars;
 }
 
+
+=item C<parsed ()>
+
+Returns the parse tree.
+
+=cut
+
+sub parsed {
+	my $self	= shift;
+	if (@_) {
+		$self->{parsed}	= shift;
+	}
+	return $self->{parsed};
+}
 
 =item C<error ()>
 

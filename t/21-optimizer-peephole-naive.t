@@ -3,7 +3,15 @@ use strict;
 use warnings;
 
 use Data::Dumper;
-use Test::More tests => 108;
+use Test::More;
+
+if ($] < 5.007003) {
+	plan skip_all => "These tests won't always work without the stable sorting in perl >= 5.7.3";
+	exit;
+} else {
+	plan tests => 108;
+}
+
 
 use YAML;
 use RDF::Query;
@@ -21,7 +29,7 @@ SKIP: {
 	
 	{
 		my $query	= RDF::Query->new( 'ASK { ?s ?p ?o }', undef, undef, 'sparql' );
-		my $opt	= RDF::Query::Optimizer::Peephole->new( $query, $bridge );
+		my $opt	= RDF::Query::Optimizer::Peephole::Naive->new( $query, $bridge );
 		isa_ok( $opt, 'RDF::Query::Optimizer::Peephole::Naive' );
 	}
 	
@@ -31,14 +39,14 @@ SKIP: {
 		
 		{
 			my $query	= RDF::Query->new( $sparql, undef, undef, 'sparql' );
-			my $opt		= RDF::Query::Optimizer::Peephole->new( $query, $bridge );
+			my $opt		= RDF::Query::Optimizer::Peephole::Naive->new( $query, $bridge );
 			my $cost	= $opt->optimize_triplepattern( $query->{'parsed'}{'triples'} );
-			cmp_ok( abs( $cost - $expected_cost->{'naive_cost'} ), '<', $DELTA, "cost of ${name}" );
+			my $ok		= cmp_ok( abs( $cost - $expected_cost->{'naive_cost'} ), '<', $DELTA, "cost of ${name}" );
 		}
 		
 		{
 			my $query	= RDF::Query->new( $sparql, undef, undef, 'sparql' );
-			my $opt		= RDF::Query::Optimizer::Peephole->new( $query, $bridge );
+			my $opt		= RDF::Query::Optimizer::Peephole::Naive->new( $query, $bridge );
 			$opt->optimize( $query );
 			is_deeply($query->{'parsed'}{'triples'}, $expected_naive_parsed->{'triples'}, "optimized triple pattern order of ${name}");
 		}

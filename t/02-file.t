@@ -3,6 +3,7 @@ use strict;
 use warnings;
 use Test::More tests => 11;
 use Data::Dumper;
+use URI::file;
 
 my $loaded	= use_ok( 'RDF::Query' );
 BAIL_OUT( "RDF::Query not loaded" ) unless ($loaded);
@@ -10,7 +11,10 @@ BAIL_OUT( "RDF::Query not loaded" ) unless ($loaded);
 eval "use LWP::Simple ();";
 our $LWP_SUPPORT	= ($@) ? 0 : 1;
 
-my $file	= 'file://' . File::Spec->rel2abs( File::Spec->catfile("data", "foaf.xrdf") );
+my $file	= URI::file->new_abs( 'data/foaf.xrdf' );
+# if ($file =~ m#^file://(\w):\\#) {	# windows?
+# 	$file	=~ s/\\/\//g;
+# }
 
 SKIP: {
 	eval "use RDF::Query::Model::Redland;";
@@ -59,6 +63,9 @@ SKIP: {
 		USING
 			foaf FOR <http://xmlns.com/foaf/0.1/>
 END
+	unless ($query) {
+		warn RDF::Query->error;
+	}
 	my @results	= $query->execute( $model );
 	is( scalar(@results), 1, 'Got one result' );
 	isa_ok( $results[0], 'ARRAY' );

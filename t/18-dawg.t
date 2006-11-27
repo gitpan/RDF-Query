@@ -3,10 +3,15 @@
 use strict;
 use warnings;
 use File::Find ();
-use File::Spec;
 use Data::Dumper;
 use RDF::Query;
 use Test::More;
+use URI::file;
+
+if ($] < 5.007003) {
+	plan skip_all => 'perl >= 5.7.3 required';
+	exit;
+}
 
 if ($ENV{RDFQUERY_BIGTEST}) {
 #	plan qw(no_plan);
@@ -37,18 +42,21 @@ foreach my $test_data (@tests) {
 	my ($path, $data, $inc_data, $query, $results, $total)	= @$test_data;
 	
 	my $model	= new_model( ($data) ? glob( "${path}${data}" ) : () );
-	
-	foreach my $num (1..$total) {
+	TEST: foreach my $num (1..$total) {
 		if ($inc_data) {
-			add_to_model( $model, glob(sprintf("${path}${inc_data}", $num)) );
+			my @files	= glob(sprintf("${path}${inc_data}", $num));
+			next unless (@files);
+			foreach my $file (@files) {
+				next TEST unless (-r $file);
+			}
+			add_to_model( $model, @files );
 		}
 		
-		my $sparql	= do { local($/) = undef; open(my $fh, '<', sprintf("${path}${query}", $num)); <$fh> };
-#		my $sparql	< io(sprintf("${path}${query}", $num));
+		my $filename	= sprintf("${path}${query}", $num);
+		next unless (-r $filename);
+		my $sparql	= do { local($/) = undef; open(my $fh, '<', $filename); <$fh> };
 		my $expected	= get_expected_results( (glob(sprintf("${path}${results}", $num)))[0] );
 		my $actual		= get_actual_results( $model, $sparql );
-#		warn "expected results: " . Dumper($expected);
-#		warn "actual results: " . Dumper($actual);
 		compare_results( $expected, $actual );
 	}
 	print "\n\n\n";
@@ -73,7 +81,8 @@ sub add_to_model {
 	my $parser		= RDF::Redland::Parser->new("turtle");
 	my $base_uri	= RDF::Redland::URI->new( 'http://example.org/base#' );
 	foreach my $file (@files) {
-		my $source_uri	= RDF::Redland::URI->new( 'file://' . File::Spec->rel2abs( $file ) );
+		my $uri			= URI::file->new_abs( $file );
+		my $source_uri	= RDF::Redland::URI->new( "$uri" );
 		$parser->parse_into_model($source_uri, $base_uri, $model);
 	}
 	return 1;
@@ -166,7 +175,7 @@ sub compare_results {
 ######################################################################
 
 
-use Encode;
+require Encode;
 
 sub get_first_as_string  {
 	my $node	= get_first_obj( @_ );
@@ -181,7 +190,7 @@ sub node_as_string {
 		if ($node->type == $RDF::Redland::Node::Type_Resource) {
 			return $node->uri->as_string;
 		} elsif ($node->type == $RDF::Redland::Node::Type_Literal) {
-			return decode('utf8', $node->literal_value);
+			return Encode::decode('utf8', $node->literal_value);
 		} else {
 			return $node->blank_identifier;
 		}
@@ -193,12 +202,12 @@ sub node_as_string {
 
 sub get_first_literal {
 	my $node	= get_first_obj( @_ );
-	return $node ? decode('utf8', $node->literal_value) : undef;
+	return $node ? Encode::decode('utf8', $node->literal_value) : undef;
 }
 
 sub get_all_literal {
 	my @nodes	= get_all_obj( @_ );
-	return map { decode('utf8', $_->literal_value) } grep { $_->can('literal_value') } @nodes;
+	return map { Encode::decode('utf8', $_->literal_value) } grep { $_->can('literal_value') } @nodes;
 }
 
 sub get_first_uri {

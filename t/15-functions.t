@@ -9,7 +9,7 @@ BEGIN { require "models.pl"; }
 use Test::More;
 
 my $tests	= 11;
-my @models	= test_models( map { File::Spec->rel2abs($_) } qw(data/foaf.xrdf data/about.xrdf));
+my @models	= test_models( qw(data/foaf.xrdf data/about.xrdf) );
 plan tests => 1 + ($tests * scalar(@models));
 
 use_ok( 'RDF::Query' );

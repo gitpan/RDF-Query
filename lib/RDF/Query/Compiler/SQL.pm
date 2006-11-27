@@ -392,6 +392,7 @@ sub patterns2sql {
 			} elsif ($type eq 'URI') {
 				my $uri	= $node->[1];
 				my $id	= $self->_mysql_node_hash( $node );
+				$id		=~ s/\D//;
 				$add_where->( "${col} = $id" );
 			} elsif ($type eq 'BLANK') {
 				my $id	= $node->[1];
@@ -403,6 +404,7 @@ sub patterns2sql {
 			} elsif ($type eq 'LITERAL') {
 				my $literal	= $node->[1];
 				my $id	= $self->_mysql_node_hash( $node );
+				$id		=~ s/\D//;
 				$add_where->( "${col} = $id" );
 			} else {
 				throw RDF::Query::Error::CompilationError( -text => "Unknown node type: $type" );
@@ -412,6 +414,11 @@ sub patterns2sql {
 	} else {
 		my $op	= $triple->[0];
 		if ($op eq 'OPTIONAL') {
+			# XXX OPTIONAL compilation is totally broken. The queries don't work when
+			# XXX the OPTIONAL pattern contains variables used outside of the OPTIONAL
+			# XXX pattern.
+			throw RDF::Query::Error::CompilationError( -text => "SQL compilation of OPTIONAL blocks is currently broken" );
+			
 			my $pattern	= $triple->[1];
 			++$$level;
 			my @w;
@@ -466,6 +473,7 @@ sub patterns2sql {
 								if ($f =~ /^Statements/i) {
 									my $alias	= (split(/ /, $f))[1];
 									if (defined($context)) {
+										$context	=~ s/\D//;
 										$add_where->( "${alias}.Context = ${context}" );
 									} else {
 										$context	= "${alias}.Context";
@@ -481,6 +489,7 @@ sub patterns2sql {
 								my $f	= shift;
 								if ($f =~ /^Statements/i) {
 									my $alias	= (split(/ /, $f))[1];
+									$hash	=~ s/\D//;
 									$add_where->( "${alias}.Context = ${hash}" );
 								}
 								return $f;
@@ -554,6 +563,20 @@ sub expr2sql {
 	
 	Carp::confess unless ref($expr);
 	my ($op, @args)	= @{ $expr };
+	
+	if ($op eq '!') {
+		try {
+			if ($args[0][0] eq 'FUNCTION') {
+				if ($args[0][1][0] eq 'URI' and $args[0][1][1] eq 'sop:isBound') {
+					($op, @args)	= (
+										'FUNCTION',
+										( [ 'URI', 'rdfquery:isNotBound' ], $args[0][2] )
+									);
+				}
+			}
+		} otherwise {};
+	}
+	
 	
 	if ($op eq '~~') {
 		$op	= 'FUNCTION';
@@ -747,6 +770,7 @@ sub _mysql_hash {
 		$sum		+= $part;
 	} # continue { last if ++$count == 8 }	# limit to 64 bits
 #	warn "= $sum\n";
+	$sum	=~ s/\D//;	# get rid of the extraneous '+' that pops up under perl 5.6
 	return $sum;
 }
 
@@ -897,6 +921,18 @@ $functions{ 'sop:isBound' }	= sub {
 	
 	my $literal	= $self->expr2sql( $args[0], $level );
 	push(@where, sprintf(qq(%s IS NOT NULL), $literal));
+	return ({}, \@from, \@where);
+};
+
+$functions{ 'rdfquery:isNotBound' }	= sub {
+	my $self	= shift;
+	my $parsed_vars	= shift;
+	my $level	= shift || \do{ my $a = 0 };
+	my @args	= @_;
+	my (@from, @where);
+	
+	my $literal	= $self->expr2sql( $args[0], $level );
+	push(@where, sprintf(qq(%s IS NULL), $literal));
 	return ({}, \@from, \@where);
 };
 

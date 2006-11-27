@@ -1,7 +1,7 @@
 # RDF::Query::Parser::SPARQL
 # -------------
-# $Revision: 165 $
-# $Date: 2006-07-19 22:57:39 -0400 (Wed, 19 Jul 2006) $
+# $Revision: 187 $
+# $Date: 2006-11-24 15:05:43 -0500 (Fri, 24 Nov 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -19,7 +19,6 @@ use base qw(RDF::Query::Parser);
 use RDF::Query::Error qw(:try);
 
 use Data::Dumper;
-use Digest::SHA1  qw(sha1_hex);
 use Carp qw(carp croak confess);
 
 ######################################################################
@@ -27,7 +26,7 @@ use Carp qw(carp croak confess);
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
 	$debug		= 0 || $RDF::Query::Parser::debug;
-	$VERSION	= do { my $REV = (qw$Revision: 165 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 187 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	$lang		= 'sparql';
 	$languri	= 'http://www.w3.org/TR/rdf-sparql-query/';
 }
@@ -348,12 +347,25 @@ Returns the parse tree for a QName prefix.
 
 =cut
 
+BEGIN {
+	our $ncname_prefix_ncchar1p;
+	our $ncname_prefix_ncchar;
+	$ncname_prefix_ncchar1p	= ($] < 5.007)
+				? qr/[A-Za-z\xC0\xD6\xD8-\xF6\xF8-\xFF]/
+				: eval ' qr/[A-Za-z\x{00C0}-\x{00D6}\x{00D8}-\x{00F6}\x{00F8}-\x{02FF}\x{0370}-\x{037D}\x{037F}-\x{1FFF}\x{200C}-\x{200D}\x{2070}-\x{218F}\x{2C00}-\x{2FEF}\x{3001}-\x{D7FF}\x{F900}-\x{FDCF}\x{FDF0}-\x{FFFD}\x{10000}-\x{EFFFF}]/x ';
+	$ncname_prefix_ncchar		= ($] < 5.007)
+				? qr/${ncname_prefix_ncchar1p}|_|[0-9]|\xB7/
+				: eval ' qr/${ncname_prefix_ncchar1p}|_|[0-9]|\x{00B7}|[\x{0300}-\x{036F}]|[\x{203F}-\x{2040}]/x ';
+}
+
 sub parse_ncname_prefix {
 	my $self		= shift;
-	my $ncchar1p	= qr/[A-Za-z\x{00C0}-\x{00D6}\x{00D8}-\x{00F6}\x{00F8}-\x{02FF}\x{0370}-\x{037D}\x{037F}-\x{1FFF}\x{200C}-\x{200D}\x{2070}-\x{218F}\x{2C00}-\x{2FEF}\x{3001}-\x{D7FF}\x{F900}-\x{FDCF}\x{FDF0}-\x{FFFD}\x{10000}-\x{EFFFF}]/x;
-	my $ncchar		= qr/${ncchar1p}|_|[0-9]|\x{00B7}|[\x{0300}-\x{036F}]|[\x{203F}-\x{2040}]/x;
-	my $ncchar_p	= qr/${ncchar1p}((${ncchar}|[.])*${ncchar})?/x;
-	return $self->match_pattern(qr/${ncchar_p}/);
+	our $ncname_prefix_ncchar1p;
+	our $ncname_prefix_ncchar;
+	
+	my $ncchar_p	= qr/${ncname_prefix_ncchar1p}((${ncname_prefix_ncchar}|[.])*${ncname_prefix_ncchar})?/x;
+	
+	return $self->match_pattern(${ncchar_p});
 }
 
 =begin private

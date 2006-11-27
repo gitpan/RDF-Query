@@ -22,7 +22,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 167 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 175 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	eval "use LWP::Simple ();";
 	our $LWP_SUPPORT	= ($@) ? 0 : 1;
 }
@@ -44,10 +44,12 @@ sub new {
 	my $model	= shift;
 	my %args	= @_;
 	
-	unless (blessed($model) and $model->isa('RDF::Core::Model')) {
+	if (not defined $model) {
 		my $storage	= new RDF::Core::Storage::Memory;
 		$model	= new RDF::Core::Model (Storage => $storage);
 	}
+	throw RDF::Query::Error::MethodInvocationError ( -text => 'Not a RDF::Core::Model object passed to bridge constructor' ) unless (blessed($model) and $model->isa('RDF::Core::Model'));
+	
 	my $factory	= new RDF::Core::NodeFactory;
 	my $self	= bless( {
 					model	=> $model,
@@ -142,7 +144,13 @@ Returns true if C<$node> is a resource object for the current model.
 sub isa_resource {
 	my $self	= shift;
 	my $node	= shift;
-	return UNIVERSAL::isa($node,'RDF::Core::Resource');
+	my $rsrc	= (blessed($node) and $node->isa('RDF::Core::Resource'));
+	if ($rsrc) {
+		my $label	= $node->getLabel;
+		return ($label !~ m/^_:/);
+	} else {
+		return;
+	}
 }
 
 =item C<is_literal ( $node )>
@@ -195,6 +203,7 @@ sub equals {
 		my @types	= map { $self->literal_datatype( $_ ) } ($nodea, $nodeb);
 		
 		if ($values[0] eq $values[1]) {
+			no warnings 'uninitialized';
 			if (@langs) {
 				return ($langs[0] eq $langs[1]);
 			} elsif (@types) {
@@ -285,7 +294,9 @@ Returns the identifier for the blank node object.
 sub blank_identifier {
 	my $self	= shift;
 	my $node	= shift;
-	return $node->getLabel;
+	my $label	= $node->getLabel;
+	$label		=~ s/^_://;
+	return $label;
 }
 
 =item C<add_uri ( $uri, $named )>
@@ -380,8 +391,12 @@ sub get_statements {
 	my $self	= shift;
 	my $enum	= $self->{'model'}->getStmts( @_ );
 	my $stmt	= $enum->getNext;
+	my $finished	= 0;
 	my $stream	= sub {
-		return undef unless defined($stmt);
+		$finished	= 1 if (@_ and $_[0] eq 'close');
+		$finished	= 1 unless defined($stmt);
+		return undef if ($finished);
+		
 		my $ret	= $stmt;
 		$stmt	= $enum->getNext;
 		return $ret;
@@ -422,12 +437,16 @@ Returns true if the underlying model supports the named C<$feature>.
 Possible features include:
 
 	* named_graph
+	* xml
 
 =cut
 
 sub supports {
 	my $self	= shift;
 	my $feature	= shift;
+	
+	return 1 if ($feature eq 'temp_model');
+	return 1 if ($feature eq 'xml');
 	return 0;
 }
 
@@ -450,7 +469,6 @@ sub as_xml {
 	my $serializer	= RDF::Core::Model::Serializer->new(
 						Model	=> $model,
 						Output	=> \$xml,
-#						BaseURI => $self->base_ns,
 					);
 	$serializer->serialize;
 	return $xml;

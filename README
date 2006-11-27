@@ -28,6 +28,29 @@ INSTALLATION
 
 VERSION HISTORY
 
+  Version 1.041 (2006-11-24)
+
+     * Removed unwanted '+' signs on stringified bigints when running under perl 5.6.x.
+     * Fixed unicode errors when running under perl 5.6.x.
+     * Added tests for model bridge classes.
+     * Fixed bugs in SQL bridge class.
+     * RDFCore and Redland bridge classes now throw error when passed a bad model object.
+     * Bridge class support() method now responds to feature requests for 'temp_model'.
+     * Fixed bug in RDF::Query::Model::RDFCore::isa_resource returning true for blank nodes.
+     * Fixed code in RDF::Query::Model::::SQL::equals().
+     * Added partial support for new RDF::Storage::DBI storage class.
+     * Added support for RDF::Query:::Model::SQL models in RDF::Query bridge code.
+     * Removed RDF::Query::Model::SQL::* code that's now in RDF::Storage::DBI.
+     * Added tests for backend bridge classes (RDF::Query::Model::*).
+     * Added checks for which backends support XML serialization.
+     * Fixed naive peephole tests in cases where model supports cost-based analysis.
+     * Fixed bugs in tests that were relying on C<as_string> to act like C<literal_value>.
+     * Added RDF::Base support.
+     * Fixed bug in C<fixup> that prevented running queries against multiple models.
+     * Added SimpleQueryPatternError exception class for future work on multi-get optimizations.
+     * Removed forced dependence on Digest::SHA1.
+     * Makefile.PL now recommends Digest::SHA1 (for jena function) and Geo::Distance (for 07-filters.t).
+
   Version 1.040 (2006-07-21)
 
      * Added support for BOUND() fiters in SQL compilation.
@@ -294,4 +317,4 @@ AUTHOR
 
 	Gregory Williams <gwilliams@cpan.org>
 
-$Id: README 171 2006-07-21 13:55:52Z samofool $
+$Id: README 175 2006-09-23 21:04:15Z samofool $

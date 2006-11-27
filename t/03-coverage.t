@@ -1,7 +1,7 @@
 #!/usr/bin/perl
+
 use strict;
 use warnings;
-use File::Spec;
 use Test::Exception;
 use Scalar::Util qw(refaddr);
 
@@ -9,7 +9,7 @@ use lib qw(. t);
 BEGIN { require "models.pl"; }
 
 my $debug	= 0;
-my @files	= map { File::Spec->rel2abs( "data/$_" ) } qw(about.xrdf foaf.xrdf);
+my @files	= map { "data/$_" } qw(about.xrdf foaf.xrdf);
 my @models	= test_models( @files );
 
 use Test::More;
@@ -20,7 +20,7 @@ use_ok( 'RDF::Query' );
 foreach my $model (@models) {
 	print "\n#################################\n";
 	print "### Using model: $model\n";
-	
+
 	{
 		print "# bridge object accessors\n" if ($debug);
 		my $query	= new RDF::Query ( <<"END", undef, 'http://jena.hpl.hp.com/2003/07/query/RDQL', undef );
@@ -76,7 +76,7 @@ END
 		ok( $query->bridge->isa_resource( $h ), 'isa_resource(resource)' );
 		is( $query->bridge->uri_value( $h ), 'http://kasei.us/', 'http://kasei.us/' );
 	}
-	
+
 	{
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
@@ -90,7 +90,7 @@ END
 		ok( $name, 'got name' );
 		is( $query->bridge->literal_value( $name ), 'Cliffs of Moher, Ireland', 'Cliffs of Moher, Ireland' );
 	}
-	
+
 	{
 		print "# RDQL query\n" if ($debug);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
@@ -105,7 +105,7 @@ END
 		ok( $query->bridge->isa_resource( $person ), 'Resource' );
 		is( $query->bridge->uri_value( $person ), 'http://kasei.us/about/foaf.xrdf#greg', 'Person uri' );
 	}
-	
+
 	{
 		print "# Triple with QName subject\n" if ($debug);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
@@ -121,7 +121,7 @@ END
 		ok( $query->bridge->isa_literal( $name ), 'Literal' );
 		is( $query->bridge->literal_value( $name ), 'Gregory Todd Williams', 'Person name' );
 	}
-	
+
 	{
 		print "# Early triple with multiple unbound variables\n" if ($debug);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
@@ -139,9 +139,9 @@ END
 		is( $query->bridge->uri_value( $results[0][0] ), 'http://kasei.us/about/foaf.xrdf#greg', 'Person uri' );
 		is( $query->bridge->literal_value( $results[0][1] ), 'Gregory Todd Williams', 'Person name' );
 		is( $query->bridge->literal_value($results[0][1]), 'Gregory Todd Williams', 'Person name #2' );
-		is( $query->bridge->as_string($results[0][1]), 'Gregory Todd Williams', 'Person name #3' );
+		like( $query->bridge->as_string($results[0][1]), qr'Gregory Todd Williams', 'Person name #3' );
 	}
-	
+
 	{
 		print "# Triple with no variable, present in data\n" if ($debug);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
@@ -157,7 +157,7 @@ END
 		ok( $query->bridge->isa_resource( $results[0][0] ), 'Person Resource' );
 		is( $query->bridge->uri_value( $results[0][0] ), 'http://kasei.us/about/foaf.xrdf#greg', 'Person uri' );
 	}
-	
+
 	{
 		print "# Triple with no variable, not present in data\n" if ($debug);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
@@ -172,7 +172,7 @@ END
 		my @results	= $query->execute( $model );
 		is( scalar(@results), 0, 'No data returned for bogus triple' );
 	}
-	
+
 	{
 		print "# Query with one triple, two variables\n" if ($debug);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
@@ -189,7 +189,7 @@ END
 		my ($person)	= $query->get( $model );
 		ok( $query->bridge->isa_node($person), 'one triple, two variables (get call)' );
 	}
-	
+
 	{
 		print "# Broken query triple (variable with missing '?')\n" if ($debug);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
@@ -202,7 +202,7 @@ END
 END
 		is( $query, undef, 'Error (undef row) on no triples (query call)' );
 	}
-	
+
 	{
 		print "# Backend tests\n" if ($debug);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
@@ -225,7 +225,7 @@ END
 		ok( !$query->bridge->isa_literal( $homepage ), 'isa_literal(resource)' );
 		ok( $query->bridge->isa_literal( $name ), 'isa_literal(literal)' );
 	}
-	
+
 	{
 		print "# SPARQL getting foaf:aimChatID by foaf:nick\n" if ($debug);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
@@ -237,9 +237,9 @@ END
 		my $row		= $results[0];
 		my ($aim)	= @{ $row };
 		ok( $query->bridge->isa_literal( $aim ), 'isa_literal' );
-		is( $query->bridge->as_string($aim), 'samofool', 'got string' );
+		like( $query->bridge->as_string($aim), qr'samofool', 'got string' );
 	}
-	
+
 	{
 		print "# SPARQL getting foaf:aimChatID by foaf:nick on non-existant person\n" if ($debug);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
@@ -249,7 +249,7 @@ END
 		my @results	= $query->execute( $model );
 		is( scalar(@results), 0, '0 results' );
 	}
-	
+
 	{
 		print "# SPARQL getting blank nodes (geo:Points) and sorting by genid\n" if ($debug);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
@@ -299,7 +299,7 @@ END
 		is( $query->bridge->uri_value( $result->[1] ), 'http://www.w3.org/1999/02/22-rdf-syntax-ns#Property' );
 		
 	}
-	
+
 	{
 		print "# SPARQL query with default namespace\n" if ($debug);
 		my $query	= new RDF::Query ( <<"END", undef, 'http://www.w3.org/TR/rdf-sparql-query/', undef );
@@ -372,7 +372,7 @@ END
 		}
 		is( $count, 1, '1 result' );
 	}
-	
+
 	{
 		print "# SPARQL query; Stream accessors\n" if ($debug);
 		my $query	= new RDF::Query ( <<"END", undef, 'http://www.w3.org/TR/rdf-sparql-query/', undef );

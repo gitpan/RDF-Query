@@ -97,6 +97,12 @@ sub optimize_triplepattern {
 			} elsif ($type eq 'OPTIONAL') {
 				my $cost	= max( 1, $self->optimize_triplepattern( $part->[1] ) );
 				push(@cost, [ $cost, $part ]);
+			} elsif ($type eq 'MULTI') {
+				Carp::cluck;
+				my $cost	= reduce { $a + $b }
+							map { $self->optimize_triplepattern( $_ ) }
+								(@{ $part }[ 1 .. $#{ $part } ]);
+				push(@cost, [ $cost, $part ]);
 			} elsif ($type eq 'UNION') {
 				my $cost	= reduce { $a + $b }
 							map { $self->optimize_triplepattern( $_ ) }

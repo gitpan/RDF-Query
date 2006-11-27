@@ -1,7 +1,7 @@
 # RDF::Query::Parser::RDQL
 # -------------
-# $Revision: 152 $
-# $Date: 2006-06-26 15:15:25 -0400 (Mon, 26 Jun 2006) $
+# $Revision: 175 $
+# $Date: 2006-09-23 17:04:15 -0400 (Sat, 23 Sep 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -18,7 +18,6 @@ use base qw(RDF::Query::Parser);
 
 use Data::Dumper;
 use Parse::RecDescent;
-use Digest::SHA1  qw(sha1_hex);
 use Carp qw(carp croak confess);
 use RDF::Query::Error qw(:try);
 use Scalar::Util qw(blessed);
@@ -30,7 +29,7 @@ BEGIN {
 	$::RD_TRACE	= undef;
 	$::RD_HINT	= undef;
 	$debug		= 1;
-	$VERSION	= do { my $REV = (qw$Revision: 152 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 175 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	$lang		= 'rdql';
 	$languri	= 'http://jena.hpl.hp.com/2003/07/query/RDQL';
 }
@@ -230,7 +229,12 @@ sub parse {
 	my $query	= shift;
 	my $parser	= $self->parser;
 	my $parsed	= $parser->query( $query );
-	return $parsed;
+	
+	if ($parsed) {
+		return $parsed;
+	} else {
+		return $self->fail( "Failed to parse: '$query'" );
+	}
 }
 
 sub AUTOLOAD {

@@ -6,9 +6,42 @@
 @prefix asc:     <http://aaronland.info/ns/changefile/> .
                                      
 <>
-        dc:identifier           "$Id: Changes.ttl 171 2006-07-21 13:55:52Z samofool $" ;
+        dc:identifier           "$Id: Changes.ttl 175 2006-09-23 21:04:15Z samofool $" ;
         dc:description          "Changes for RDF::Query" ;
         dcterms:references      <http://kasei.us/code/rdf-query/> .
+
+<http://kasei.us/code/files/RDF-Query-1.041.tar.gz>
+        dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
+        dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.040.tar.gz> ;
+
+        doap:Version    [
+                        doap:revision     "1.041" ;
+                        doap:created      "2006-11-24" ;
+                        ];
+        asc:changes     [
+                        asc:addition      "Added tests for model bridge classes." .
+                        asc:addition      "Added partial support for new RDF::Storage::DBI storage class." .
+                        asc:addition      "Added tests for backend bridge classes (RDF::Query::Model::*)." .
+                        asc:addition      "Added checks for which backends support XML serialization." .
+                        asc:addition      "Added RDF::Base support." .
+                        asc:addition      "Added SimpleQueryPatternError exception class for future work on multi-get optimizations." .
+                        asc:addition      "Removed unwanted '+' signs on stringified bigints when running under perl 5.6.x." .
+                        asc:update        "Fixed unicode errors when running under perl 5.6.x." .
+                        asc:update        "Skips tests that rely on stable sorting when running under perl 5.6.x." .
+                        asc:update        "Fixed bugs in SQL bridge class." .
+                        asc:update        "RDFCore and Redland bridge classes now throw error when passed a bad model object." .
+                        asc:update        "Bridge class support() method now responds to feature requests for 'temp_model'." .
+                        asc:update        "Fixed bug in RDF::Query::Model::RDFCore::isa_resource returning true for blank nodes." .
+                        asc:update        "Fixed code in RDF::Query::Model::::SQL::equals()." .
+                        asc:update        "Added support for RDF::Query:::Model::SQL models in RDF::Query bridge code." .
+                        asc:update        "Removed RDF::Query::Model::SQL::* code that's now in RDF::Storage::DBI." .
+                        asc:update        "Fixed naive peephole tests in cases where model supports cost-based analysis." .
+                        asc:update        "Fixed bugs in tests that were relying on C<as_string> to act like C<literal_value>." .
+                        asc:update        "Fixed bug in C<fixup> that prevented running queries against multiple models." .
+                        asc:update        "Removed forced dependence on Digest::SHA1." .
+                        asc:update        "Makefile.PL now recommends Digest::SHA1 (for jena function) and Geo::Distance (for 07-filters.t)." .
+                        ] .
+
 
 <http://kasei.us/code/files/RDF-Query-1.040.tar.gz>
         dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;

@@ -1,12 +1,12 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use File::Spec;
+use URI::file;
 
 use lib qw(. t);
 BEGIN { require "models.pl"; }
 
-my @files	= map { File::Spec->rel2abs( "data/$_" ) } qw(foaf.xrdf);
+my @files	= map { "data/$_" } qw(foaf.xrdf);
 my @models	= test_models( @files );
 
 use Test::More;
