@@ -80,6 +80,7 @@ END
 		ok( $stream->is_graph, 'Graph result' );
 				
 		my $xml		= eval { $stream->as_xml };	# XXX remove eval when removing the TODO!
+		no warnings 'uninitialized';
 		like( $xml, qr%:name.*?>Greg Williams<%ms, 'XML Results formatting' );
 		like( $xml, qr%:made\s+.*?rdf:resource="http://kasei\.us/pictures/2004/20040909-Ireland/images/DSC_5705\.jpg"%ms, 'XML Results formatting' );
 	}

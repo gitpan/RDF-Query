@@ -1,7 +1,7 @@
 # RDF::Query::Parser::SPARQL
 # -------------
-# $Revision: 187 $
-# $Date: 2006-11-24 15:05:43 -0500 (Fri, 24 Nov 2006) $
+# $Revision: 194 $
+# $Date: 2007-04-18 22:26:36 -0400 (Wed, 18 Apr 2007) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -26,7 +26,7 @@ use Carp qw(carp croak confess);
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
 	$debug		= 0 || $RDF::Query::Parser::debug;
-	$VERSION	= do { my $REV = (qw$Revision: 187 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 194 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	$lang		= 'sparql';
 	$languri	= 'http://www.w3.org/TR/rdf-sparql-query/';
 }
@@ -1035,7 +1035,6 @@ sub parse_primary_expression {
 		return $self->fail('Expecting a primary expression');
 	}
 	
-	warn "got primary expr: " . Dumper($expr) if ($debug > 1);
 	return $expr;
 }
 
@@ -1117,7 +1116,7 @@ sub parse_built_in_call_expression {
 		$self->set_commit;
 		$self->match_literal(')');
 		$self->unset_commit;
-		return $self->new_function_expression( $self->new_uri('XXX IS IRI'), $node );
+		return $self->new_function_expression( $self->new_uri('sop:isIRI'), $node );
 	} elsif ($self->match_literal('isURI', 1)) {
 		$self->set_commit;
 		$self->match_literal('(');

@@ -17,7 +17,8 @@ use warnings;
 use base qw(RDF::Query::Model);
 use Carp qw(carp croak confess);
 
-use RDF::Storage::DBI;
+use RDF::Base;
+use RDF::Base::Storage::DBI;
 use RDF::Query::Stream;
 use Scalar::Util qw(blessed);
 
@@ -48,11 +49,12 @@ sub new {
 	my %args	= @_;
 	
 	if (not defined $model) {
-		$model	= RDF::Storage::DBI->new();
+		$model	= RDF::Base::Storage::DBI->new();
 	}
 
-	throw RDF::Query::Error::MethodInvocationError ( -text => 'Not a RDF::Storage::DBI passed to bridge constructor' )
-		unless (blessed($model) and $model->isa('RDF::Storage::DBI'));
+	unless (blessed($model) and ($model->isa('RDF::Base::Storage') or $model->isa('RDF::Base::Model'))) {
+		throw RDF::Query::Error::MethodInvocationError ( -text => 'Not a RDF::Base::Storage::DBI passed to bridge constructor' );
+	}
 	
 	my $self	= bless( {
 					model			=> $model,
@@ -82,7 +84,7 @@ Returns a new resource object.
 sub new_resource {
 	my $self	= shift;
 	my $uri		= shift;
-	return RDF::Node::Resource->new( uri => $uri );
+	return RDF::Base::Node::Resource->new( uri => $uri );
 }
 
 =item C<new_literal ( $string, $language, $datatype )>
@@ -104,7 +106,7 @@ sub new_literal {
 		$args{ datatype }	= $type;
 	}
 	
-	return RDF::Node::Literal->new( %args );
+	return RDF::Base::Node::Literal->new( %args );
 }
 
 =item C<new_blank ( $identifier )>
@@ -119,7 +121,7 @@ sub new_blank {
 	unless ($id) {
 		$id	= 'r' . $self->{'sttime'} . 'r' . $self->{'counter'}++;
 	}
-	return RDF::Node::Blank->new( name => $id );
+	return RDF::Base::Node::Blank->new( name => $id );
 }
 
 =item C<new_statement ( $s, $p, $o )>
@@ -131,7 +133,7 @@ Returns a new statement object.
 sub new_statement {
 	my $self		= shift;
 	my ($s,$p,$o)	= @_;
-	return RDF::Statement->new( subject => $s, predicate => $p, object => $o );
+	return RDF::Base::Statement->new( subject => $s, predicate => $p, object => $o );
 }
 
 =item C<is_node ( $node )>
@@ -146,7 +148,7 @@ sub is_node {
 	my $self	= shift;
 	my $node	= shift;
 	return unless blessed($node);
-	return $node->isa('RDF::Node');
+	return $node->isa('RDF::Base::Node');
 }
 
 =item C<is_resource ( $node )>
@@ -161,7 +163,7 @@ sub is_resource {
 	my $self	= shift;
 	my $node	= shift;
 	return unless blessed($node);
-	return $node->isa('RDF::Node::Resource');
+	return $node->isa('RDF::Base::Node::Resource');
 }
 
 =item C<is_literal ( $node )>
@@ -176,7 +178,7 @@ sub is_literal {
 	my $self	= shift;
 	my $node	= shift;
 	return unless blessed($node);
-	return $node->isa('RDF::Node::Literal');
+	return $node->isa('RDF::Base::Node::Literal');
 }
 
 =item C<is_blank ( $node )>
@@ -191,7 +193,7 @@ sub is_blank {
 	my $self	= shift;
 	my $node	= shift;
 	return unless blessed($node);
-	return $node->isa('RDF::Node::Blank');
+	return $node->isa('RDF::Base::Node::Blank');
 }
 
 *RDF::Query::Model::SQL::isa_node		= \&is_node;
@@ -396,6 +398,7 @@ sub get_statements {
 	return RDF::Query::Stream->new( $stream, 'graph', undef, bridge => $self );
 }
 
+
 =item C<as_xml ($stream)>
 
 Returns an RDF/XML serialization of the results graph.
@@ -449,6 +452,7 @@ sub stream {
 	my $vars	= $parsed->{variables};
 	my @vars	= map { $_->[1] } @$vars;
 	
+	use Data::Dumper;
 	warn "Variables: " . Dumper(\@vars) if ($debug);
 	
 	my $code	= sub {

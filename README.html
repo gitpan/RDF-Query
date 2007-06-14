@@ -38,7 +38,26 @@
 			make install<br />
 		</div>
 	<h2 id="changelog">Version History</h2>
-		<h3 id="v1_041">Version 1.041 (2006-11-24)</h3>
+		<h3 id="v1_042">Version 1.042 (2007-06-13)</h3>
+			<ul>
+				<li>Added support for Javascript URL-based extension functions.</li>
+				<li>Added GPG signing support for Javascript functions.</li>
+				<li>Added meta methods to model classes.</li>
+				<li>Added count_statements methods to model classes.</li>
+				<li>Added default format for stringifying query result streams.</li>
+				<li>Added SPARQL syntax coverage tests.</li>
+				<li>Added stream tests.</li>
+				<li>ISIRI() now returns a sop:isIRI function IRI.</li>
+				<li>Redland bridge add_uri strips off URI fragment from parser base URI.</li>
+				<li>Underlying models aren't loaded if turned off by environment variables.</li>
+				<li>Stopped using the (currently broken) multi-get code.</li>
+				<li>Model classes aren't used if turned off by environment variable.</li>
+				<li>Standardized node testing to is_node (replacing older isa_node).</li>
+				<li>GPG verification failure now throws exceptions.</li>
+				<li>GPG fingerprint handling is now whitespace insensitive.</li>
+				<li>Removed (currently) unused multiget tests.</li>
+				<li>Redland bridge uri_value returns undef if not called with a node.</li>			</ul>
+		<h3 id="v1_041">Version 1.041 (2006-11-26)</h3>
 			<ul>
 				<li>Removed unwanted '+' signs on stringified bigints when running under perl 5.6.x.</li>
 				<li>Fixed unicode errors when running under perl 5.6.x.</li>
@@ -320,5 +339,5 @@
 	<h2>Copyright</h2>
 		<p>Copyright &copy; 2005&#8211;2006 Gregory Williams. All rights reserved. This program is free software; you can redistribute it and/or modify it under the same terms as Perl itself.</p>
 	
-	$Id: README.html 171 2006-07-21 13:55:52Z samofool $
+	$Id: README.html 209 2007-06-13 20:04:02Z samofool $
 </body></html>

@@ -28,7 +28,27 @@ INSTALLATION
 
 VERSION HISTORY
 
-  Version 1.041 (2006-11-24)
+  Version 1.042 (2007-06-13)
+
+     * Added support for Javascript URL-based extension functions.
+     * Added GPG signing support for Javascript functions.
+     * Added meta methods to model classes.
+     * Added count_statements methods to model classes.
+     * Added default format for stringifying query result streams.
+     * Added SPARQL syntax coverage tests.
+     * Added stream tests.
+     * ISIRI() now returns a sop:isIRI function IRI.
+     * Redland bridge add_uri strips off URI fragment from parser base URI.
+     * Underlying models aren't loaded if turned off by environment variables.
+     * Stopped using the (currently broken) multi-get code.
+     * Model classes aren't used if turned off by environment variable.
+     * Standardized node testing to is_node (replacing older isa_node).
+     * GPG verification failure now throws exceptions.
+     * GPG fingerprint handling is now whitespace insensitive.
+     * Removed (currently) unused multiget tests.
+     * Redland bridge uri_value returns undef if not called with a node.
+
+  Version 1.041 (2006-11-26)
 
      * Removed unwanted '+' signs on stringified bigints when running under perl 5.6.x.
      * Fixed unicode errors when running under perl 5.6.x.
@@ -317,4 +337,4 @@ AUTHOR
 
 	Gregory Williams <gwilliams@cpan.org>
 
-$Id: README 175 2006-09-23 21:04:15Z samofool $
+$Id: README 209 2007-06-13 20:04:02Z samofool $

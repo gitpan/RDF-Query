@@ -19,7 +19,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 175 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 208 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
 ######################################################################
@@ -50,6 +50,30 @@ sub new {
 					model	=> $model,
 					parsed	=> $args{parsed},
 				}, $class );
+}
+
+=item C<< meta () >>
+
+Returns a hash reference with information (class names) about the underlying
+backend. The keys of this hash are 'class', 'model', 'statement', 'node',
+'resource', 'literal', and 'blank'.
+
+'class' is the name of the bridge class. All other keys refer to backend classes.
+For example, 'node' is the backend superclass of all node objects (literals,
+resources and blanks).
+
+=cut
+
+sub meta {
+	return {
+		class		=> __PACKAGE__,
+		model		=> 'RDF::Redland::Model',
+		statement	=> 'RDF::Redland::Statement',
+		node		=> 'RDF::Redland::Node',
+		resource	=> 'RDF::Redland::Node',
+		literal		=> 'RDF::Redland::Node',
+		blank		=> 'RDF::Redland::Node',
+	};
 }
 
 =item C<model ()>
@@ -258,6 +282,7 @@ Returns the URI string of the resource object.
 sub uri_value {
 	my $self	= shift;
 	my $node	= shift;
+	return unless UNIVERSAL::isa($node,'RDF::Redland::Node');
 	return $node->uri->as_string;
 }
 
@@ -289,13 +314,16 @@ sub add_uri {
 	
 	my $model		= $self->{model};
 	my $parser		= RDF::Redland::Parser->new($format);
+	
+	my $uriobj		= URI->new( $uri );
 	my $redlanduri	= RDF::Redland::URI->new( $uri );
+	my $base		= RDF::Redland::URI->new( join(':', $uriobj->scheme, $uriobj->opaque ) );
 	
 	if ($named) {
-		my $stream		= $parser->parse_as_stream($redlanduri, $redlanduri);
+		my $stream		= $parser->parse_as_stream($redlanduri, $base);
 		$model->add_statements( $stream, $redlanduri );
 	} else {
-		$parser->parse_into_model( $redlanduri, $redlanduri, $model );
+		$parser->parse_into_model( $redlanduri, $base, $model );
 	}
 }
 
@@ -384,10 +412,14 @@ sub get_statements {
 	my @triple	= splice(@_, 0, 3);
 	my $context	= shift;
 	
+#	warn "get_statements: <<" . join(', ', map { ref($_) ? $_->as_string : 'undef' } (@triple)) . ">> [" . (blessed($context) ? $context->as_string : '') . "]";
+	
 	my @defs	= grep defined, @triple;
 	my $model	= $self->{'model'};
 	my $stmt	= RDF::Redland::Statement->new( @triple );
 	my $stream;
+	
+#	warn "GETTING " . $stmt->as_string if ($RDF::Query::debug);
 	
 	my %args	= ( bridge => $self, named => 1 );
 	
@@ -483,6 +515,58 @@ sub get_statements {
 	
 	return RDF::Query::Stream->new( $stream, 'graph', undef, %args );
 }
+
+
+=item C<count_statements ($subject, $predicate, $object)>
+
+Returns a stream object of all statements matching the specified subject,
+predicate and objects. Any of the arguments may be undef to match any value.
+
+=cut
+
+sub count_statements {
+	my $self	= shift;
+	
+	my @triple	= splice(@_, 0, 3);
+	my $context	= shift;
+	
+	my @defs	= grep defined, @triple;
+	my $model	= $self->{'model'};
+	my $stmt	= RDF::Redland::Statement->new( @triple );
+	my $stream;
+	
+	my %args	= ( bridge => $self, named => 1 );
+	
+	my $iter;
+	if ($context) {
+		$iter	= $model->find_statements( $stmt, $context );
+	} else {
+		if (scalar(@defs) == 2) {
+			my @imethods	= qw(sources_iterator arcs_iterator targets_iterator);
+			my @smethods	= qw(subject predicate object);
+			my ($imethod, $smethod);
+			foreach my $i (0 .. 2) {
+				if (not defined $triple[ $i ]) {
+					$imethod	= $imethods[ $i ];
+					$smethod	= $smethods[ $i ];
+					last;
+				}
+			}
+			$iter	= $model->$imethod( @defs );
+		} else {
+			warn $stmt->as_string;
+			$iter	= $model->find_statements( $stmt );
+		}
+	}
+	my $count	= 0;
+	while($iter && !$iter->end) {
+		$count++;
+		$iter->next;
+	}
+	
+	return $count;
+}
+
 
 =item C<< add_statement ( $statement ) >>
 
@@ -606,8 +690,12 @@ sub as_xml {
 		$model->add_statement( $st );
 		$iter->next;
 	}
-	return $model->to_string;
+	
+	my $base		= RDF::Redland::URI->new('http://example.com/');
+	my $serializer	= RDF::Redland::Serializer->new("rdfxml-abbrev");
+	return $serializer->serialize_model_to_string( $base, $model );
 }
+
 
 sub RDF::Redland::Node::getLabel {
 	my $node	= shift;

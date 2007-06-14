@@ -1,7 +1,7 @@
 # RDF::Query::Stream
 # -------------
-# $Revision: 152 $
-# $Date: 2006-06-26 15:15:25 -0400 (Mon, 26 Jun 2006) $
+# $Revision: 199 $
+# $Date: 2007-04-18 22:45:33 -0400 (Wed, 18 Apr 2007) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -175,7 +175,7 @@ Other options are:
 
 sub to_string {
 	my $self	= shift;
-	my $format	= shift;
+	my $format	= shift || 'http://www.w3.org/2001/sw/DataAccess/rf1/result2';
 	if (ref($format) and $format->isa('RDF::Redland::URI')) {
 		$format	= $format->as_string;
 	}

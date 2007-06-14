@@ -53,6 +53,30 @@ sub new {
 				}, $class );
 }
 
+=item C<< meta () >>
+
+Returns a hash reference with information (class names) about the underlying
+backend. The keys of this hash are 'class', 'model', 'statement', 'node',
+'resource', 'literal', and 'blank'.
+
+'class' is the name of the bridge class. All other keys refer to backend classes.
+For example, 'node' is the backend superclass of all node objects (literals,
+resources and blanks).
+
+=cut
+
+sub meta {
+	return {
+		class		=> __PACKAGE__,
+		model		=> 'RDF::Base::Model',
+		statement	=> 'RDF::Base::Statement',
+		node		=> 'RDF::Base::Node',
+		resource	=> 'RDF::Base::Node::Resource',
+		literal		=> 'RDF::Base::Node::Literal',
+		blank		=> 'RDF::Base::Node::Blank',
+	};
+}
+
 =item C<model ()>
 
 Returns the underlying model object.
@@ -438,6 +462,35 @@ sub get_statements {
 	return RDF::Query::Stream->new( $stream, 'graph', undef, %args );
 }
 
+=item C<count_statements ($subject, $predicate, $object)>
+
+Returns a stream object of all statements matching the specified subject,
+predicate and objects. Any of the arguments may be undef to match any value.
+
+=cut
+
+sub count_statements {
+	my $self	= shift;
+	
+	my @triple	= splice(@_, 0, 3);
+	my $context	= shift;
+	
+	my @defs	= grep defined, @triple;
+	my $model	= $self->{'model'};
+	my $stream;
+	
+	my %args	= ( bridge => $self, named => 1 );
+	
+	my $iter	= $model->get_statements( @triple, $context );
+	my $count	= 0;
+	while (my $row = $iter->next) {
+		$count++;
+	}
+	
+	return $count;
+}
+
+
 =item C<< multi_get ( triples => \@triples, order => $order ) >>
 
 XXX
@@ -452,7 +505,7 @@ sub multi_get {
 	
 	my $count	= scalar(@$triples);
 	throw RDF::Query::Error::SimpleQueryPatternError if ($count > 4);
-#	warn "${count} statements in multi-get";
+	warn "${count} statements in multi-get" if ($debug);
 	
 	my @node_names	= qw(subject predicate object context);
 	
@@ -464,10 +517,10 @@ sub multi_get {
 			my $name	= $node_names[ $j ];
 			my $node	= $triple->[ $j ];
 			if (reftype($node) eq 'ARRAY') {
-				if ($node->[0] eq 'VAR') {
+				if ($node->[0] eq 'VAR' or $node->[0] eq 'BLANK') {
 					$statement{ $name }	= RDF::Base::Node::Variable->new( name => $node->[1] );
 				} else {
-					throw RDF::Query::Error::SimpleQueryPatternError;
+					throw RDF::Query::Error::SimpleQueryPatternError ( -text => "Only variables should be arrays at this point. Why isn't $node->[0] an object?" );
 				}
 			} else {
 				$statement{ $name }	= $node;

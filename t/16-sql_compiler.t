@@ -342,7 +342,7 @@ END
 
 
 if ($ENV{RDFQUERY_DEV_MYSQL}) {
-	my $model_name	= 'db1';
+	my $model_name	= 'model';
 	SKIP: {
 		eval "require Kasei::RDF::Common;";
 		if ($@) {

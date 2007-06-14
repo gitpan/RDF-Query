@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 80;
+use Test::More tests => 91;
 
 use YAML;
 use Data::Dumper;
@@ -20,7 +20,11 @@ foreach (@data) {
 	next unless (reftype($_) eq 'ARRAY');
 	my ($name, $sparql, $correct)	= @$_;
 	my $parsed	= $parser->parse( $sparql );
-	is_deeply( $parsed, $correct, $name );
+	my $r	= is_deeply( $parsed, $correct, $name );
+	unless ($r) {
+		warn $parser->error;
+		die Dumper($parsed);
+	}
 }
 
 
@@ -214,6 +218,33 @@ END
 	is( $parsed, undef, 'bad ORDER BY expression' );
 	like( $parser->error, qr/Expecting ORDER BY expression/, 'parse error' );
 }
+
+{
+	my $sparql	= <<"END";
+		FOO	?name
+		WHERE	{
+					?person a foaf:Person; foaf:name ?name
+				}
+		ORDER BY
+END
+	my $parsed	= $parser->parse( $sparql );
+	is( $parsed, undef, 'bad query type expression' );
+	like( $parser->error, qr/Expecting query type/, 'parse error' );
+}
+
+{
+	my $sparql	= <<"END";
+		SELECT	?name
+		WHERE	{
+					]
+				}
+		ORDER BY
+END
+	my $parsed	= $parser->parse( $sparql );
+	is( $parsed, undef, 'bad triple pattern' );
+	like( $parser->error, qr/Expecting "}"/, 'parse error' );
+}
+
 
 __END__
 ---
@@ -3267,3 +3298,321 @@ __END__
     -
       - VAR
       - mbox
+---
+- ask query
+- |
+  ASK {
+    ?node rdf:type <http://kasei.us/e/ns/mt/blog> .
+  }
+- method: ASK
+  namespaces: {}
+  sources: []
+  triples:
+    -
+      -
+        - VAR
+        - node
+      -
+        - URI
+        -
+          - rdf
+          - type
+      -
+        - URI
+        - http://kasei.us/e/ns/mt/blog
+  variables: []
+---
+- blank-pred-blank
+- |
+  PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+  PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+  SELECT ?name
+  WHERE {
+    [ foaf:name ?name ] foaf:maker []
+  }
+- method: SELECT
+  namespaces:
+    foaf: http://xmlns.com/foaf/0.1/
+    rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+  sources: []
+  triples:
+    -
+      -
+        - BLANK
+        - a1
+      -
+        - URI
+        -
+          - foaf
+          - name
+      -
+        - VAR
+        - name
+    -
+      -
+        - BLANK
+        - a1
+      -
+        - URI
+        -
+          - foaf
+          - maker
+      -
+        - BLANK
+        - a2
+  variables:
+    -
+      - VAR
+      - name
+---
+- Filter with unary-plus
+- |
+  PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+  PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+  PREFIX	dcterms: <http://purl.org/dc/terms/>
+  PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+  SELECT	?image ?point ?lat
+  WHERE	{
+  			?point geo:lat ?lat .
+  			?image ?pred ?point .
+  			FILTER( ?lat > +52 )
+  }
+- method: SELECT
+  namespaces:
+    dcterms: http://purl.org/dc/terms/
+    foaf: http://xmlns.com/foaf/0.1/
+    geo: http://www.w3.org/2003/01/geo/wgs84_pos#
+    rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+  sources: []
+  triples:
+    -
+      -
+        - VAR
+        - point
+      -
+        - URI
+        -
+          - geo
+          - lat
+      -
+        - VAR
+        - lat
+    -
+      -
+        - VAR
+        - image
+      -
+        - VAR
+        - pred
+      -
+        - VAR
+        - point
+    -
+      - FILTER
+      -
+        - '>'
+        -
+          - VAR
+          - lat
+        -
+          - LITERAL
+          - 52
+          - ~
+          -
+            - URI
+            - http://www.w3.org/2001/XMLSchema#integer
+  variables:
+    -
+      - VAR
+      - image
+    -
+      - VAR
+      - point
+    -
+      - VAR
+      - lat
+---
+- Filter with isIRI
+- |
+  PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+  PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+  PREFIX	dcterms: <http://purl.org/dc/terms/>
+  PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+  SELECT	?image ?point ?lat
+  WHERE	{
+  			?point geo:lat ?lat .
+  			?image ?pred ?point .
+  			FILTER( isIRI(?image) )
+  }
+- method: SELECT
+  namespaces:
+    dcterms: http://purl.org/dc/terms/
+    foaf: http://xmlns.com/foaf/0.1/
+    geo: http://www.w3.org/2003/01/geo/wgs84_pos#
+    rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+  sources: []
+  triples:
+    -
+      -
+        - VAR
+        - point
+      -
+        - URI
+        -
+          - geo
+          - lat
+      -
+        - VAR
+        - lat
+    -
+      -
+        - VAR
+        - image
+      -
+        - VAR
+        - pred
+      -
+        - VAR
+        - point
+    -
+      - FILTER
+      -
+        - FUNCTION
+        -
+          - URI
+          - sop:isIRI
+        -
+          - VAR
+          - image
+  variables:
+    -
+      - VAR
+      - image
+    -
+      - VAR
+      - point
+    -
+      - VAR
+      - lat
+---
+- 'xsd:double'
+- |
+  PREFIX dc:  <http://purl.org/dc/elements/1.1/>
+  SELECT ?node
+  WHERE {
+    ?node dc:identifier 1e4 .
+  }
+- method: SELECT
+  namespaces:
+    dc: http://purl.org/dc/elements/1.1/
+  sources: []
+  triples:
+    -
+      -
+        - VAR
+        - node
+      -
+        - URI
+        -
+          - dc
+          - identifier
+      -
+        - LITERAL
+        - 1e4
+        - ~
+        -
+          - URI
+          - http://www.w3.org/2001/XMLSchema#double
+  variables:
+    -
+      - VAR
+      - node
+---
+- boolean literal
+- |
+  PREFIX dc:  <http://purl.org/dc/elements/1.1/>
+  SELECT ?node
+  WHERE {
+    ?node dc:identifier true .
+  }
+- method: SELECT
+  namespaces:
+    dc: http://purl.org/dc/elements/1.1/
+  sources: []
+  triples:
+    -
+      -
+        - VAR
+        - node
+      -
+        - URI
+        -
+          - dc
+          - identifier
+      -
+        - LITERAL
+        - true
+        - ~
+        -
+          - URI
+          - http://www.w3.org/2001/XMLSchema#boolean
+  variables:
+    -
+      - VAR
+      - node
+---
+- select with ORDER BY function call
+- |
+  PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+  SELECT	?name
+  WHERE	{
+  			?person a foaf:Person; foaf:name ?name
+  		}
+  ORDER BY :foo(?name)
+- method: SELECT
+  namespaces:
+    foaf: http://xmlns.com/foaf/0.1/
+  options:
+    orderby:
+      -
+        - ASC
+        -
+          - FUNCTION
+          - 
+            - URI
+            -
+              - __DEFAULT__
+              - foo
+          -
+            - VAR
+            - name
+  sources: []
+  triples:
+    -
+      -
+        - VAR
+        - person
+      -
+        - URI
+        - http://www.w3.org/1999/02/22-rdf-syntax-ns#type
+      -
+        - URI
+        -
+          - foaf
+          - Person
+    -
+      -
+        - VAR
+        - person
+      -
+        - URI
+        -
+          - foaf
+          - name
+      -
+        - VAR
+        - name
+  variables:
+    -
+      - VAR
+      - name

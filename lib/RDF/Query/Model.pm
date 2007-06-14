@@ -45,6 +45,46 @@ sub parsed {
 	return $self->{parsed};
 }
 
+
+
+
+
+sub new;
+sub model;
+sub new_resource;
+sub new_literal;
+sub new_blank;
+sub new_statement;
+sub new_variable;
+sub isa_node;
+sub isa_resource;
+sub isa_literal;
+sub isa_blank;
+sub equals;
+sub as_string;
+sub literal_value;
+sub literal_datatype;
+sub literal_value_language;
+sub uri_value;
+sub blank_identifier;
+sub add_uri;
+sub add_string;
+sub statement_method_map;
+sub subject;
+sub predicate;
+sub object;
+sub get_statements;
+sub multi_get;
+sub add_statement;
+sub remove_statement;
+sub get_context;
+sub supports;
+sub node_count;
+
+
+
+
+
 1;
 
 __END__

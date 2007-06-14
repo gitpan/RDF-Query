@@ -1,7 +1,7 @@
 # RDF::Query
 # -------------
-# $Revision: 181 $
-# $Date: 2006-11-24 14:56:44 -0500 (Fri, 24 Nov 2006) $
+# $Revision: 208 $
+# $Date: 2007-06-13 15:58:44 -0400 (Wed, 13 Jun 2007) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -10,7 +10,7 @@ RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF
 
 =head1 VERSION
 
-This document describes RDF::Query version 1.040.
+This document describes RDF::Query version 1.042.
 
 =head1 SYNOPSIS
 
@@ -51,8 +51,10 @@ use strict;
 use warnings;
 use Carp qw(carp croak confess);
 
+use URI::Fetch;
 use Data::Dumper;
 use Storable qw(dclone);
+use List::Util qw(first);
 use Scalar::Util qw(blessed reftype looks_like_number);
 use DateTime::Format::W3CDTF;
 
@@ -62,7 +64,7 @@ use RDF::Query::Parser::SPARQL;
 use RDF::Query::Compiler::SQL;
 use RDF::Query::Error qw(:try);
 
-use RDF::Query::Optimizer::Multiget;
+#use RDF::Query::Optimizer::Multiget;
 use RDF::Query::Optimizer::Peephole::Naive;
 use RDF::Query::Optimizer::Peephole::Cost;
 
@@ -71,9 +73,10 @@ use RDF::Query::Optimizer::Peephole::Cost;
 our ($REVISION, $VERSION, $debug);
 use constant DEBUG	=> 0;
 BEGIN {
-	$debug		= 0;
-	$REVISION	= do { my $REV = (qw$Revision: 181 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
-	$VERSION	= '1.041';
+	$debug		= DEBUG;
+	$REVISION	= do { my $REV = (qw$Revision: 208 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= '1.042';
+	$ENV{RDFQUERY_NO_RDFBASE}	= 1;	# XXX Not ready for release
 }
 
 
@@ -93,7 +96,7 @@ the query defaults to SPARQL.
 =cut
 sub new {
 	my $class	= shift;
-	my ($query, $baseuri, $languri, $lang)	= @_;
+	my ($query, $baseuri, $languri, $lang, %options)	= @_;
 	
 	my $f	= DateTime::Format::W3CDTF->new;
 	no warnings 'uninitialized';
@@ -101,13 +104,30 @@ sub new {
 				? RDF::Query::Parser::RDQL->new()
 				: RDF::Query::Parser::SPARQL->new();
 	my $parsed		= $parser->parse( $query );
-	
 	my $self 	= bless( {
 					dateparser	=> $f,
 					parser		=> $parser,
 					parsed		=> $parsed,
 					parsed_orig	=> $parsed,
 				}, $class );
+	
+	if ($options{net_filters}) {
+		require JavaScript;
+		$self->{options}{net_filters}++;
+	}
+	if ($options{trusted_keys}) {
+		require Crypt::GPG;
+		$self->{options}{trusted_keys}	= $options{trusted_keys};
+	}
+	if ($options{gpg}) {
+		$self->{_gpg_obj}	= delete $options{gpg};
+	}
+	if (defined $options{keyring}) {
+		$self->{options}{keyring}	= $options{keyring};
+	}
+	if (defined $options{secretkey}) {
+		$self->{options}{secretkey}	= $options{secretkey};
+	}
 	
 	unless ($parsed->{'triples'}) {
 		$class->set_error( $parser->error );
@@ -214,12 +234,12 @@ sub execute {
 			my $cost	= $opt->optimize;
 		}
 		
-		unless ($self->{optimized}{'multi_get'}++) {
-			if ($bridge->supports('multi_get')) {
-				my $mopt	= RDF::Query::Optimizer::Multiget->new( $self, $bridge, size => 3 );
-				$mopt->optimize;
-			}
-		}
+#		unless ($self->{optimized}{'multi_get'}++) {
+#			if ($bridge->supports('multi_get')) {
+#				my $mopt	= RDF::Query::Optimizer::Multiget->new( $self, $bridge, size => 3 );
+#				$mopt->optimize;
+#			}
+#		}
 		
 		$parsed		= $self->fixup( $self->{parsed} );
 		my @vars	= $self->variables( $parsed );
@@ -430,24 +450,32 @@ Returns the class name of a model backend that is present and loadable on the sy
 sub loadable_bridge_class {
 	my $self	= shift;
 	
-	eval "use RDF::Query::Model::RDFBase;";
-	if (RDF::Query::Model::RDFBase->can('new')) {
-		return 'RDF::Query::Model::RDFBase';
+	if (not $ENV{RDFQUERY_NO_RDFBASE}) {
+		eval "use RDF::Query::Model::RDFBase;";
+		if (RDF::Query::Model::RDFBase->can('new')) {
+			return 'RDF::Query::Model::RDFBase';
+		}
 	}
 	
-	eval "use RDF::Query::Model::Redland;";
-	if (RDF::Query::Model::Redland->can('new')) {
-		return 'RDF::Query::Model::Redland';
+	if (not $ENV{RDFQUERY_NO_REDLAND}) {
+		eval "use RDF::Query::Model::Redland;";
+		if (RDF::Query::Model::Redland->can('new')) {
+			return 'RDF::Query::Model::Redland';
+		}
 	}
 	
-	eval "use RDF::Query::Model::SQL;";
-	if (RDF::Query::Model::SQL->can('new')) {
-		return 'RDF::Query::Model::SQL';
+	if (0) {
+		eval "use RDF::Query::Model::SQL;";
+		if (RDF::Query::Model::SQL->can('new')) {
+			return 'RDF::Query::Model::SQL';
+		}
 	}
 	
-	eval "use RDF::Query::Model::RDFCore;";
-	if (RDF::Query::Model::RDFCore->can('new')) {
-		return 'RDF::Query::Model::RDFCore';
+	if (not $ENV{RDFQUERY_NO_RDFCORE}) {
+		eval "use RDF::Query::Model::RDFCore;";
+		if (RDF::Query::Model::RDFCore->can('new')) {
+			return 'RDF::Query::Model::RDFCore';
+		}
 	}
 	
 	return undef;
@@ -491,12 +519,14 @@ sub get_bridge {
 	
 	my $parsed	= ref($self) ? $self->{parsed} : undef;
 	
+#	warn Dumper($model);
+	
 	my $bridge;
 	if (not $model) {
 		$bridge	= $self->new_bridge();
 	} elsif (blessed($model) and $model->isa('DBD')) {
 		require RDF::Query::Model::SQL;
-		my $storage	= RDF::Storage::DBI->new( $model, $args{'model'} );
+		my $storage	= RDF::Base::Storage::DBI->new( $model, $args{'model'} );
 		$bridge	= RDF::Query::Model::SQL->new( $storage, parsed => $parsed );
 	} elsif (my $dbh = (ref($self) ? $self->{'dbh'} : undef) || $args{'dbh'}) {
 		require RDF::Query::Model::SQL;
@@ -505,10 +535,15 @@ sub get_bridge {
 			throw RDF::Query::Error::ExecutionError ( -text => 'No model specified for DBI-based triplestore' );
 		}
 		
-		my $storage	= RDF::Storage::DBI->new( $dbh, $args{'model'} );
+		my $storage	= RDF::Base::Storage::DBI->new( $dbh, $args{'model'} );
 		$bridge	= RDF::Query::Model::SQL->new( $storage, parsed => $parsed );
-	} elsif (blessed($model) and $model->isa('RDF::Base::Model')) {
+	} elsif (blessed($model) and ($model->isa('RDF::Base::Model') or $model->isa('RDF::Base::Storage'))) {
+		if ($model->isa('RDF::Base::Storage')) {
+			$model	= RDF::Base::Model->new( storage => $model );
+		}
+		require RDF::Query::Model::RDFBase;
 		$bridge	= RDF::Query::Model::RDFBase->new( $model, parsed => $parsed );
+		Carp::cluck;
 	} elsif (blessed($model) and $model->isa('RDF::Redland::Model')) {
 		require RDF::Query::Model::Redland;
 		$bridge	= RDF::Query::Model::Redland->new( $model, parsed => $parsed );
@@ -553,7 +588,7 @@ sub fixup {
 			my $named_source	= (3 == @{$source} and $source->[2] eq 'NAMED');
 			if ($named_source and not $named_query) {
 				$named_query++;
-				$self->set_named_graph_query();
+#				$self->set_named_graph_query();
 				$bridge		= $self->{bridge};
 				unless ($bridge->supports( 'named_graph' )) {
 					throw RDF::Query::Error::ModelError ( -text => "This RDF model does not support named graphs." );
@@ -598,6 +633,7 @@ sub fixup {
 				}
 			}
 		} elsif ($triple->[0] eq 'MULTI') {
+			warn "MULTI: " . Dumper($triple) if ($debug);
 			foreach my $i (1 .. $#{ $triple }) {
 				push(@triples, $triple->[ $i ]);
 			}
@@ -668,9 +704,9 @@ sub fixup_triple_bridge_variables {
 	if (reftype($sub) eq 'ARRAY' and $sub->[0] eq 'URI') {
 		my $resource	= $self->qualify_uri( $sub );
 		$triple->[0]	= $self->bridge->new_resource($resource);
-# 	} elsif ($sub->[0] eq 'LITERAL') {
-# 		my $literal		= $self->bridge->new_literal($sub->[1]);
-# 		$triple->[0]	= $literal;
+#	} elsif (reftype($sub) eq 'ARRAY' and $sub->[0] eq 'BLANK') {
+#		my $blank		= $self->bridge->new_blank($sub->[1]);
+#		$triple->[0]	= $blank;
 	}
 	
 # XXX THIS CONDITIONAL SHOULD ALWAYS BE TRUE ... ? (IT IS IN ALL TEST CASES)
@@ -732,6 +768,7 @@ sub query_more {
 		} elsif ($triples[0][0] eq 'FILTER') {
 			my $data	= shift(@triples);
 			my $filter	= [ 'FUNCTION', ['URI', 'sop:boolean'], $data->[1] ];
+			
 			my $filter_value	= $self->check_constraints( $bound, $filter );
 			
 			if ($filter_value) {
@@ -741,8 +778,8 @@ sub query_more {
 			}
 		} elsif ($triples[0][0] eq 'UNION') {
 			return $self->union( bound => $bound, triples => \@triples, %args );
-		} elsif ($triples[0][0] eq 'MULTI') {
-			return $self->multi( bound => $bound, triples => \@triples, %args );
+#		} elsif ($triples[0][0] eq 'MULTI') {
+#			return $self->multi( bound => $bound, triples => \@triples, %args );
 		}
 	} else {
 		# no more triples. return what we've got.
@@ -768,9 +805,9 @@ sub query_more {
 	
 	no warnings 'uninitialized';
 	if (DEBUG) {
-		_debug( "${indent}query_more: " . join(' ', map { (($bridge->isa_node($_)) ? '<' . $bridge->as_string($_) . '>' : (reftype($_) eq 'ARRAY') ? $_->[1] : Dumper($_)) } @triple) . "\n" );
+		_debug( "${indent}query_more: " . join(' ', map { (($bridge->is_node($_)) ? '<' . $bridge->as_string($_) . '>' : (reftype($_) eq 'ARRAY') ? $_->[1] : Dumper($_)) } @triple) . "\n" );
 		_debug( "${indent}-> with " . scalar(@triples) . " triples to go\n" );
-		_debug( "${indent}-> more: " . (($_->[0] =~ m/^(OPTIONAL|GRAPH|FILTER)$/) ? "$1 block" : join(' ', map { $bridge->isa_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
+		_debug( "${indent}-> more: " . (($_->[0] =~ m/^(OPTIONAL|GRAPH|FILTER)$/) ? "$1 block" : join(' ', map { $bridge->is_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
 	}
 	
 	my $vars	= 0;
@@ -785,7 +822,7 @@ sub query_more {
 			if ($data->[0] eq 'VAR' or $data->[0] eq 'BLANK') {
 				my $tmpvar	= ($data->[0] eq 'VAR') ? $data->[1] : '_' . $data->[1];
 				my $val		= $bound->{ $tmpvar };
-				if ($bridge->isa_node($val)) {
+				if ($bridge->is_node($val)) {
 					_debug( "${indent}-> already have value for $tmpvar: " . $bridge->as_string( $val ) . "\n" );
 					$triple[$idx]	= $val;
 				} else {
@@ -801,17 +838,20 @@ sub query_more {
 	
 	if (DEBUG) {
 		_debug( "${indent}getting: " . join(', ', grep defined, @vars) . "\n" );
-		_debug( 'query_more triple: ' . Dumper([map { blessed($_) ? $bridge->as_string($_) : ($_) ? Dumper($_) : 'undef' } (@triple, (($bridge->isa_node($context)) ? $context : ()))]) );
+		_debug( 'query_more triple: ' . Dumper([map { blessed($_) ? $bridge->as_string($_) : ($_) ? Dumper($_) : 'undef' } (@triple, (($bridge->is_node($context)) ? $context : ()))]) );
 	}
 	
 	my @graph;
 	if (ref($context) and reftype($context) eq 'ARRAY' and ($context->[0] eq 'VAR')) {
+		# if we're in a GRAPH ?var {} block...
 		my $context_var	= $context->[1];
 		my $graph		= $bound->{ $context_var };
 		if ($graph) {
+			# and ?var has already been bound, get the bound value and pass that on
 			@graph	= $graph;
 		}
-	} elsif ($bridge->isa_node( $context )) {
+	} elsif ($bridge->is_node( $context )) {
+		# if we're in a GRAPH <uri> {} block, just pass it on
 		@graph	= $context;
 	}
 	
@@ -833,6 +873,7 @@ sub query_more {
 			
 			my $context_var;
 			if (ref($context) and reftype($context) eq 'ARRAY' and ($context->[0] eq 'VAR')) {
+				# if we're in a GRAPH ?var {} block, bind the current context to ?var
 				warn "Trying to get context of current statement..." if ($debug);
 				my $graph	= $statments->context;
 				if ($graph) {
@@ -874,7 +915,7 @@ sub query_more {
 			if (scalar(@triples)) {
 				if (DEBUG) {
 					_debug( "${indent}-> now for more triples...\n" );
-					_debug( "${indent}-> more: " . (($_->[0] =~ m/^(OPTIONAL|GRAPH|FILTER)$/) ? "$1 block" : join(' ', map { $bridge->isa_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
+					_debug( "${indent}-> more: " . (($_->[0] =~ m/^(OPTIONAL|GRAPH|FILTER)$/) ? "$1 block" : join(' ', map { $bridge->is_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
 					_debug( "${indent}-> " . Dumper(\@triples) );
 				}
 				
@@ -983,57 +1024,57 @@ sub union {
 	};	
 }
 
-=begin private
-
-=item C<multi ( bound => \%bound, triples => \@triples )>
-
-Called by C<query_more()> to handle multi-get queries (where multiple triples
-have been combined into one functional unit). Returns by calling C<query_more()>
-with any remaining triples.
-
-=end private
-
-=cut
-
-sub multi {
-	my $self		= shift;
-	my %args	= @_;
-	
-	my $bound	= delete($args{bound});
-	my $triples	= delete($args{triples});
-	my $context	= $args{context};
-	
-	my @triples	= @{$triples};
-	my $multi	= shift(@triples);
-	
-	my $bridge	= $self->bridge;
-	my $stream	= $bridge->multi_get( triples => [ @{ $multi }[ 1 .. $#{ $multi } ] ] );
-	
-	my $closed	= 0;
-	my $more_stream;
-	my $multi_bindings	= $stream->next;
-	return sub {
-		while (1) {
-			if (not($more_stream)) {
-				$multi_bindings	= $stream->next;
-				if ($multi_bindings) {
-					$more_stream	= $self->query_more( bound => { %{ $bound }, %{ $multi_bindings } }, triples => [@triples], %args );
-				} else {
-					$closed	= 1;
-					undef $stream;
-				}
-			}
-			
-			return undef if ($closed);
-			my $value	= $more_stream->();
-			if ($value) {
-				return $value;
-			} else {
-				undef $more_stream;
-			}
-		}
-	};
-}
+# =begin private
+# 
+# =item C<multi ( bound => \%bound, triples => \@triples )>
+# 
+# Called by C<query_more()> to handle multi-get queries (where multiple triples
+# have been combined into one functional unit). Returns by calling C<query_more()>
+# with any remaining triples.
+# 
+# =end private
+# 
+# =cut
+# 
+# sub multi {
+# 	my $self		= shift;
+# 	my %args	= @_;
+# 	
+# 	my $bound	= delete($args{bound});
+# 	my $triples	= delete($args{triples});
+# 	my $context	= $args{context};
+# 	
+# 	my @triples	= @{$triples};
+# 	my $multi	= shift(@triples);
+# 	
+# 	my $bridge	= $self->bridge;
+# 	my $stream	= $bridge->multi_get( triples => [ @{ $multi }[ 1 .. $#{ $multi } ] ] );
+# 	
+# 	my $closed	= 0;
+# 	my $more_stream;
+# 	my $multi_bindings; #	= $stream->next;
+# 	return sub {
+# 		while (1) {
+# 			if (not($more_stream)) {
+# 				$multi_bindings	= $stream->next;
+# 				if ($multi_bindings) {
+# 					$more_stream	= $self->query_more( bound => { %{ $bound }, %{ $multi_bindings } }, triples => [@triples], %args );
+# 				} else {
+# 					$closed	= 1;
+# 					undef $stream;
+# 				}
+# 			}
+# 			
+# 			return undef if ($closed);
+# 			my $value	= $more_stream->();
+# 			if ($value) {
+# 				return $value;
+# 			} else {
+# 				undef $more_stream;
+# 			}
+# 		}
+# 	};
+# }
 
 =begin private
 
@@ -1129,7 +1170,7 @@ Returns by calling C<query_more()> with any remaining triples.
 
 sub named_graph {
 	my $self		= shift;
-	my %args	= @_;
+	my %args		= @_;
 	
 	my $bound		= { %{ delete($args{bound}) } };
 	my $triples		= delete($args{triples});
@@ -1249,6 +1290,7 @@ my %dispatch	= (
 								if (defined($data->[2])) {
 									my $uri		= $data->[2];
 									my $literal	= $data->[0];
+									local($self->{options}{net_filters})	= 0;
 									my $func	= $self->get_function( $self->qualify_uri( $uri ) );
 									if ($func) {
 										my $funcdata	= [ 'FUNCTION', $uri, [ 'LITERAL', $literal ] ];
@@ -1380,6 +1422,7 @@ sub check_constraints {
 	return 1 unless scalar(@$data);
 	my $op		= $data->[0];
 	my $code	= $dispatch{ $op };
+	
 	if ($code) {
 #		local($Data::Dumper::Indent)	= 0;
 		my $result;
@@ -1417,9 +1460,9 @@ sub get_value {
 	if (ref($value) and $value->isa('DateTime')) {
 		return $value;
 		return $self->{dateparser}->format_datetime($value);
-	} elsif ($bridge->isa_resource($value)) {
+	} elsif ($bridge->is_resource($value)) {
 		return $bridge->uri_value( $value );
-	} elsif ($bridge->isa_literal($value)) {
+	} elsif ($bridge->is_literal($value)) {
 		my $literal	= $bridge->literal_value( $value );
 		if (my $dt = $bridge->literal_datatype( $value )) {
 			return [$literal, undef, $dt]
@@ -1428,7 +1471,7 @@ sub get_value {
 		} else {
 			return $literal;
 		}
-	} elsif ($bridge->isa_blank($value)) {
+	} elsif ($bridge->is_blank($value)) {
 		return $bridge->blank_identifier( $value );
 	} else {
 		return $value;
@@ -1468,9 +1511,234 @@ to the function. Otherwise returns C<undef>.
 sub get_function {
 	my $self	= shift;
 	my $uri		= shift;
+	warn "trying to get function from $uri" if ($debug);
+	
 	my $func	= $self->{'functions'}{$uri}
 				|| $RDF::Query::functions{ $uri };
-	return $func;
+	if ($func) {
+		return $func;
+	} elsif ($self->{options}{net_filters}) {
+		return $self->net_filter_function( $uri );
+	}
+	return;
+}
+
+
+=item C<< net_filter_function ( $uri ) >>
+
+Takes a URI specifying the location of a javascript implementation.
+Returns a code reference implementing the javascript function.
+
+If the 'trusted_keys' option is set, a GPG signature at ${uri}.asc is
+retrieved and verified against the arrayref of trusted key fingerprints.
+A code reference is returned only if a trusted signature is found.
+
+=cut
+
+sub net_filter_function {
+	my $self	= shift;
+	my $uri		= shift;
+	warn "fetching $uri\n" if ($debug);
+	
+	my $bridge	= $self->new_bridge();
+	$bridge->add_uri( $uri );
+	
+	my $subj	= $bridge->new_resource( $uri );
+#	warn $bridge->debug;
+	
+	my $func	= do {
+		my $pred	= $bridge->new_resource('http://www.mindswap.org/~gtw/sparql#function');
+		my $stream	= $bridge->get_statements( $subj, $pred, undef );
+		my $st		= $stream->();
+		my $obj		= $st->object;
+		my $func	= $obj->literal_value;
+	};
+	
+	my $impl	= do {
+		my $pred	= $bridge->new_resource('http://www.mindswap.org/~gtw/sparql#source');
+		my $stream	= $bridge->get_statements( $subj, $pred, undef );
+		my $st		= $stream->();
+		my $obj		= $st->object;
+		my $impl	= $obj->uri->as_string;
+	};
+	
+	my $resp	= URI::Fetch->fetch( $impl ) or die URI::Fetch->errstr;
+	unless ($resp->is_success) {
+		warn "No content available from $uri";
+		return;
+	}
+	my $content	= $resp->content;
+	
+	if ($self->{options}{trusted_keys}) {
+		my $gpg		= $self->{_gpg_obj} || new Crypt::GPG;
+		$gpg->gpgbin('/sw/bin/gpg');
+		$gpg->secretkey($self->{options}{secretkey} || $ENV{GPG_KEY} || '0xCAA8C82D');
+		my $keyring	= exists($self->{options}{keyring})
+					? $self->{options}{keyring}
+					: File::Spec->catfile($ENV{HOME}, '.gnupg', 'pubring.gpg');
+		$gpg->gpgopts("--lock-multiple --keyring " . $keyring);
+		
+		my $sigresp	= URI::Fetch->fetch( "${impl}.asc" );
+		if (not $sigresp) {
+			throw RDF::Query::Error::ExecutionError -text => "Required signature not found: ${impl}.asc\n";
+		} elsif ($sigresp->is_success) {
+			my $sig		= $sigresp->content;
+			my $ok	= $self->_is_trusted( $gpg, $content, $sig, $self->{options}{trusted_keys} );
+			unless ($ok) {
+				throw RDF::Query::Error::ExecutionError -text => "Not a trusted signature";
+			}
+		} else {
+			throw RDF::Query::Error::ExecutionError -text => "Could not retrieve required signature: ${uri}.asc";
+			return;
+		}
+	}
+
+	my ($rt, $cx)	= $self->new_javascript_engine();
+	my $r		= $cx->eval( $content );
+	
+#	die "Requested function URL does not match the function's URI" unless ($meta->{uri} eq $url);
+	return sub {
+		my $query	= shift;
+		warn "Calling javascript function $func with: " . Dumper(\@_) if ($debug);
+		my $value	= $cx->call( $func, @_ );
+		warn "--> $value\n" if ($debug);
+		return $value;
+	};
+}
+
+sub _is_trusted {
+	my $self	= shift;
+	my $gpg		= shift;
+	my $file	= shift;
+	my $sigfile	= shift;
+	my $trusted	= shift;
+	
+	my (undef, $sig)	= $gpg->verify($sigfile, $file);
+	
+	return 0 unless ($sig->validity eq 'GOOD');
+	
+	my $id		= $sig->keyid;
+	
+	my @keys	= $gpg->keydb($id);
+	foreach my $key (@keys) {
+		my $fp	= $key->{Fingerprint};
+		$fp		=~ s/ //g;
+		return 1 if (first { s/ //g; $_ eq $fp } @$trusted);
+	}
+	return 0;
+}
+
+
+
+=begin private
+
+=item C<new_javascript_engine ()>
+
+Returns a new JavaScript Runtime and Context object for running network FILTER
+functions.
+
+=end private
+
+=cut
+
+sub new_javascript_engine {
+	my $self	= shift;
+	my $rt		= JavaScript::Runtime->new();
+	my $cx		= $rt->create_context();
+	my $bridge	= $self->bridge;
+	my $meta	= $bridge->meta;
+	$cx->bind_function( 'warn' => sub { warn @_ if ($debug) } );
+	$cx->bind_function( '_warn' => sub { warn @_ } );
+	$cx->bind_function( 'makeTerm' => sub {
+		my $term	= shift;
+#		warn 'makeTerm: ' . Dumper($term);
+		if (not blessed($term)) {
+			return $bridge->new_literal( $term );
+		} else {
+			return $term;
+		}
+	} );
+	
+	my $toString	= sub {
+#		warn 'toString: ' . Dumper(\@_);
+		$bridge->as_string( @_ )
+	};
+	
+	$cx->bind_class(
+		name		=> 'RDFNode',
+		constructor	=> sub {},
+		'package'	=> $meta->{node},
+		'methods'	=> {
+						is_literal	=> sub { return $bridge->is_literal( $_[0] ) },
+						is_resource	=> sub { return $bridge->is_resource( $_[0] ) },
+						is_blank	=> sub { return $bridge->is_blank( $_[0] ) },
+						toString	=> $toString,
+					},
+		ps			=> {
+						literal_value			=> [sub { return $bridge->literal_value($_[0]) }],
+						literal_datatype		=> [sub { return $bridge->literal_datatype($_[0]) }],
+						literal_value_language	=> [sub { return $bridge->literal_value_language($_[0]) }],
+						uri_value				=> [sub { return $bridge->uri_value($_[0]) }],
+						blank_identifier		=> [sub { return $bridge->blank_identifier($_[0]) }],
+					},
+	);
+
+	if ($meta->{literal} ne $meta->{node}) {
+		$cx->bind_class(
+			name		=> 'RDFLiteral',
+			constructor	=> sub {},
+			'package'	=> $bridge->meta->{literal},
+			'methods'	=> {
+							is_literal	=> sub { return 1 },
+							is_resource	=> sub { return 0 },
+							is_blank	=> sub { return 0 },
+							toString	=> $toString,
+						},
+			ps			=> {
+							literal_value			=> [sub { return $bridge->literal_value($_[0]) }],
+							literal_datatype		=> [sub { return $bridge->literal_datatype($_[0]) }],
+							literal_value_language	=> [sub { return $bridge->literal_value_language($_[0]) }],
+						},
+		);
+#		$cx->eval( 'RDFLiteral.prototype.__proto__ = RDFNode.prototype;' );
+	}
+	if ($meta->{resource} ne $meta->{node}) {
+		$cx->bind_class(
+			name		=> 'RDFResource',
+			constructor	=> sub {},
+			'package'	=> $bridge->meta->{resource},
+			'methods'	=> {
+							is_literal	=> sub { return 0 },
+							is_resource	=> sub { return 1 },
+							is_blank	=> sub { return 0 },
+							toString	=> $toString,
+						},
+			ps			=> {
+							uri_value				=> [sub { return $bridge->uri_value($_[0]) }],
+						},
+		);
+#		$cx->eval( 'RDFResource.prototype.__proto__ = RDFNode.prototype;' );
+	}
+	if ($meta->{blank} ne $meta->{node}) {
+		$cx->bind_class(
+			name		=> 'RDFBlank',
+			constructor	=> sub {},
+			'package'	=> $bridge->meta->{blank},
+			'methods'	=> {
+							is_literal	=> sub { return 0 },
+							is_resource	=> sub { return 0 },
+							is_blank	=> sub { return 1 },
+							toString	=> $toString,
+						},
+			ps			=> {
+							blank_identifier		=> [sub { return $bridge->blank_identifier($_[0]) }],
+						},
+		);
+#		$cx->eval( 'RDFBlank.prototype.__proto__ = RDFNode.prototype;' );
+	}
+	
+	
+	return ($rt, $cx);
 }
 
 =item C<add_hook ( $uri, $function )>
@@ -1480,7 +1748,6 @@ RDF::Query code hook specified by C<$uri>. Each function that has been
 associated with a particular hook will be called (in the order they were
 registered as hooks) when the hook event occurs. See L</"Defined Hooks">
 for more information.
-
 
 =cut
 
@@ -1830,7 +2097,7 @@ sub _debug_closure {
 	my $deparse	= B::Deparse->new("-p", "-sC");
 	my $body	= $deparse->coderef2text($closure);
 	warn "--- --- CLOSURE --- ---\n";
-	carp $body;
+	Carp::cluck $body;
 }
 
 =begin private
@@ -1904,7 +2171,7 @@ $functions{"sop:boolean"}	= sub {
 	
 	if (ref($node)) {
 		my $bridge	= $query->bridge;
-		if ($node->is_literal) {
+		if ($bridge->is_literal($node)) {
 			my $value	= $bridge->literal_value( $node );
 			my $type	= $bridge->literal_datatype( $node );
 			if ($type) {
@@ -2259,7 +2526,7 @@ $functions{"java:com.hp.hpl.jena.query.function.library.listMember"}	= sub {
 	
 	my $list	= shift;
 	my $value	= shift;
-	if ($bridge->isa_resource( $list ) and $bridge->uri_value( $list ) eq 'http://www.w3.org/1999/02/22-rdf-syntax-ns#nil') {
+	if ($bridge->is_resource( $list ) and $bridge->uri_value( $list ) eq 'http://www.w3.org/1999/02/22-rdf-syntax-ns#nil') {
 		return 0;
 	} else {
 		my $first	= $bridge->new_resource( 'http://www.w3.org/1999/02/22-rdf-syntax-ns#first' );
@@ -2383,175 +2650,3 @@ SPARQL operators: sop:RDFterm-equal, sop:bound, sop:isURI, sop:isBlank, sop:isLi
  Gregory Todd Williams <greg@evilfunhouse.com>
 
 =cut
-
-
-REVISION HISTORY
-
- $Log$
- Revision 1.30  2006/01/13 23:55:48  greg
- - Updated requirements POD formatting.
-
- Revision 1.29  2006/01/11 06:16:19  greg
- - Added support for SELECT * in SPARQL queries.
- - Bugfix where one of two identical triple variables would be ignored ({ ?a ?a ?b })
-
- Revision 1.28  2005/11/19 00:58:07  greg
- - Fixed FILTER support in OPTIONAL queries.
-
- Revision 1.27  2005/07/27 00:30:04  greg
- - Added arithmetic operators to check_constraints().
- - Dependency cleanups.
- - Added debugging warnings when parsing fails.
-
- Revision 1.26  2005/06/06 00:49:00  greg
- - Added new DBI model bridge (accesses Redland's mysql storage directly).
- - Added built-in SPARQL functions and operators (not connected to grammar yet).
- - Added bridge methods for accessing typed literal information.
-
- Revision 1.25  2005/06/04 07:27:12  greg
- - Added support for typed literals.
-   - (Redland support for datatypes is currently broken, however.)
-
- Revision 1.24  2005/06/02 19:28:49  greg
- - All debugging is now centrally located in the _debug method.
- - Internal code now uses the variables method.
- - Removed redundant code from ORDER BY/LIMIT/OFFSET handling.
- - Removed unused parse_files method.
- - Bridge object is now passed to the Stream constructor.
-
- Revision 1.23  2005/06/01 22:10:46  greg
- - Moved Stream class to lib/RDF/Query/Stream.pm.
- - Fixed tests that broke with previous fix to CONSTRUCT queries.
- - Fixed tests that broke with previous change to ASK query results.
-
- Revision 1.22  2005/06/01 21:21:09  greg
- - Fixed bug in CONSTRUCT queries that used blank nodes.
- - ASK queries now return a Stream object; Use the new get_boolean method.
- - Graph and Boolean streams now respond to is_graph and is_boolean methods.
-
- Revision 1.21  2005/06/01 05:06:33  greg
- - Added SPARQL UNION support.
- - Broke OPTIONAL handling code off into a seperate method.
- - Added new debugging code to trace errors in the twisty web of closures.
-
- Revision 1.20  2005/05/18 23:05:53  greg
- - Added support for SPARQL OPTIONAL graph patterns.
- - Added binding_values and binding_names methods to Streams.
-
- Revision 1.19  2005/05/18 04:19:45  greg
- - Added as_xml method to Stream class for XML Binding Results format.
-
- Revision 1.18  2005/05/16 17:37:06  greg
- - Added support for binding_name and is_bindings Stream methods.
-
- Revision 1.17  2005/05/09 01:03:20  greg
- - Added SPARQL test that was breaking when missing triples.
-   - Added foaf:aimChatID to test foaf data.
- - Calling bindings_count on a stream now returns 0 with no data.
-
- Revision 1.16  2005/05/08 08:26:09  greg
- - Added initial support for SPARQL ASK, DESCRIBE and CONSTRUCT queries.
-   - Added new test files for new query types.
- - Added methods to bridge classes for creating statements and blank nodes.
- - Added as_string method to bridge classes for getting string versions of nodes.
- - Broke out triple fixup code into fixup_triple_bridge_variables().
- - Updated FILTER test to use new Geo::Distance API.
-
- Revision 1.15  2005/05/03 05:51:25  greg
- - Added literal_value, uri_value, and blank_identifier methods to bridges.
- - Redland bridge now calls sources/arcs/targets when only one field is missing.
- - Fixes to stream code. Iterators are now destroyed in a timely manner.
-   - Complex queries no longer max out mysql connections under Redland.
- - Cleaned up node sorting code.
-   - Removed dependency on Sort::Naturally.
-   - Added new node sorting function ncmp().
- - check_constraints now calls ncmp() for logical comparisons.
- - Added get_value method to make bridge calls and return a scalar value.
- - Fixed node creation in Redland bridge.
- - Moved DISTINCT handling code to occur before LIMITing.
- - Added variables method to retrieve bound variable names.
- - Added binding_count and get_all methods to streams.
- - get_statments bridge methods now return RDF::Query::Stream objects.
-
- Revision 1.14  2005/04/26 04:22:13  greg
- - added constraints tests
- - URIs in constraints are now part of the fixup
- - parser is removed from the Redland bridge in DESTROY
- - SPARQL FILTERs are now properly part of the triple patterns (within the braces)
- - added FILTER tests
-
- Revision 1.13  2005/04/26 02:54:40  greg
- - added core support for custom function constraints support
- - added initial SPARQL support for custom function constraints
- - SPARQL variables may now begin with the '$' sigil
- - broke out URL fixups into its own method
- - added direction support for ORDER BY (ascending/descending)
- - added 'next', 'current', and 'end' to Stream API
-
- Revision 1.12  2005/04/25 01:27:40  greg
- - stream objects now handle being constructed with an undef coderef
-
- Revision 1.11  2005/04/25 00:59:29  greg
- - streams are now objects usinig the Redland QueryResult API
- - RDF namespace is now always available in queries
- - row() now uses a stream when calling execute()
- - check_constraints() now copies args for recursive calls (instead of pass-by-ref)
- - added ORDER BY support to RDQL parser
- - SPARQL constraints now properly use the 'FILTER' keyword
- - SPARQL constraints can now use '&&' as an operator
- - SPARQL namespace declaration is now optional
-
- Revision 1.10  2005/04/21 08:12:07  greg
- - updated MANIFEST
- - updated POD
-
- Revision 1.9  2005/04/21 05:24:54  greg
- - execute now returns an iterator
- - added core support for DISTINCT, LIMIT, OFFSET
- - added initial core support for ORDER BY (only works on one column right now)
- - added SPARQL support for DISTINCT and ORDER BY
- - added stress test for large queries and sorting on local scutter model
-
- Revision 1.8  2005/04/21 02:21:44  greg
- - major changes (resurecting the project)
- - broke out the query parser into it's own RDQL class
- - added initial support for a SPARQL parser
-   - added support for blank nodes
-   - added lots of syntactic sugar (with blank nodes, multiple predicates and objects)
- - moved model-specific code into RDF::Query::Model::*
- - cleaned up the model-bridge code
- - moving over to redland's query API (pass in the model when query is executed)
-
- Revision 1.7  2005/02/10 09:57:24  greg
- - add code and grammar for initial constraints support
- - misc updates
-
- Revision 1.6  2004/07/12 11:24:09  greg
- - changed order of some Parse::RecDescent rules for common case
-
- Revision 1.5  2004/07/12 11:17:34  greg
- - updated namespace for relationship schema
- - fixed broken qURI regex in RDQL parser
- - query() now reverses result list (hack)
- - RDF::Query::Redland : getLabel now returns identifier for blank nodes
-
- Revision 1.4  2004/07/07 06:39:32  greg
- - added t/02-coverage.t and made code changes based on Devel::Cover results
-
- Revision 1.3  2004/07/07 04:45:57  greg
- - updated POD
- - commented out debugging code
- - moved backend model detection code to C<model>
- - changed block eval to string eval to only load one backend if both are present
-
- Revision 1.2  2004/07/07 03:43:14  greg
- - refactored code that deals with the RDF model
- - moved RDF::Core specific code to RDF::Query::RDFCore
- - added Redland support in RDF::Query::Redland
- - now uses Redland if available, falls back on RDF::Core
- - updated tests (removed RDF::Core specific code)
-
- Revision 1.1.1.1  2004/07/05 03:05:38  greg
- import
-
- 

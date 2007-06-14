@@ -22,7 +22,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 175 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 195 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	eval "use LWP::Simple ();";
 	our $LWP_SUPPORT	= ($@) ? 0 : 1;
 }
@@ -48,7 +48,11 @@ sub new {
 		my $storage	= new RDF::Core::Storage::Memory;
 		$model	= new RDF::Core::Model (Storage => $storage);
 	}
-	throw RDF::Query::Error::MethodInvocationError ( -text => 'Not a RDF::Core::Model object passed to bridge constructor' ) unless (blessed($model) and $model->isa('RDF::Core::Model'));
+	
+	unless (blessed($model) and $model->isa('RDF::Core::Model')) {
+		Carp::cluck "doesn't look like an RDF::Core model in bridge constructor" if ($debug);
+		throw RDF::Query::Error::MethodInvocationError ( -text => 'Not a RDF::Core::Model object passed to bridge constructor' ) 
+	}
 	
 	my $factory	= new RDF::Core::NodeFactory;
 	my $self	= bless( {
@@ -58,6 +62,30 @@ sub new {
 					sttime	=> time,
 					counter	=> 0
 				}, $class );
+}
+
+=item C<< meta () >>
+
+Returns a hash reference with information (class names) about the underlying
+backend. The keys of this hash are 'class', 'model', 'statement', 'node',
+'resource', 'literal', and 'blank'.
+
+'class' is the name of the bridge class. All other keys refer to backend classes.
+For example, 'node' is the backend superclass of all node objects (literals,
+resources and blanks).
+
+=cut
+
+sub meta {
+	return {
+		class		=> __PACKAGE__,
+		model		=> 'RDF::Core::Model',
+		statement	=> 'RDF::Core::Statement',
+		node		=> 'RDF::Core::Node',
+		resource	=> 'RDF::Core::Resource',
+		literal		=> 'RDF::Core::Literal',
+		blank		=> 'RDF::Core::Node',
+	};
 }
 
 =item C<model ()>
@@ -403,6 +431,24 @@ sub get_statements {
 	};
 	
 	return RDF::Query::Stream->new( $stream, 'graph', undef, bridge => $self );
+}
+
+=item C<count_statements ($subject, $predicate, $object)>
+
+Returns a stream object of all statements matching the specified subject,
+predicate and objects. Any of the arguments may be undef to match any value.
+
+=cut
+
+sub count_statements {
+	my $self	= shift;
+	my $enum	= $self->{'model'}->getStmts( @_ );
+	
+	my $count	= 0;
+	while (defined $enum->getNext) {
+		$count++;
+	}
+	return $count;
 }
 
 =item C<< add_statement ( $statement ) >>

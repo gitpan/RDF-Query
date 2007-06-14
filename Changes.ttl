@@ -6,9 +6,38 @@
 @prefix asc:     <http://aaronland.info/ns/changefile/> .
                                      
 <>
-        dc:identifier           "$Id: Changes.ttl 175 2006-09-23 21:04:15Z samofool $" ;
+        dc:identifier           "$Id: Changes.ttl 209 2007-06-13 20:04:02Z samofool $" ;
         dc:description          "Changes for RDF::Query" ;
         dcterms:references      <http://kasei.us/code/rdf-query/> .
+
+<http://kasei.us/code/files/RDF-Query-1.042.tar.gz>
+        dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
+        dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.041.tar.gz> ;
+
+        doap:Version    [
+                        doap:revision     "1.042" ;
+                        doap:created      "2007-06-13" ;
+                        ];
+        asc:changes     [
+                        asc:addition      "Added support for Javascript URL-based extension functions." .
+                        asc:addition      "Added GPG signing support for Javascript functions." .
+                        asc:addition      "Added meta methods to model classes." .
+                        asc:addition      "Added count_statements methods to model classes." .
+                        asc:addition      "Added default format for stringifying query result streams." .
+                        asc:addition      "Added SPARQL syntax coverage tests." .
+                        asc:addition      "Added stream tests." .
+                        asc:update        "ISIRI() now returns a sop:isIRI function IRI." .
+                        asc:update        "Redland bridge add_uri strips off URI fragment from parser base URI." .
+                        asc:update        "Underlying models aren't loaded if turned off by environment variables." .
+                        asc:update        "Stopped using the (currently broken) multi-get code." .
+                        asc:update        "Model classes aren't used if turned off by environment variable." .
+                        asc:update        "Standardized node testing to is_node (replacing older isa_node)." .
+                        asc:update        "GPG verification failure now throws exceptions." .
+                        asc:update        "GPG fingerprint handling is now whitespace insensitive." .
+                        asc:update        "Removed (currently) unused multiget tests." .
+                        asc:update        "Redland bridge uri_value returns undef if not called with a node." .
+                        ] .
+
 
 <http://kasei.us/code/files/RDF-Query-1.041.tar.gz>
         dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
@@ -16,7 +45,7 @@
 
         doap:Version    [
                         doap:revision     "1.041" ;
-                        doap:created      "2006-11-24" ;
+                        doap:created      "2006-11-26" ;
                         ];
         asc:changes     [
                         asc:addition      "Added tests for model bridge classes." .

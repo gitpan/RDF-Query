@@ -16,15 +16,24 @@ $ENV{RDFQUERY_USE_DBI_MODEL}	= 1;
 my @files	= ();
 my @models	= test_models_and_classes( @files );
 
-plan tests => 1 + (47 * scalar(@models));
+plan tests => 1 + (47 * scalar(@models)) + (scalar(@models) * (scalar(@models) - 1));
 
 use_ok( 'RDF::Query' );
 
 foreach my $data (@models) {
 	my $class	= $data->{ class };
-	dies_ok { $class->new( 'foo' ) } 'non-model constructor arg dies';
-	my $model	= $data->{ bridge };
+	my $model	= $data->{ modelobj };
+	
+	foreach my $other (@models) {
+		next if ($other->{class} eq $class);
+		throws_ok { $class->new($other->{modelobj}) } 'RDF::Query::Error::MethodInvocationError', 'constructor throws exception with wrong model';
+	}
+	
+	print "\n#################################\n";
+	print "### Using model: $model\n";
 
+	dies_ok { $class->new( 'foo' ) } 'non-model constructor arg dies';
+	
 	SKIP: {
 		skip "This backend does not support temporary models", 1 unless $class->supports('temp_model');
 		my $bridge	= $class->new();
