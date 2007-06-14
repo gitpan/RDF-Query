@@ -1,7 +1,7 @@
 # RDF::Query
 # -------------
-# $Revision: 208 $
-# $Date: 2007-06-13 15:58:44 -0400 (Wed, 13 Jun 2007) $
+# $Revision: 210 $
+# $Date: 2007-06-14 14:44:13 -0400 (Thu, 14 Jun 2007) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -10,7 +10,7 @@ RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF
 
 =head1 VERSION
 
-This document describes RDF::Query version 1.042.
+This document describes RDF::Query version 1.043.
 
 =head1 SYNOPSIS
 
@@ -74,8 +74,8 @@ our ($REVISION, $VERSION, $debug);
 use constant DEBUG	=> 0;
 BEGIN {
 	$debug		= DEBUG;
-	$REVISION	= do { my $REV = (qw$Revision: 208 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
-	$VERSION	= '1.042';
+	$REVISION	= do { my $REV = (qw$Revision: 210 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= '1.043';
 	$ENV{RDFQUERY_NO_RDFBASE}	= 1;	# XXX Not ready for release
 }
 

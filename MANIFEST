@@ -13,6 +13,7 @@ examples/livejournal.pl
 inc/Module/Install.pm
 inc/Module/Install/Base.pm
 inc/Module/Install/MakeMaker.pm
+inc/Module/Install/Makefile.pm
 inc/Module/Install/Metadata.pm
 lib/RDF/Query.pm
 lib/RDF/Query/Compiler/SQL.pm

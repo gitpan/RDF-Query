@@ -28,6 +28,10 @@ INSTALLATION
 
 VERSION HISTORY
 
+  Version 1.043 (2007-06-14)
+
+     * Fixed broken MANIFEST causing MakeMaker code to break.
+
   Version 1.042 (2007-06-13)
 
      * Added support for Javascript URL-based extension functions.
@@ -337,4 +341,4 @@ AUTHOR
 
 	Gregory Williams <gwilliams@cpan.org>
 
-$Id: README 209 2007-06-13 20:04:02Z samofool $
+$Id: README 210 2007-06-14 18:44:13Z samofool $

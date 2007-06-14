@@ -6,9 +6,22 @@
 @prefix asc:     <http://aaronland.info/ns/changefile/> .
                                      
 <>
-        dc:identifier           "$Id: Changes.ttl 209 2007-06-13 20:04:02Z samofool $" ;
+        dc:identifier           "$Id: Changes.ttl 210 2007-06-14 18:44:13Z samofool $" ;
         dc:description          "Changes for RDF::Query" ;
         dcterms:references      <http://kasei.us/code/rdf-query/> .
+
+<http://kasei.us/code/files/RDF-Query-1.043.tar.gz>
+        dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
+        dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.042.tar.gz> ;
+
+        doap:Version    [
+                        doap:revision     "1.043" ;
+                        doap:created      "2007-06-14" ;
+                        ];
+        asc:changes     [
+                        asc:update        "Fixed broken MANIFEST causing MakeMaker code to break." .
+                        ] .
+
 
 <http://kasei.us/code/files/RDF-Query-1.042.tar.gz>
         dcterms:isVersionOf <http://kasei.us/code/rdf-query/> ;
