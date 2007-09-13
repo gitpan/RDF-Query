@@ -22,7 +22,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 195 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 224 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	eval "use LWP::Simple ();";
 	our $LWP_SUPPORT	= ($@) ? 0 : 1;
 }
@@ -284,8 +284,13 @@ Returns the datatype of the literal object.
 sub literal_datatype {
 	my $self	= shift;
 	my $node	= shift;
-	my $type	= $node->getDatatype;
-	return $type;
+	return unless (blessed($node));
+	if ($node->isa('DateTime')) {
+		return 'http://www.w3.org/2001/XMLSchema#dateTime';
+	} else {
+		my $type	= $node->getDatatype;
+		return $type;
+	}
 }
 
 =item C<literal_value_language ( $node )>

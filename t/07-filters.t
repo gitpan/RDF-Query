@@ -31,7 +31,7 @@ SKIP: {
 						?image foaf:depicts ?thing .
 						?thing rdf:type ?type .
 						?type rdfs:label ?name .
-						FILTER(REGEX(?type,"Flower")) .
+						FILTER(REGEX(STR(?type),"Flower")) .
 					}
 END
 		my $query	= RDF::Query->new( $sparql, undef, undef, 'sparql' );

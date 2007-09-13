@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 use Data::Dumper;
-use Test::More tests => 108;
+use Test::More tests => 104;
 
 use YAML;
 use RDF::Query;
@@ -16,7 +16,7 @@ use_ok( 'RDF::Query::Optimizer::Peephole::Cost' );
 
 SKIP: {
 	eval "use RDF::Query::Model::Redland;";
-	skip "Failed to load RDF::Redland", 105 if $@;
+	skip "Failed to load RDF::Redland", 101 if $@;
 	
 	my $bridge	= RDF::Query::Model::Redland->new();
 	{ no warnings 'redefine'; no warnings 'once';
@@ -45,7 +45,11 @@ SKIP: {
 		{
 			my $query	= RDF::Query->new( $sparql, undef, undef, 'sparql' );
 			my $opt		= RDF::Query::Optimizer::Peephole->new( $query, $bridge );
-			my $cost	= $opt->optimize_triplepattern( $query->{'parsed'}{'triples'} );
+			my $cost	= eval { $opt->optimize_triplepattern( $query->{'parsed'}{'triples'} ) };
+			if ($@) {
+				warn $@;
+				die Dumper($sparql);
+			}
 			cmp_ok( abs( $cost - $expected_cost->{'count_cost'} ), '<', $DELTA, "cost of ${name}" );
 		}
 		
@@ -58,6 +62,228 @@ SKIP: {
 		}
 	}
 }
+
+my $scratch	= <<"END";
+---
+- filter with variable/function-call equality
+- |
+  PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+  PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+  PREFIX	dcterms: <http://purl.org/dc/terms/>
+  PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+  SELECT	?person ?homepage
+  WHERE	{
+  			?person foaf:name "Gregory Todd Williams" .
+  			?person ?pred ?homepage .
+  			FILTER( isBLANK([  ]) ) .
+  		}
+- method: SELECT
+  namespaces:
+    dcterms: http://purl.org/dc/terms/
+    foaf: http://xmlns.com/foaf/0.1/
+    geo: http://www.w3.org/2003/01/geo/wgs84_pos#
+    rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+  sources: []
+  triples:
+    -
+      -
+        - VAR
+        - person
+      -
+        - URI
+        -
+          - foaf
+          - name
+      -
+        - LITERAL
+        - Gregory Todd Williams
+    -
+      -
+        - VAR
+        - person
+      -
+        - VAR
+        - pred
+      -
+        - VAR
+        - homepage
+    -
+      - FILTER
+      -
+        - FUNCTION
+        -
+          - URI
+          - sop:isBlank
+        -
+          - BLANK
+          - a1
+  variables:
+    -
+      - VAR
+      - person
+    -
+      - VAR
+      - homepage
+- method: SELECT
+  namespaces:
+    dcterms: http://purl.org/dc/terms/
+    foaf: http://xmlns.com/foaf/0.1/
+    geo: http://www.w3.org/2003/01/geo/wgs84_pos#
+    rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+  sources: []
+  triples:
+    -
+      -
+        - VAR
+        - person
+      -
+        - URI
+        -
+          - foaf
+          - name
+      -
+        - LITERAL
+        - Gregory Todd Williams
+    -
+      -
+        - VAR
+        - person
+      -
+        - VAR
+        - pred
+      -
+        - VAR
+        - homepage
+    -
+      - FILTER
+      -
+        - FUNCTION
+        -
+          - URI
+          - sop:isBlank
+        -
+          - BLANK
+          - a1
+  variables:
+    -
+      - VAR
+      - person
+    -
+      - VAR
+      - homepage
+- naive_cost: 5
+  count_cost: 0.1428
+---
+- filter with variable/blank-node equality
+- |
+  PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+  PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+  PREFIX	dcterms: <http://purl.org/dc/terms/>
+  PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+  SELECT	?person ?homepage
+  WHERE	{
+  			?person foaf:name "Gregory Todd Williams" .
+  			?person ?pred ?homepage .
+  			FILTER( ?person = _:foo ) .
+  		}
+- method: SELECT
+  namespaces:
+    dcterms: http://purl.org/dc/terms/
+    foaf: http://xmlns.com/foaf/0.1/
+    geo: http://www.w3.org/2003/01/geo/wgs84_pos#
+    rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+  sources: []
+  triples:
+    -
+      -
+        - VAR
+        - person
+      -
+        - URI
+        -
+          - foaf
+          - name
+      -
+        - LITERAL
+        - Gregory Todd Williams
+    -
+      -
+        - VAR
+        - person
+      -
+        - VAR
+        - pred
+      -
+        - VAR
+        - homepage
+    -
+      - FILTER
+      -
+        - ==
+        -
+          - VAR
+          - person
+        -
+          - BLANK
+          - foo
+  variables:
+    -
+      - VAR
+      - person
+    -
+      - VAR
+      - homepage
+- method: SELECT
+  namespaces:
+    dcterms: http://purl.org/dc/terms/
+    foaf: http://xmlns.com/foaf/0.1/
+    geo: http://www.w3.org/2003/01/geo/wgs84_pos#
+    rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+  sources: []
+  triples:
+    -
+      -
+        - VAR
+        - person
+      -
+        - URI
+        -
+          - foaf
+          - name
+      -
+        - LITERAL
+        - Gregory Todd Williams
+    -
+      -
+        - VAR
+        - person
+      -
+        - VAR
+        - pred
+      -
+        - VAR
+        - homepage
+    -
+      - FILTER
+      -
+        - ==
+        -
+          - VAR
+          - person
+        -
+          - BLANK
+          - foo
+  variables:
+    -
+      - VAR
+      - person
+    -
+      - VAR
+      - homepage
+- naive_cost: 5
+  count_cost: 0.1428
+
+END
 
 __END__
 --- |
@@ -867,224 +1093,6 @@ __END__
           -
             - URI
             - func:homepagepred
-  variables:
-    -
-      - VAR
-      - person
-    -
-      - VAR
-      - homepage
-- naive_cost: 5
-  count_cost: 0.1428
----
-- filter with variable/function-call equality
-- |
-  PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-  PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-  PREFIX	dcterms: <http://purl.org/dc/terms/>
-  PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
-  SELECT	?person ?homepage
-  WHERE	{
-  			?person foaf:name "Gregory Todd Williams" .
-  			?person ?pred ?homepage .
-  			FILTER( isBLANK([  ]) ) .
-  		}
-- method: SELECT
-  namespaces:
-    dcterms: http://purl.org/dc/terms/
-    foaf: http://xmlns.com/foaf/0.1/
-    geo: http://www.w3.org/2003/01/geo/wgs84_pos#
-    rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
-  sources: []
-  triples:
-    -
-      -
-        - VAR
-        - person
-      -
-        - URI
-        -
-          - foaf
-          - name
-      -
-        - LITERAL
-        - Gregory Todd Williams
-    -
-      -
-        - VAR
-        - person
-      -
-        - VAR
-        - pred
-      -
-        - VAR
-        - homepage
-    -
-      - FILTER
-      -
-        - FUNCTION
-        -
-          - URI
-          - sop:isBlank
-        -
-          - BLANK
-          - a1
-  variables:
-    -
-      - VAR
-      - person
-    -
-      - VAR
-      - homepage
-- method: SELECT
-  namespaces:
-    dcterms: http://purl.org/dc/terms/
-    foaf: http://xmlns.com/foaf/0.1/
-    geo: http://www.w3.org/2003/01/geo/wgs84_pos#
-    rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
-  sources: []
-  triples:
-    -
-      -
-        - VAR
-        - person
-      -
-        - URI
-        -
-          - foaf
-          - name
-      -
-        - LITERAL
-        - Gregory Todd Williams
-    -
-      -
-        - VAR
-        - person
-      -
-        - VAR
-        - pred
-      -
-        - VAR
-        - homepage
-    -
-      - FILTER
-      -
-        - FUNCTION
-        -
-          - URI
-          - sop:isBlank
-        -
-          - BLANK
-          - a1
-  variables:
-    -
-      - VAR
-      - person
-    -
-      - VAR
-      - homepage
-- naive_cost: 5
-  count_cost: 0.1428
----
-- filter with variable/blank-node equality
-- |
-  PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-  PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-  PREFIX	dcterms: <http://purl.org/dc/terms/>
-  PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
-  SELECT	?person ?homepage
-  WHERE	{
-  			?person foaf:name "Gregory Todd Williams" .
-  			?person ?pred ?homepage .
-  			FILTER( ?person = _:foo ) .
-  		}
-- method: SELECT
-  namespaces:
-    dcterms: http://purl.org/dc/terms/
-    foaf: http://xmlns.com/foaf/0.1/
-    geo: http://www.w3.org/2003/01/geo/wgs84_pos#
-    rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
-  sources: []
-  triples:
-    -
-      -
-        - VAR
-        - person
-      -
-        - URI
-        -
-          - foaf
-          - name
-      -
-        - LITERAL
-        - Gregory Todd Williams
-    -
-      -
-        - VAR
-        - person
-      -
-        - VAR
-        - pred
-      -
-        - VAR
-        - homepage
-    -
-      - FILTER
-      -
-        - ==
-        -
-          - VAR
-          - person
-        -
-          - BLANK
-          - foo
-  variables:
-    -
-      - VAR
-      - person
-    -
-      - VAR
-      - homepage
-- method: SELECT
-  namespaces:
-    dcterms: http://purl.org/dc/terms/
-    foaf: http://xmlns.com/foaf/0.1/
-    geo: http://www.w3.org/2003/01/geo/wgs84_pos#
-    rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
-  sources: []
-  triples:
-    -
-      -
-        - VAR
-        - person
-      -
-        - URI
-        -
-          - foaf
-          - name
-      -
-        - LITERAL
-        - Gregory Todd Williams
-    -
-      -
-        - VAR
-        - person
-      -
-        - VAR
-        - pred
-      -
-        - VAR
-        - homepage
-    -
-      - FILTER
-      -
-        - ==
-        -
-          - VAR
-          - person
-        -
-          - BLANK
-          - foo
   variables:
     -
       - VAR

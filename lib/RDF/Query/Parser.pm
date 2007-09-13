@@ -64,8 +64,14 @@ Returns a new variable structure.
 
 sub new_variable {
 	my $self	= shift;
-	my $name	= shift;
-	return [ 'VAR', $name ];
+	if (@_) {
+		my $name	= shift;
+		return [ 'VAR', $name ];
+	} else {
+		my $count	= $self->{__PRIVATE_VARIABLE_COUNT}++;
+		my $name	= '_____rdfquery_private_' . $count;
+		return [ 'VAR', $name ];
+	}
 }
 
 =item C<new_blank ( $name )>
@@ -76,7 +82,15 @@ Returns a new blank node structure.
 
 sub new_blank {
 	my $self	= shift;
-	my $id		= shift;
+	my $id;
+	if (@_) {
+		$id	= shift;
+	} else {
+		if (not defined($self->{blank_ids})) {
+			$self->{blank_ids}	= 1;
+		}
+		$id	= 'a' . $self->{blank_ids}++;
+	}
 	return ['BLANK', $id ];
 }
 
@@ -228,8 +242,9 @@ sub fail {
 	my $col		= length($lline);
 	my $rest	= substr($self->{remaining}, 0, 10);
 	
-	$self->set_error( "$error at $line:$col (near '$rest')" );
+	$self->set_error( "Syntax error; $error at $line:$col (near '$rest')" );
 	if ($self->{commit}) {
+		Carp::cluck if ($rest =~ /a ann/);
 		Carp::cluck if ($RDF::Query::Parser::debug > 1);
 		throw RDF::Query::Error::ParseError( -text => "$error at $line:$col (near '$rest')" );
 	} else {

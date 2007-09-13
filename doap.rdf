@@ -4,7 +4,17 @@
 		 xmlns:foaf="http://xmlns.com/foaf/0.1/"
 		 xmlns="http://usefulinc.com/ns/doap#">
 
-<Project>
+<rdf:Description rdf:about="">
+	<foaf:maker>
+		<foaf:Person>
+			<foaf:name>Gregory Todd Williams</foaf:name>
+			<foaf:homepage rdf:resource="http://kasei.us/"/>
+			<foaf:mbox_sha1sum>f80a0f19d2a0897b89f48647b2fb5ca1f0bc1cb8</foaf:mbox_sha1sum>
+		</foaf:Person>
+	</foaf:maker>
+</rdf:Description>
+
+<Project rdf:about="http://kasei.us/code/rdf-query/#project">
 	<name>RDF::Query</name>
 	<shortdesc xml:lang="en">RDF::Query RDF Query Engine.</shortdesc>
 	<homepage rdf:resource="http://kasei.us/code/rdf-query/"/>
@@ -16,7 +26,7 @@
 		<foaf:Person>
 			<foaf:name>Gregory Todd Williams</foaf:name>
 			<foaf:homepage rdf:resource="http://kasei.us/"/>
-			<foaf:mbox rdf:resource="mailto:greg@evilfunhouse.com">
+			<foaf:mbox rdf:resource="mailto:gwilliams@cpan.org" />
 			<foaf:mbox_sha1sum>f80a0f19d2a0897b89f48647b2fb5ca1f0bc1cb8</foaf:mbox_sha1sum>
 		</foaf:Person>
 	</maintainer>
@@ -46,14 +56,6 @@
 	   optional administravia:
 	   authoring tools can add more here if they'd like.
    -->
-	<rdf:Description rdf:about="">
-		<foaf:maker>
-			<foaf:Person>
-				<foaf:name>Gregory Todd Williams</foaf:name>
-				<foaf:homepage rdf:resource="http://kasei.us/"/>
-				<foaf:mbox_sha1sum>f80a0f19d2a0897b89f48647b2fb5ca1f0bc1cb8</foaf:mbox_sha1sum>
-			</foaf:Person>
-		</foaf:maker>
-	</rdf:Description>
+</Project>
 
 </rdf:RDF>

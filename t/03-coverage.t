@@ -8,7 +8,7 @@ use Scalar::Util qw(refaddr);
 use lib qw(. t);
 BEGIN { require "models.pl"; }
 
-my $debug	= 0;
+my $verbose	= 1;
 my @files	= map { "data/$_" } qw(about.xrdf foaf.xrdf);
 my @models	= test_models( @files );
 
@@ -22,7 +22,7 @@ foreach my $model (@models) {
 	print "### Using model: $model\n";
 
 	{
-		print "# bridge object accessors\n" if ($debug);
+		print "# bridge object accessors\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, 'http://jena.hpl.hp.com/2003/07/query/RDQL', undef );
 			SELECT ?person
 			WHERE (?person foaf:name "Gregory Todd Williams")
@@ -33,7 +33,7 @@ END
 	}
 
 	{
-		print "# using RDQL language URI\n" if ($debug);
+		print "# using RDQL language URI\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, 'http://jena.hpl.hp.com/2003/07/query/RDQL', undef );
 			SELECT
 				?person
@@ -47,7 +47,7 @@ END
 	}
 
 	{
-		print "# using SPARQL language URI\n" if ($debug);
+		print "# using SPARQL language URI\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, 'http://www.w3.org/TR/rdf-sparql-query/', undef );
 			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 			SELECT	?person
@@ -58,14 +58,14 @@ END
 	}
 
 	{
-		print "# SPARQL query\n" if ($debug);
+		print "# SPARQL query\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 			SELECT	?person ?homepage
 			WHERE	{
 						?person foaf:name "Gregory Todd Williams" .
 						?person foaf:homepage ?homepage .
-						FILTER REGEX(?homepage, "kasei")
+						FILTER REGEX(str(?homepage), "kasei")
 					}
 END
 		my @results	= $query->execute( $model );
@@ -92,7 +92,7 @@ END
 	}
 
 	{
-		print "# RDQL query\n" if ($debug);
+		print "# RDQL query\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
 			SELECT
 				?person
@@ -107,7 +107,7 @@ END
 	}
 
 	{
-		print "# Triple with QName subject\n" if ($debug);
+		print "# Triple with QName subject\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
 			SELECT
 				?name
@@ -123,7 +123,7 @@ END
 	}
 
 	{
-		print "# Early triple with multiple unbound variables\n" if ($debug);
+		print "# Early triple with multiple unbound variables\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
 			SELECT
 				?person ?name
@@ -143,7 +143,7 @@ END
 	}
 
 	{
-		print "# Triple with no variable, present in data\n" if ($debug);
+		print "# Triple with no variable, present in data\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
 			SELECT
 				?person
@@ -159,7 +159,7 @@ END
 	}
 
 	{
-		print "# Triple with no variable, not present in data\n" if ($debug);
+		print "# Triple with no variable, not present in data\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
 			SELECT
 				?person
@@ -174,7 +174,7 @@ END
 	}
 
 	{
-		print "# Query with one triple, two variables\n" if ($debug);
+		print "# Query with one triple, two variables\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
 			SELECT
 				?person
@@ -191,7 +191,7 @@ END
 	}
 
 	{
-		print "# Broken query triple (variable with missing '?')\n" if ($debug);
+		print "# Broken query triple (variable with missing '?')\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
 			SELECT
 				?person
@@ -204,7 +204,7 @@ END
 	}
 
 	{
-		print "# Backend tests\n" if ($debug);
+		print "# Backend tests\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
 			SELECT
 				?name ?homepage
@@ -227,7 +227,7 @@ END
 	}
 
 	{
-		print "# SPARQL getting foaf:aimChatID by foaf:nick\n" if ($debug);
+		print "# SPARQL getting foaf:aimChatID by foaf:nick\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 			PREFIX foaf: <http://xmlns.com/foaf/0.1/>
 			SELECT ?aim WHERE { ?p foaf:nick "kasei"; foaf:aimChatID ?aim }
@@ -241,7 +241,7 @@ END
 	}
 
 	{
-		print "# SPARQL getting foaf:aimChatID by foaf:nick on non-existant person\n" if ($debug);
+		print "# SPARQL getting foaf:aimChatID by foaf:nick on non-existant person\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 			PREFIX foaf: <http://xmlns.com/foaf/0.1/>
 			SELECT ?aim WHERE { ?p foaf:nick "libby"; foaf:aimChatID ?aim }
@@ -251,7 +251,7 @@ END
 	}
 
 	{
-		print "# SPARQL getting blank nodes (geo:Points) and sorting by genid\n" if ($debug);
+		print "# SPARQL getting blank nodes (geo:Points) and sorting by genid\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 			PREFIX geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
 			SELECT ?p
@@ -268,16 +268,16 @@ END
 	}
 
 	{
-		print "# broken query with get call\n" if ($debug);
+		print "# broken query with get call\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 			PREFIX geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
 			break me
 END
-		is( $query, undef );
+		is( $query, undef, 'broken query with get call' );
 	}
 
 	{
-		print "# SPARQL query with missing (optional) WHERE\n" if ($debug);
+		print "# SPARQL query with missing (optional) WHERE\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, 'http://www.w3.org/TR/rdf-sparql-query/', undef );
 			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 			SELECT	?person { ?person foaf:name "Gregory Todd Williams" }
@@ -287,7 +287,7 @@ END
 	}
 
 	{
-		print "# SPARQL query with SELECT *\n" if ($debug);
+		print "# SPARQL query with SELECT *\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, 'http://www.w3.org/TR/rdf-sparql-query/', undef );
 		SELECT *
 		WHERE { ?a ?a ?b . }
@@ -295,13 +295,13 @@ END
 		my @results	= $query->execute( $model );
 		is( scalar(@results), 1, 'got one result' );
 		my $result	= $results[0];
-		is( $query->bridge->uri_value( $result->[0] ), 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type' );
-		is( $query->bridge->uri_value( $result->[1] ), 'http://www.w3.org/1999/02/22-rdf-syntax-ns#Property' );
+		is( $query->bridge->uri_value( $result->[0] ), 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type', 'rdf:type' );
+		is( $query->bridge->uri_value( $result->[1] ), 'http://www.w3.org/1999/02/22-rdf-syntax-ns#Property', 'rdfs:Property' );
 		
 	}
 
 	{
-		print "# SPARQL query with default namespace\n" if ($debug);
+		print "# SPARQL query with default namespace\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, 'http://www.w3.org/TR/rdf-sparql-query/', undef );
 			PREFIX	: <http://xmlns.com/foaf/0.1/>
 			SELECT	?person
@@ -312,7 +312,7 @@ END
 	}
 
 	{
-		print "# SPARQL query; blank node results\n" if ($debug);
+		print "# SPARQL query; blank node results\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, 'http://www.w3.org/TR/rdf-sparql-query/', undef );
 			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 			PREFIX	wn: <http://xmlns.com/wordnet/1.6/>
@@ -327,7 +327,7 @@ END
 		my $count	= 0;
 		while (my $row = $stream->()) {
 			my $thing	= $row->[0];
-			ok( $query->bridge->isa_blank( $thing ) );
+			ok( $query->bridge->isa_blank( $thing ), 'isa blank' );
 			
 			my $id		= $query->bridge->blank_identifier( $thing );
 			ok( length($id), 'blank identifier' );
@@ -337,7 +337,7 @@ END
 	}
 
 	{
-		print "# SPARQL query; language-typed literal\n" if ($debug);
+		print "# SPARQL query; language-typed literal\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, 'http://www.w3.org/TR/rdf-sparql-query/', undef );
 			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 			SELECT	?name
@@ -374,7 +374,7 @@ END
 	}
 
 	{
-		print "# SPARQL query; Stream accessors\n" if ($debug);
+		print "# SPARQL query; Stream accessors\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, 'http://www.w3.org/TR/rdf-sparql-query/', undef );
 			PREFIX	: <http://xmlns.com/foaf/0.1/>
 			SELECT	?person
@@ -391,7 +391,7 @@ END
 	}
 
 	{
-		print "# SPARQL query; Stream accessors\n" if ($debug);
+		print "# SPARQL query; Stream accessors\n" if ($verbose);
 		my $query	= new RDF::Query ( 'ASK	{ ?s ?p ?o }', undef, undef, 'sparql' );
 		my $stream	= $query->execute( $model );
 		my $bridge	= $query->bridge;

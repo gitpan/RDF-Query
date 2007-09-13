@@ -1,7 +1,7 @@
 # RDF::Query
 # -------------
-# $Revision: 210 $
-# $Date: 2007-06-14 14:44:13 -0400 (Thu, 14 Jun 2007) $
+# $Revision: 235 $
+# $Date: 2007-09-13 13:31:06 -0400 (Thu, 13 Sep 2007) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -10,7 +10,7 @@ RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF
 
 =head1 VERSION
 
-This document describes RDF::Query version 1.043.
+This document describes RDF::Query version 1.044.
 
 =head1 SYNOPSIS
 
@@ -61,6 +61,7 @@ use DateTime::Format::W3CDTF;
 use RDF::Query::Stream;
 use RDF::Query::Parser::RDQL;
 use RDF::Query::Parser::SPARQL;
+# use RDF::Query::Parser::tSPARQL;	# XXX temporal extensions
 use RDF::Query::Compiler::SQL;
 use RDF::Query::Error qw(:try);
 
@@ -70,15 +71,18 @@ use RDF::Query::Optimizer::Peephole::Cost;
 
 ######################################################################
 
-our ($REVISION, $VERSION, $debug);
+our ($REVISION, $VERSION, $debug, $js_debug, $DEFAULT_PARSER);
 use constant DEBUG	=> 0;
 BEGIN {
 	$debug		= DEBUG;
-	$REVISION	= do { my $REV = (qw$Revision: 210 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
-	$VERSION	= '1.043';
+	$js_debug	= 0;
+	$REVISION	= do { my $REV = (qw$Revision: 235 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= '1.044';
 	$ENV{RDFQUERY_NO_RDFBASE}	= 1;	# XXX Not ready for release
+	$DEFAULT_PARSER		= 'sparql';
 }
 
+my $KEYWORD_RE	= qr/^(OPTIONAL|GRAPH|FILTER|TIME)$/;
 
 ######################################################################
 
@@ -97,12 +101,27 @@ the query defaults to SPARQL.
 sub new {
 	my $class	= shift;
 	my ($query, $baseuri, $languri, $lang, %options)	= @_;
+	$class->clear_error;
 	
 	my $f	= DateTime::Format::W3CDTF->new;
 	no warnings 'uninitialized';
-	my $parser	= ($lang eq 'rdql' or $languri eq 'http://jena.hpl.hp.com/2003/07/query/RDQL')
-				? RDF::Query::Parser::RDQL->new()
-				: RDF::Query::Parser::SPARQL->new();
+	
+	my %names	= (
+					rdql	=> 'RDF::Query::Parser::RDQL',
+					sparql	=> 'RDF::Query::Parser::SPARQL',
+					tsparql	=> 'RDF::Query::Parser::tSPARQL'
+				);
+	my %uris	= (
+					'http://jena.hpl.hp.com/2003/07/query/RDQL'	=> 'RDF::Query::Parser::RDQL',
+					'http://www.w3.org/TR/rdf-sparql-query/'	=> 'RDF::Query::Parser::SPARQL',
+				);
+	
+	
+	my $pclass	= $names{ $lang } || $uris{ $languri } || $names{ $DEFAULT_PARSER };
+	my $parser	= $pclass->new();
+#	my $parser	= ($lang eq 'rdql' or $languri eq 'http://jena.hpl.hp.com/2003/07/query/RDQL')
+#				? RDF::Query::Parser::RDQL->new()
+#				: RDF::Query::Parser::SPARQL->new();
 	my $parsed		= $parser->parse( $query );
 	my $self 	= bless( {
 					dateparser	=> $f,
@@ -110,6 +129,11 @@ sub new {
 					parsed		=> $parsed,
 					parsed_orig	=> $parsed,
 				}, $class );
+	unless ($parsed->{'triples'}) {
+		$class->set_error( $parser->error );
+		warn $parser->error if ($debug);
+		return;
+	}
 	
 	if ($options{net_filters}) {
 		require JavaScript;
@@ -129,11 +153,6 @@ sub new {
 		$self->{options}{secretkey}	= $options{secretkey};
 	}
 	
-	unless ($parsed->{'triples'}) {
-		$class->set_error( $parser->error );
-		warn $parser->error if ($debug);
-		return undef;
-	}
 	$self->{parsed}{namespaces}{rdf}	= 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 	return $self;
 }
@@ -246,8 +265,16 @@ sub execute {
 		$stream		= $self->query_more( bound => \%bound, triples => [@{ $parsed->{'triples'} }], variables => \@vars );
 		
 		_debug( "got stream: $stream" );
+		my $sorted		= $self->sort_rows( $stream, $parsed );
+		my $projected	= sub {
+			my $bound	= $sorted->();
+			return unless ref($bound);
+			my @values	= map { $bound->{$_} } @vars;
+			return \@values;
+		};
+	
 		$stream		= RDF::Query::Stream->new(
-						$self->sort_rows( $stream, $parsed ),
+						$projected,
 						'bindings',
 						\@vars,
 						bridge	=> $bridge
@@ -346,7 +373,7 @@ sub construct {
 	
 	while ($stream and not $stream->finished) {
 		my $row	= $stream->current;
-		my @triples;
+		my @triples;	# XXX move @triples out of the while block, and only push one stream below (just before the continue{})
 		foreach my $triple (@{ $parsed->{'construct_triples'} }) {
 			my @triple	= @{ $triple };
 			for my $i (0 .. 2) {
@@ -361,7 +388,8 @@ sub construct {
 					}
 				}
 			}
-			push(@triples, $bridge->new_statement( @triple ));
+			my $st	= $bridge->new_statement( @triple );
+			push(@triples, $st);
 		}
 		push(@streams, RDF::Query::Stream->new( sub { shift(@triples) } ));
 	} continue {
@@ -454,29 +482,37 @@ sub loadable_bridge_class {
 		eval "use RDF::Query::Model::RDFBase;";
 		if (RDF::Query::Model::RDFBase->can('new')) {
 			return 'RDF::Query::Model::RDFBase';
+		} else {
+			warn "RDF::Query::Model::RDFBase didn't load cleanly" if ($debug);
 		}
-	}
+	} else { warn "RDF::Base supressed" unless ($ENV{RDFQUERY_SILENT}) }
 	
 	if (not $ENV{RDFQUERY_NO_REDLAND}) {
 		eval "use RDF::Query::Model::Redland;";
 		if (RDF::Query::Model::Redland->can('new')) {
 			return 'RDF::Query::Model::Redland';
+		} else {
+			warn "RDF::Query::Model::Redland didn't load cleanly" if ($debug);
 		}
-	}
+	} else { warn "RDF::Redland supressed" unless ($ENV{RDFQUERY_SILENT}) }
 	
-	if (0) {
-		eval "use RDF::Query::Model::SQL;";
-		if (RDF::Query::Model::SQL->can('new')) {
-			return 'RDF::Query::Model::SQL';
-		}
-	}
+# 	if (0) {
+# 		eval "use RDF::Query::Model::SQL;";
+# 		if (RDF::Query::Model::SQL->can('new')) {
+# 			return 'RDF::Query::Model::SQL';
+# 		} else {
+# 			warn "RDF::Query::Model::SQL didn't load cleanly" if ($debug);
+# 		}
+# 	} else { warn "Native SQL model supressed" unless ($ENV{RDFQUERY_SILENT}) }
 	
 	if (not $ENV{RDFQUERY_NO_RDFCORE}) {
 		eval "use RDF::Query::Model::RDFCore;";
 		if (RDF::Query::Model::RDFCore->can('new')) {
 			return 'RDF::Query::Model::RDFCore';
+		} else {
+			warn "RDF::Query::Model::RDFCore didn't load cleanly" if ($debug);
 		}
-	}
+	} else { warn "RDF::Core supressed" unless ($ENV{RDFQUERY_SILENT}) }
 	
 	return undef;
 }
@@ -543,7 +579,7 @@ sub get_bridge {
 		}
 		require RDF::Query::Model::RDFBase;
 		$bridge	= RDF::Query::Model::RDFBase->new( $model, parsed => $parsed );
-		Carp::cluck;
+#		Carp::cluck 'using RDF::Base';
 	} elsif (blessed($model) and $model->isa('RDF::Redland::Model')) {
 		require RDF::Query::Model::Redland;
 		$bridge	= RDF::Query::Model::Redland->new( $model, parsed => $parsed );
@@ -606,6 +642,11 @@ sub fixup {
 		if ($triple->[0] eq 'OPTIONAL') {
 			push(@triples, @{$triple->[1]});
 		} elsif ($triple->[0] eq 'GRAPH') {
+			push(@triples, @{$triple->[2]});
+			if ($triple->[1][0] eq 'URI') {
+				$triple->[1]	= $bridge->new_resource( $triple->[1][1] );
+			}
+		} elsif ($triple->[0] eq 'TIME') {
 			push(@triples, @{$triple->[2]});
 			if ($triple->[1][0] eq 'URI') {
 				$triple->[1]	= $bridge->new_resource( $triple->[1][1] );
@@ -694,7 +735,7 @@ sub fixup_triple_bridge_variables {
 	my $triple	= shift;
 	my ($sub,$pred,$obj)	= @{ $triple };
 	
-	Carp::cluck unless ref($pred);
+	Carp::cluck "No predicate in triple passed to fixup_triple_bridge_variable: " . Dumper($triple) unless ref($pred);
 	
 	if (reftype($pred) eq 'ARRAY' and $pred->[0] eq 'URI') {
 		my $preduri		= $self->qualify_uri( $pred );
@@ -757,7 +798,9 @@ sub query_more {
 	my $bridge		= $self->bridge;
 	
 	if (@triples) {
-		if ($triples[0][0] eq 'OPTIONAL') {
+		if ($triples[0][0] eq 'GGP') {
+			return $self->groupgraphpattern( bound => $bound, triples => \@triples, %args );
+		} elsif ($triples[0][0] eq 'OPTIONAL') {
 			return $self->optional( bound => $bound, triples => \@triples, %args );
 		} elsif ($triples[0][0] eq 'GRAPH') {
 			if ($context) {
@@ -765,6 +808,9 @@ sub query_more {
 			} else {
 				return $self->named_graph( bound => $bound, triples => \@triples, variables => $variables );
 			}
+		} elsif ($triples[0][0] eq 'TIME') {
+			$triples[0][0]	= 'GRAPH';
+			return $self->named_graph( bound => $bound, triples => \@triples, variables => $variables );
 		} elsif ($triples[0][0] eq 'FILTER') {
 			my $data	= shift(@triples);
 			my $filter	= [ 'FUNCTION', ['URI', 'sop:boolean'], $data->[1] ];
@@ -783,8 +829,9 @@ sub query_more {
 		}
 	} else {
 		# no more triples. return what we've got.
-		my @values	= map { $bound->{$_} } @$variables;
-		my @rows	= [@values];
+#		my @values	= map { $bound->{$_} } @$variables;
+#		my @rows	= [@values];
+		my @rows	= {%$bound};
 		return sub { shift(@rows) };
 	}
 	
@@ -807,7 +854,7 @@ sub query_more {
 	if (DEBUG) {
 		_debug( "${indent}query_more: " . join(' ', map { (($bridge->is_node($_)) ? '<' . $bridge->as_string($_) . '>' : (reftype($_) eq 'ARRAY') ? $_->[1] : Dumper($_)) } @triple) . "\n" );
 		_debug( "${indent}-> with " . scalar(@triples) . " triples to go\n" );
-		_debug( "${indent}-> more: " . (($_->[0] =~ m/^(OPTIONAL|GRAPH|FILTER)$/) ? "$1 block" : join(' ', map { $bridge->is_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
+		_debug( "${indent}-> more: " . (($_->[0] =~ $KEYWORD_RE) ? "$1 block" : join(' ', map { $bridge->is_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
 	}
 	
 	my $vars	= 0;
@@ -854,7 +901,6 @@ sub query_more {
 		# if we're in a GRAPH <uri> {} block, just pass it on
 		@graph	= $context;
 	}
-	
 	
 	my $stream;
 	my @streams;
@@ -915,7 +961,7 @@ sub query_more {
 			if (scalar(@triples)) {
 				if (DEBUG) {
 					_debug( "${indent}-> now for more triples...\n" );
-					_debug( "${indent}-> more: " . (($_->[0] =~ m/^(OPTIONAL|GRAPH|FILTER)$/) ? "$1 block" : join(' ', map { $bridge->is_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
+					_debug( "${indent}-> more: " . (($_->[0] =~ $KEYWORD_RE) ? "$1 block" : join(' ', map { $bridge->is_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
 					_debug( "${indent}-> " . Dumper(\@triples) );
 				}
 				
@@ -925,7 +971,7 @@ sub query_more {
 			} else {
 				my @values	= map { $bound->{$_} } @$variables;
 				_debug( "${indent}-> no triples left: result: " . join(', ', map {$bridge->as_string($_)} grep defined, @values) . "\n" );
-				$result	= [@values];
+				$result	= {%$bound};
 			}
 			
 			foreach my $var (@vars) {
@@ -936,7 +982,7 @@ sub query_more {
 			}
 			
 			if ($context_var) {
-				_debug( "deleting value for $context_var" );
+				_debug( "deleting context value for $context_var" );
 				delete $bound->{ $context_var };
 			}
 			
@@ -1131,7 +1177,7 @@ sub optional {
 				$ostream->next;
 				foreach my $i (0 .. $#known) {
 					my $name	= $known[ $i ];
-					my $value	= $current->[ $i ];
+					my $value	= $current->{ $name };
 					if (defined $value) {
 						if (not exists $bound->{ $name }) {
 							$local_bound{ $name }	= $value;
@@ -1154,6 +1200,74 @@ sub optional {
 	}
 }
 
+
+=begin private
+
+=item C<groupgraphpattern ( bound => \%bound, triples => \@triples )>
+
+Called by C<query_more()> to handle GroupGraphPattern query patterns (groups
+of triples surrounded by '{ }'). Calls C<query_more()> with the GGP.
+Returns by calling C<query_more()> with any remaining triples.
+
+=end private
+
+=cut
+
+sub groupgraphpattern {
+	my $self		= shift;
+	my %args		= @_;
+	
+	my $bound		= { %{ delete($args{bound}) } };
+	my $triples		= delete($args{triples});
+	my $variables	= $args{variables};
+	
+	my @triples	= @{$triples};
+	my $triple	= shift(@triples);
+	
+	my $parsed		= $self->parsed;
+	
+	my (undef, $ggp_triples)	= @{ $triple };
+	my @ggp_triples	= @{ $ggp_triples };
+	
+	my $ggpstream	= $self->query_more( bound => $bound, triples => \@ggp_triples, variables => $variables, %args );
+	if (@triples) {
+		_debug( "with more triples to match." );
+		my $stream;
+		return sub {
+			while ($ggpstream or $stream) {
+				if (ref($stream)) {
+					my $data	= $stream->();
+					if ($data) {
+						return $data;
+					} else {
+						undef $stream;
+					}
+				}
+				
+				if ($ggpstream) {
+					my $data	= $ggpstream->();
+					if ($data) {
+						foreach my $i (0 .. $#{ $variables }) {
+							my $name	= $variables->[ $i ];
+							my $value	= $data->{ $name };
+							if (defined $value) {
+								$bound->{ $name }	= $value;
+								_debug( "Setting $name from named graph = $value\n" );
+							}
+						}
+						$stream	= $self->query_more( bound => $bound, triples => \@triples, variables => $variables );
+					} else {
+						undef $ggpstream;
+					}
+				}
+			}
+			return undef;
+		};
+	} else {
+		_debug( "No more triples. Returning NAMED stream." );
+		return $ggpstream;
+	}
+}
 
 
 =begin private
@@ -1210,7 +1324,7 @@ sub named_graph {
 					if ($data) {
 						foreach my $i (0 .. $#{ $variables }) {
 							my $name	= $variables->[ $i ];
-							my $value	= $data->[ $i ];
+							my $value	= $data->{ $name };
 							if (defined $value) {
 								$bound->{ $name }	= $value;
 								_debug( "Setting $name from named graph = $value\n" );
@@ -1248,19 +1362,28 @@ concatenates with the QName local part.
 sub qualify_uri {
 	my $self	= shift;
 	my $data	= shift;
-	my $parsed	= $self->{parsed};
-	my $uri;
-	if (ref($data->[1])) {
-		my $prefix	= $data->[1][0];
-		unless (exists($parsed->{'namespaces'}{$data->[1][0]})) {
-			_debug( "No namespace defined for prefix '${prefix}'" );
+	if (ref($data) and reftype($data) eq 'ARRAY') {
+		if ($data->[0] ne 'URI') {
+			$data	= ['URI',$data];
 		}
-		my $ns	= $parsed->{'namespaces'}{$prefix};
-		$uri	= join('', $ns, $data->[1][1]);
-	} else {
-		$uri	= $data->[1];
 	}
 	
+	my $parsed	= $self->{parsed};
+	my $uri;
+	if (ref($data)) {
+		if (reftype($data) eq 'ARRAY' and ref($data->[1])) {
+			my $prefix	= $data->[1][0];
+			unless (exists($parsed->{'namespaces'}{$data->[1][0]})) {
+				_debug( "No namespace defined for prefix '${prefix}'" );
+			}
+			my $ns	= $parsed->{'namespaces'}{$prefix};
+			$uri	= join('', $ns, $data->[1][1]);
+		} else {
+			$uri	= $data->[1];
+		}
+	} else {
+		$uri	= $data;
+	}
 	return $uri;
 }
 
@@ -1301,11 +1424,31 @@ my %dispatch	= (
 								}
 								return $data->[0];
 							},
-					'~~'	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->get_value( $self->check_constraints( $values, $_ ) ) } @{ $data }; return ($operands[0] =~ /$operands[1]/) },
+					'~~'	=> sub {
+								my ($self, $values, $data) = @_;
+								my $bridge	= $self->bridge;
+								my $text	= $self->check_constraints( $values, $data->[0] );
+								my $pattern	= $self->check_constraints( $values, $data->[1] );
+								if (scalar(@$data) == 3) {
+									my $flags	= $self->get_value( $self->check_constraints( $values, $data->[2] ) );
+									if ($flags !~ /^[smix]*$/) {
+										throw RDF::Query::Error::FilterEvaluationError ( -text => 'REGEX() called with unrecognized flags' );
+									}
+									$pattern	= qq[(?${flags}:$pattern)];
+								}
+								if ($bridge->is_literal($text)) {
+									$text	= $bridge->literal_value( $text );
+								} elsif (blessed($text)) {
+									throw RDF::Query::Error::TypeError ( -text => 'REGEX() called with non-string data' );
+								}
+								
+								return ($text =~ /$pattern/)
+							},
 					'=='	=> sub {
 								my ($self, $values, $data) = @_;
 								my @operands = map { $self->get_value( $self->check_constraints( $values, $_ ) ) } @{ $data };
-								return ncmp($operands[0], $operands[1]) == 0;
+								my $eq	= ncmp($operands[0], $operands[1]) == 0;
+								return $eq;
 							},
 					'!='	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->get_value( $self->check_constraints( $values, $_ ) ) } @{ $data }; return ncmp($operands[0], $operands[1]) != 0 },
 					'<'		=> sub {
@@ -1390,17 +1533,18 @@ my %dispatch	= (
 					'FUNCTION'	=> sub {
 						our %functions;
 						my ($self, $values, $data) = @_;
-						my $uri		= $data->[0][1];
+						my $uri		= $self->qualify_uri( $data->[0][1] );
 						my $func	= $self->get_function( $uri );
 						if ($func) {
 							$self->{'values'}	= $values;
-							my $value	= $func->(
-											$self,
-											map {
+							my @args	= map {
 												($_->[0] eq 'VAR')
 													? $values->{ $_->[1] }
 													: $self->check_constraints( $values, $_ )
-											} @{ $data }[1..$#{ $data }]
+											} @{ $data }[1..$#{ $data }];
+							my $value	= $func->(
+											$self,
+											@args
 										);
 							{ no warnings 'uninitialized';
 								_debug( "function <$uri> -> $value" );
@@ -1544,22 +1688,21 @@ sub net_filter_function {
 	$bridge->add_uri( $uri );
 	
 	my $subj	= $bridge->new_resource( $uri );
-#	warn $bridge->debug;
 	
 	my $func	= do {
 		my $pred	= $bridge->new_resource('http://www.mindswap.org/~gtw/sparql#function');
 		my $stream	= $bridge->get_statements( $subj, $pred, undef );
 		my $st		= $stream->();
-		my $obj		= $st->object;
-		my $func	= $obj->literal_value;
+		my $obj		= $bridge->object( $st );
+		my $func	= $bridge->literal_value( $obj );
 	};
 	
 	my $impl	= do {
 		my $pred	= $bridge->new_resource('http://www.mindswap.org/~gtw/sparql#source');
 		my $stream	= $bridge->get_statements( $subj, $pred, undef );
 		my $st		= $stream->();
-		my $obj		= $st->object;
-		my $impl	= $obj->uri->as_string;
+		my $obj		= $bridge->object( $st );
+		my $impl	= $bridge->uri_value( $obj );
 	};
 	
 	my $resp	= URI::Fetch->fetch( $impl ) or die URI::Fetch->errstr;
@@ -1647,21 +1790,22 @@ sub new_javascript_engine {
 	my $cx		= $rt->create_context();
 	my $bridge	= $self->bridge;
 	my $meta	= $bridge->meta;
-	$cx->bind_function( 'warn' => sub { warn @_ if ($debug) } );
+	$cx->bind_function( 'warn' => sub { warn @_ if ($debug || $js_debug) } );
 	$cx->bind_function( '_warn' => sub { warn @_ } );
 	$cx->bind_function( 'makeTerm' => sub {
 		my $term	= shift;
 #		warn 'makeTerm: ' . Dumper($term);
 		if (not blessed($term)) {
-			return $bridge->new_literal( $term );
+			my $node	= $bridge->new_literal( $term );
+			return $node;
 		} else {
 			return $term;
 		}
 	} );
 	
 	my $toString	= sub {
-#		warn 'toString: ' . Dumper(\@_);
-		$bridge->as_string( @_ )
+		my $string	= $bridge->as_string( @_ ) . '';
+		return $string;
 	};
 	
 	$cx->bind_class(
@@ -1818,9 +1962,9 @@ General-purpose sorting function for both numbers and strings.
 
 sub ncmp ($$) {
 	my ($a, $b)	= @_;
-	for ($a, $b) {
-		throw RDF::Query::Error::FilterEvaluationError unless defined($_);
-	}
+#	for ($a, $b) {
+#		throw RDF::Query::Error::FilterEvaluationError ( -text => 'Cannot sort undefined values' ) unless defined($_);
+#	}
 	
 	my $get_value	= sub {
 		my $node	= shift;
@@ -1901,7 +2045,9 @@ sub sort_rows {
 		my $old	= $nodes;
 		$nodes	= sub {
 			while (my $row = $old->()) {
-				next if $seen{ join($;, map {$bridge->as_string( $_ )} @$row) }++;
+				no warnings 'uninitialized';
+				my $key	= join($;, map {$bridge->as_string( $_ )} map { $row->{$_} } @variables);
+				next if $seen{ $key }++;
 				return $row;
 			}
 		};
@@ -1929,12 +2075,16 @@ sub sort_rows {
 		no warnings 'numeric';
 		@nodes	= map {
 					my $node	= $_;
-					my $result	= $self->check_constraints( {map { $_ => $node->[ $colmap{$_} ] } (keys %colmap)}, $data );
+					Carp::cluck if (reftype($node) eq 'ARRAY');
+					my %data	= %$node;
+#					my %data	= map { $_ => $node->[ $colmap{$_} ] } (keys %colmap);
+#					warn "data: " . Dumper(\%data, $data);
+					my $result	= $self->check_constraints( \%data, $data );
 					my $value	= $self->get_value( $result );
 					[ $node, $value ]
 				} @nodes;
-		@nodes	= sort { ncmp($a->[1], $b->[1]) }
-						@nodes;
+		
+		@nodes	= sort { ncmp($a->[1], $b->[1]) } @nodes;
 						
 		@nodes	= reverse @nodes if ($dir eq 'DESC');
 		
@@ -2076,7 +2226,11 @@ Clears the object's error variable.
 
 sub clear_error {
 	my $self	= shift;
-	$self->{error}	= undef;
+	if (blessed($self)) {
+		$self->{error}	= undef;
+	}
+	our $_ERROR;
+	undef $_ERROR;
 }
 
 
@@ -2156,6 +2310,20 @@ our %functions;
 
 ### XSD CASTING FUNCTIONS
 
+$functions{"http://www.w3.org/2001/XMLSchema#integer"}	= sub {
+	my $query	= shift;
+	my $node	= shift;
+	my $bridge	= $query->bridge;
+	if ($bridge->is_literal($node)) {
+		my $value	= $bridge->literal_value( $node );
+		return int($value);
+	} elsif (looks_like_number($node)) {
+		return int($node);
+	} else {
+		return 0;
+	}
+};
+
 $functions{"http://www.w3.org/2001/XMLSchema#boolean"}	= sub {
 	my $query	= shift;
 	my $node	= shift;
@@ -2215,7 +2383,7 @@ $functions{"sop:numeric"}	= sub {
 	if ($bridge->is_literal($node)) {
 		my $value	= $bridge->literal_value( $node );
 		my $type	= $bridge->literal_datatype( $node );
-		if ($type and $type->as_string eq 'http://www.w3.org/2001/XMLSchema#integer') {
+		if ($type and $type eq 'http://www.w3.org/2001/XMLSchema#integer') {
 			return int($value)
 		}
 		return +$value;
@@ -2342,7 +2510,7 @@ $functions{"sparql:langmatches"}	= sub {
 	my $node	= shift;
 	my $match	= shift;
 	my $bridge	= $query->bridge;
-	my $lang	= $bridge->literal_value_language( $node );
+	my $lang	= $query->get_value( $node );
 	return unless ($lang);
 	return (lc($lang) eq lc($match));
 };
@@ -2576,18 +2744,14 @@ $functions{"java:com.ldodds.sparql.Distance"}	= sub {
 	return $dist;
 };
 
-
-
-
-
-
-
-
-
-
-
-
-
+$functions{"http://kasei.us/2007/09/functions/warn"}	= sub {
+	my $query	= shift;
+	my $cast	= 'sop:str';
+	my $value	= $functions{$cast}->( $query, shift );
+	no warnings 'uninitialized';
+	warn "FILTER VALUE: $value\n";
+	return $value;
+};
 
 
 

@@ -28,6 +28,61 @@ INSTALLATION
 
 VERSION HISTORY
 
+  Version 1.044 (2007-09-13)
+
+     * DAWG tests now emit EARL reports.
+     * Added test harness and temporal data importing scripts to new bin/ directory.
+     * Added support for temporal queries in RDF::Query and optimizers.
+     * Added support for CONSTRUCT queries in new YAPP-based SPARQL parsers.
+     * Added TIMED graph tests for new SPARQL temporal extensions.
+     * Added tests to SPARQL parser for bugs that were discovered with temporal extensions.
+     * Added POD to new SPARQL parsers.
+     * Added new Parse::Yapp-based SPARQL parser in preparation for temporal SPARQL extensions.
+     * Added stub functions for temporal extension support.
+     * Added model_as_stream() method to Redland bridge class.
+     * Addded debug() method to RDF::Query::Model.
+     * Added UNION tests.
+     * Added a javascript debugging flag to RDF::Query.
+     * Added RDF::Query::groupgraphpattern() for handling GGPs.
+     * Added xsd:integer casting function.
+     * Added <http://kasei.us/2007/09/functions/warn> as a FILTER tee that warns to STDERR.
+     * Added Eyapp SPARQL grammer file and replaced parser with auto-generated code from eyapp.
+     * Marked some SPARQL parser tests as TODO (due to incompatability with new YAPP-based parser).
+     * Network tests are now run against all available models.
+     * Stream tests are now run against all available models.
+     * Query parser initialization code cleaned up (and now supports beta tSPARQL parser).
+     * net_filter_function() now properly accesses nodes with bridge methods.
+     * RDF::Query::Parser::new_blank now assigns default names if none is supplied.
+     * Updated error messages in SPARQL parser to align with new YAPP-based parser.
+     * SPARQL parse_predicate_object() fixed to support tripleNodes.
+     * SPARQL parse_object() and parse_predicate() fixed for whitespace insensitivity.
+     * Moved old hand-written SPARQL parser to now unused SPARQL-RD.pm.
+     * Moved new YAPP-based SPARQL parser to SPARQL.pm.
+     * Copied YAPP-based SPARQL parser for new temporal extension tSPARQL.pm.
+     * Moved existing tests for hand-written SPARQL parser to 01-sparql_parser.t.rd-old.
+     * Moved new YAPP-based SPARQL tests to t/01-sparql_parser.t.
+     * Removed bad-syntax queries from optimizer and SQL compiler tests.
+     * Fixed bad-syntax queries in stream and hook tests.
+     * Made output of coverage tests easier to read by adding test names.
+     * Fixed SPARQL parsers to allow keywords as variable names.
+     * Fixed SPARQL parsers to allow dashes and underscores in variable names.
+     * Fixed bad parser constructor call in SQL compiler tests.
+     * Suppressed RDF::Base loading (again) during RDF::Query startup.
+     * RDF::Query::Model::Redland::debug now shows contexts during iterator debugging.
+     * Moved the old (hand written) SPARQL parser out of the way to make test harnesses happy.
+     * SPARQL parser now respects spec regarding the reuse of blank node labels across BGPs.
+     * SPARQL parser now does the right thing with NIL (the empty list).
+     * SPARQL parser now handles embedded GGPs correctly.
+     * Updated SPARQL parser and tests to pass (almost all) DAWG tests.
+     * Fixed bug where results couldn't be sorted by a non-selected variable.
+     * Removed the unused RDF::Query::timed_graph() method.
+     * RDF::Query::qualify_uri is now more liberal in what it accepts.
+     * Fixed xsd:boolean casting of integer values.
+     * RDF::Query::Parser::new_variable can now generate private variable names.
+     * Fixed test suite to work properly on systems without Redland.
+     * Disabled loading of tSPARQL parser for release.
+     * Removed function prototype definitions in Model base class (was causing loading problems when models are missing).
+
   Version 1.043 (2007-06-14)
 
      * Fixed broken MANIFEST causing MakeMaker code to break.
@@ -341,4 +396,4 @@ AUTHOR
 
 	Gregory Williams <gwilliams@cpan.org>
 
-$Id: README 210 2007-06-14 18:44:13Z samofool $
+$Id: README 237 2007-09-13 17:51:30Z samofool $

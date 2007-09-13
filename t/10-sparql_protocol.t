@@ -29,7 +29,7 @@ foreach my $model (@models) {
 			WHERE	{
 						?person foaf:name "Gregory Todd Williams" .
 						?person foaf:homepage ?homepage .
-						FILTER REGEX(?homepage, "kasei")
+						FILTER REGEX(STR(?homepage), "kasei")
 					}
 			LIMIT 1
 END
@@ -98,7 +98,7 @@ END
 				WHERE	{
 							?person foaf:name "Gregory Todd Williams" .
 							?person foaf:homepage ?homepage .
-							FILTER REGEX(?homepage, "kasei")
+							FILTER REGEX(STR(?homepage), "kasei")
 						}
 				ORDER BY ?homepage
 				LIMIT 1

@@ -38,6 +38,60 @@
 			make install<br />
 		</div>
 	<h2 id="changelog">Version History</h2>
+		<h3 id="v1_042">Version 1.044 (2007-09-13)</h3>
+			<ul>
+				<li>DAWG tests now emit EARL reports.</li>
+				<li>Added test harness and temporal data importing scripts to new bin/ directory.</li>
+				<li>Added support for temporal queries in RDF::Query and optimizers.</li>
+				<li>Added support for CONSTRUCT queries in new YAPP-based SPARQL parsers.</li>
+				<li>Added TIMED graph tests for new SPARQL temporal extensions.</li>
+				<li>Added tests to SPARQL parser for bugs that were discovered with temporal extensions.</li>
+				<li>Added POD to new SPARQL parsers.</li>
+				<li>Added new Parse::Yapp-based SPARQL parser in preparation for temporal SPARQL extensions.</li>
+				<li>Added stub functions for temporal extension support.</li>
+				<li>Added model_as_stream() method to Redland bridge class.</li>
+				<li>Addded debug() method to RDF::Query::Model.</li>
+				<li>Added UNION tests.</li>
+				<li>Added a javascript debugging flag to RDF::Query.</li>
+				<li>Added RDF::Query::groupgraphpattern() for handling GGPs.</li>
+				<li>Added xsd:integer casting function.</li>
+				<li>Added &lt;http://kasei.us/2007/09/functions/warn&gt; as a FILTER tee that warns to STDERR.</li>
+				<li>Added Eyapp SPARQL grammer file and replaced parser with auto-generated code from eyapp.</li>
+				<li>Marked some SPARQL parser tests as TODO (due to incompatability with new YAPP-based parser).</li>
+				<li>Network tests are now run against all available models.</li>
+				<li>Stream tests are now run against all available models.</li>
+				<li>Query parser initialization code cleaned up (and now supports beta tSPARQL parser).</li>
+				<li>net_filter_function() now properly accesses nodes with bridge methods.</li>
+				<li>RDF::Query::Parser::new_blank now assigns default names if none is supplied.</li>
+				<li>Updated error messages in SPARQL parser to align with new YAPP-based parser.</li>
+				<li>SPARQL parse_predicate_object() fixed to support tripleNodes.</li>
+				<li>SPARQL parse_object() and parse_predicate() fixed for whitespace insensitivity.</li>
+				<li>Moved old hand-written SPARQL parser to now unused SPARQL-RD.pm.</li>
+				<li>Moved new YAPP-based SPARQL parser to SPARQL.pm.</li>
+				<li>Copied YAPP-based SPARQL parser for new temporal extension tSPARQL.pm.</li>
+				<li>Moved existing tests for hand-written SPARQL parser to 01-sparql_parser.t.rd-old.</li>
+				<li>Moved new YAPP-based SPARQL tests to t/01-sparql_parser.t.</li>
+				<li>Removed bad-syntax queries from optimizer and SQL compiler tests.</li>
+				<li>Fixed bad-syntax queries in stream and hook tests.</li>
+				<li>Made output of coverage tests easier to read by adding test names.</li>
+				<li>Fixed SPARQL parsers to allow keywords as variable names.</li>
+				<li>Fixed SPARQL parsers to allow dashes and underscores in variable names.</li>
+				<li>Fixed bad parser constructor call in SQL compiler tests.</li>
+				<li>Suppressed RDF::Base loading (again) during RDF::Query startup.</li>
+				<li>RDF::Query::Model::Redland::debug now shows contexts during iterator debugging.</li>
+				<li>Moved the old (hand written) SPARQL parser out of the way to make test harnesses happy.</li>
+				<li>SPARQL parser now respects spec regarding the reuse of blank node labels across BGPs.</li>
+				<li>SPARQL parser now does the right thing with NIL (the empty list).</li>
+				<li>SPARQL parser now handles embedded GGPs correctly.</li>
+				<li>Updated SPARQL parser and tests to pass (almost all) DAWG tests.</li>
+				<li>Fixed bug where results couldn't be sorted by a non-selected variable.</li>
+				<li>Removed the unused RDF::Query::timed_graph() method.</li>
+				<li>RDF::Query::qualify_uri is now more liberal in what it accepts.</li>
+				<li>Fixed xsd:boolean casting of integer values.</li>
+				<li>RDF::Query::Parser::new_variable can now generate private variable names.</li>
+				<li>Fixed test suite to work properly on systems without Redland.</li>
+				<li>Disabled loading of tSPARQL parser for release.</li>
+				<li>Removed function prototype definitions in Model base class (was causing loading problems when models are missing).</li>
 		<h3 id="v1_042">Version 1.043 (2007-06-14)</h3>
 			<ul>
 				<li>Fixed broken MANIFEST causing MakeMaker code to break.</li>
@@ -342,5 +396,5 @@
 	<h2>Copyright</h2>
 		<p>Copyright &copy; 2005&#8211;2006 Gregory Williams. All rights reserved. This program is free software; you can redistribute it and/or modify it under the same terms as Perl itself.</p>
 	
-	$Id: README.html 210 2007-06-14 18:44:13Z samofool $
+	$Id: README.html 237 2007-09-13 17:51:30Z samofool $
 </body></html>

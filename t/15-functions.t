@@ -81,7 +81,7 @@ END
 				WHERE {
 					?person a foaf:Person ;
 						foaf:name ?name .
-					FILTER ( LANGMATCHES(?name, "en") )
+					FILTER ( LANGMATCHES(LANG(?name), "en") )
 					
 				}
 END

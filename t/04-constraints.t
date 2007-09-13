@@ -20,19 +20,17 @@ SKIP: {
 	$parser->parse_into_model($_, $_, $model) for (@data);
 	
 	{
-		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
-			SELECT
-					?person ?homepage
-			WHERE
-					(?person foaf:name "Gregory Todd Williams")
-					(?person foaf:homepage ?homepage)
-			AND
-					?homepage ~~ /kasei/
-			USING
-					rdf FOR <http://www.w3.org/1999/02/22-rdf-syntax-ns#>,
-					foaf FOR <http://xmlns.com/foaf/0.1/>,
-					dcterms FOR <http://purl.org/dc/terms/>,
-					geo FOR <http://www.w3.org/2003/01/geo/wgs84_pos#>
+		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+			PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+			PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+			PREFIX dcterms: <http://purl.org/dc/terms/>
+			PREFIX geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+			SELECT ?person ?homepage
+			WHERE {
+					?person foaf:name "Gregory Todd Williams" .
+					?person foaf:homepage ?homepage .
+					FILTER ( REGEX(STR(?homepage), "kasei") ) .
+			}
 END
 		my ($person, $homepage)	= $query->get( $model );
 		ok( $query->bridge->isa_resource( $person ), 'Resource with regex match' );
@@ -40,19 +38,17 @@ END
 	}
 	
 	{
-		my $query	= new RDF::Query ( <<"END", undef, undef, 'rdql' );
-			SELECT
-					?person ?homepage
-			WHERE
-					(?person foaf:name "Gregory Todd Williams")
-					(?person foaf:homepage ?homepage)
-			AND
-					?homepage ~~ /not_in_here/
-			USING
-					rdf FOR <http://www.w3.org/1999/02/22-rdf-syntax-ns#>,
-					foaf FOR <http://xmlns.com/foaf/0.1/>,
-					dcterms FOR <http://purl.org/dc/terms/>,
-					geo FOR <http://www.w3.org/2003/01/geo/wgs84_pos#>
+		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+			PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+			PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+			PREFIX dcterms: <http://purl.org/dc/terms/>
+			PREFIX geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+			SELECT ?person ?homepage
+			WHERE {
+					?person foaf:name "Gregory Todd Williams" .
+					?person foaf:homepage ?homepage .
+					FILTER ( REGEX(STR(?homepage), "not_in_here") ) .
+			}
 END
 		my ($person, $homepage)	= $query->get( $model );
 		is( $person, undef, 'no result with regex match' );

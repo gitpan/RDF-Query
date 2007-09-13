@@ -10,12 +10,12 @@ use RDF::Query::Parser::SPARQL;
 if ($ENV{RDFQUERY_DEV_MYSQL}) {
 	plan 'no_plan';
 } else {
-	plan tests => 26;
+	plan tests => 24;
 }
 
 use_ok( 'RDF::Query::Compiler::SQL' );
 
-my $parser		= new RDF::Query::Parser::SPARQL (undef);
+my $parser		= new RDF::Query::Parser::SPARQL ();
 
 
 {
@@ -292,39 +292,6 @@ END
 }
 
 {
-	my $parsed	= $parser->parse(<<'END');
-		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-		SELECT	?name
-		WHERE	{
-					?p a foaf:Person .
-					?p foaf:name ?name .
-					FILTER( ?p = _:r1101876070r10 )
-				}
-END
-
-	my $compiler	= RDF::Query::Compiler::SQL->new( $parsed );
-	my $sql		= $compiler->compile();
-	is( $sql, qq(SELECT\n\ts1.object AS name_Node,\n\tljr0.URI AS name_URI,\n\tljl0.Value AS name_Value,\n\tljl0.Language AS name_Language,\n\tljl0.Datatype AS name_Datatype,\n\tljb0.Name AS name_Name,\n\tljr1.URI AS p_URI,\n\tljl1.Value AS p_Value,\n\tljl1.Language AS p_Language,\n\tljl1.Datatype AS p_Datatype,\n\tljb1.Name AS p_Name\nFROM\n\tStatements s0 LEFT JOIN Resources ljr1 ON (s0.subject = ljr1.ID) LEFT JOIN Literals ljl1 ON (s0.subject = ljl1.ID) LEFT JOIN Bnodes ljb1 ON (s0.subject = ljb1.ID),\n\tStatements s1 LEFT JOIN Resources ljr0 ON (s1.object = ljr0.ID) LEFT JOIN Literals ljl0 ON (s1.object = ljl0.ID) LEFT JOIN Bnodes ljb0 ON (s1.object = ljb0.ID)\nWHERE\n\ts0.predicate = 2982895206037061277 AND\n\ts0.object = 3652866608875541952 AND\n\ts1.subject = s0.subject AND\n\ts1.predicate = 14911999128994829034 AND\n\ts0.subject = 4025741532186680712), "select people by BNode" );
-}
-
-{
-	my $parsed	= $parser->parse(<<'END');
-		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-		SELECT	?name
-		WHERE	{
-					?p a foaf:Person ; foaf:name ?name .
-					FILTER( ?p = [] )
-				}
-END
-
-	my $compiler	= RDF::Query::Compiler::SQL->new( $parsed );
-	my $sql		= $compiler->compile();
-	$sql		=~ s/(s0.subject\s*=\s*)\d+/$1XXX/;
-	is( $sql, qq(SELECT\n\ts1.object AS name_Node,\n\tljr0.URI AS name_URI,\n\tljl0.Value AS name_Value,\n\tljl0.Language AS name_Language,\n\tljl0.Datatype AS name_Datatype,\n\tljb0.Name AS name_Name,\n\tljr1.URI AS p_URI,\n\tljl1.Value AS p_Value,\n\tljl1.Language AS p_Language,\n\tljl1.Datatype AS p_Datatype,\n\tljb1.Name AS p_Name\nFROM\n\tStatements s0 LEFT JOIN Resources ljr1 ON (s0.subject = ljr1.ID) LEFT JOIN Literals ljl1 ON (s0.subject = ljl1.ID) LEFT JOIN Bnodes ljb1 ON (s0.subject = ljb1.ID),\n\tStatements s1 LEFT JOIN Resources ljr0 ON (s1.object = ljr0.ID) LEFT JOIN Literals ljl0 ON (s1.object = ljl0.ID) LEFT JOIN Bnodes ljb0 ON (s1.object = ljb0.ID)\nWHERE\n\ts0.predicate = 2982895206037061277 AND\n\ts0.object = 3652866608875541952 AND\n\ts1.subject = s0.subject AND\n\ts1.predicate = 14911999128994829034 AND\n\ts0.subject = XXX), "select people by BNode" );
-}
-
-
-{
 	my $parsed	= $parser->parse(<<"END");
 		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 		SELECT	?person ?name
@@ -533,3 +500,36 @@ END
 
 
 __END__
+{
+	my $parsed	= $parser->parse(<<'END');
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT	?name
+		WHERE	{
+					?p a foaf:Person .
+					?p foaf:name ?name .
+					FILTER( ?p = _:r1101876070r10 )
+				}
+END
+
+	my $compiler	= RDF::Query::Compiler::SQL->new( $parsed );
+	my $sql		= $compiler->compile();
+	is( $sql, qq(SELECT\n\ts1.object AS name_Node,\n\tljr0.URI AS name_URI,\n\tljl0.Value AS name_Value,\n\tljl0.Language AS name_Language,\n\tljl0.Datatype AS name_Datatype,\n\tljb0.Name AS name_Name,\n\tljr1.URI AS p_URI,\n\tljl1.Value AS p_Value,\n\tljl1.Language AS p_Language,\n\tljl1.Datatype AS p_Datatype,\n\tljb1.Name AS p_Name\nFROM\n\tStatements s0 LEFT JOIN Resources ljr1 ON (s0.subject = ljr1.ID) LEFT JOIN Literals ljl1 ON (s0.subject = ljl1.ID) LEFT JOIN Bnodes ljb1 ON (s0.subject = ljb1.ID),\n\tStatements s1 LEFT JOIN Resources ljr0 ON (s1.object = ljr0.ID) LEFT JOIN Literals ljl0 ON (s1.object = ljl0.ID) LEFT JOIN Bnodes ljb0 ON (s1.object = ljb0.ID)\nWHERE\n\ts0.predicate = 2982895206037061277 AND\n\ts0.object = 3652866608875541952 AND\n\ts1.subject = s0.subject AND\n\ts1.predicate = 14911999128994829034 AND\n\ts0.subject = 4025741532186680712), "select people by BNode" );
+}
+
+{
+	my $parsed	= $parser->parse(<<'END');
+		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT	?name
+		WHERE	{
+					?p a foaf:Person ; foaf:name ?name .
+					FILTER( ?p = [] )
+				}
+END
+
+	my $compiler	= RDF::Query::Compiler::SQL->new( $parsed );
+	my $sql		= $compiler->compile();
+	$sql		=~ s/(s0.subject\s*=\s*)\d+/$1XXX/;
+	is( $sql, qq(SELECT\n\ts1.object AS name_Node,\n\tljr0.URI AS name_URI,\n\tljl0.Value AS name_Value,\n\tljl0.Language AS name_Language,\n\tljl0.Datatype AS name_Datatype,\n\tljb0.Name AS name_Name,\n\tljr1.URI AS p_URI,\n\tljl1.Value AS p_Value,\n\tljl1.Language AS p_Language,\n\tljl1.Datatype AS p_Datatype,\n\tljb1.Name AS p_Name\nFROM\n\tStatements s0 LEFT JOIN Resources ljr1 ON (s0.subject = ljr1.ID) LEFT JOIN Literals ljl1 ON (s0.subject = ljl1.ID) LEFT JOIN Bnodes ljb1 ON (s0.subject = ljb1.ID),\n\tStatements s1 LEFT JOIN Resources ljr0 ON (s1.object = ljr0.ID) LEFT JOIN Literals ljl0 ON (s1.object = ljl0.ID) LEFT JOIN Bnodes ljb0 ON (s1.object = ljb0.ID)\nWHERE\n\ts0.predicate = 2982895206037061277 AND\n\ts0.object = 3652866608875541952 AND\n\ts1.subject = s0.subject AND\n\ts1.predicate = 14911999128994829034 AND\n\ts0.subject = XXX), "select people by BNode" );
+}
+
+

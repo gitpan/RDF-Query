@@ -90,6 +90,9 @@ sub optimize_triplepattern {
 			} elsif ($type eq 'GRAPH') {
 				my $cost	= $self->optimize_triplepattern( $part->[2] );
 				push(@cost, [ $cost, $part ]);
+			} elsif ($type eq 'TIME') {
+				my $cost	= $self->optimize_triplepattern( $part->[2] );
+				push(@cost, [ $cost, $part ]);
 			} elsif ($type eq 'OPTIONAL') {
 				my $cost	= max( 1, $self->optimize_triplepattern( $part->[1] ) );
 				push(@cost, [ $cost, $part ]);
@@ -99,7 +102,7 @@ sub optimize_triplepattern {
 								(@{ $part }[ 1 .. $#{ $part } ]);
 				push(@cost, [ $cost, $part ]);
 			} else {
-				die Dumper($part);
+				die "*** Unknown operator encountered during peephole optimization: " . Dumper($part);
 			}
 		}
 	}

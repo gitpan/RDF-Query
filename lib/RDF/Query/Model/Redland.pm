@@ -19,7 +19,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 208 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 224 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
 ######################################################################
@@ -121,6 +121,16 @@ sub new_literal {
 		push(@args, undef);
 		push(@args, $lang);
 	}
+	
+	# XXX XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+	# XXX hack... the values don't seem to work unless i print them out...
+	# XXX popped up as an error when debugging the javascript net function...
+	# XXX possibly an error in the XS in the JavaScript module
+	my $buffer;
+	open( my $fh, '>', \$buffer );
+	print {$fh} Dumper(\@args);
+	close($fh);
+	# XXX XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 	
 	return RDF::Redland::Node->new_literal( @args );
 }
@@ -231,7 +241,8 @@ sub as_string {
 	my $self	= shift;
 	my $node	= shift;
 	return undef unless (blessed($node));
-	return $node->as_string;
+	my $string	= $node->as_string;
+	return $string;
 }
 
 =item C<literal_value ( $node )>
@@ -255,9 +266,14 @@ Returns the datatype of the literal object.
 sub literal_datatype {
 	my $self	= shift;
 	my $node	= shift;
-	my $type	= $node->literal_datatype;
-	return unless $type;
-	return $type->as_string;
+	return unless (blessed($node));
+	if ($node->isa('DateTime')) {
+		return 'http://www.w3.org/2001/XMLSchema#dateTime';
+	} else {
+		my $type	= $node->literal_datatype;
+		return unless $type;
+		return $type->as_string;
+	}
 }
 
 =item C<literal_value_language ( $node )>
@@ -445,14 +461,6 @@ sub get_statements {
 			}
 		};
 	} else {
-		if (0) {
-			my $stream	= $model->as_stream();
-			warn "------------------------------\n";
-			while (my $st = $stream->current) {
-				warn $st->as_string;
-			} continue { $stream->next }
-			warn "------------------------------\n";
-		}
 		if (scalar(@defs) == 2) {
 			my @imethods	= qw(sources_iterator arcs_iterator targets_iterator);
 			my @smethods	= qw(subject predicate object);
@@ -692,8 +700,9 @@ sub as_xml {
 	}
 	
 	my $base		= RDF::Redland::URI->new('http://example.com/');
-	my $serializer	= RDF::Redland::Serializer->new("rdfxml-abbrev");
-	return $serializer->serialize_model_to_string( $base, $model );
+	my $serializer	= RDF::Redland::Serializer->new("rdfxml");	# rdfxml-abbrev was emitting empty documents... reverted to plain rdfxml
+	my $xml			= $serializer->serialize_model_to_string( $base, $model );
+	return $xml;
 }
 
 
@@ -706,6 +715,43 @@ sub RDF::Redland::Node::getLabel {
 	} elsif ($node->type == $RDF::Redland::Node::Type_Blank) {
 		return $node->blank_identifier;
 	}
+}
+
+
+=item C<< model_as_stream >>
+
+Returns an iterator object containing every statement in the model.
+
+=cut
+
+sub model_as_stream {
+	my $self	= shift;
+	my $model	= $self->model;
+	return $model->as_stream;
+}
+
+
+
+=item C<< debug >>
+
+Prints debugging information about the model (including all statements in the
+model) to STDERR.
+
+=cut
+
+sub debug {
+	my $self	= shift;
+	my $stream	= $self->model_as_stream();
+	warn "------------------------------\n";
+	while (my $st = $stream->current) {
+		my $string	= $self->as_string( $st );
+		if (my $c 	= $stream->context) {
+			my $cs	= $c->as_string;
+			$string	.= "\tC<$cs>";
+		}
+		print STDERR "$string\n";
+	} continue { $stream->next }
+	warn "------------------------------\n";
 }
 
 1;

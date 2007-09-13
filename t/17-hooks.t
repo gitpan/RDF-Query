@@ -25,7 +25,7 @@ SKIP: {
 		WHERE	{
 					?point a geo:Point ;
 						geo:lat ?lat ;
-						geo:long ?long ;
+						geo:long ?long .
 				}
 END
 	$query->add_hook( 'http://kasei.us/code/rdf-query/hooks/post-create-model', sub {

@@ -41,7 +41,7 @@ sub test_models_and_classes {
 						};
 			push(@models, $data);
 		} else {
-			warn "RDF::Redland not loaded: $@\n";
+			warn "RDF::Redland not loaded: $@\n" if ($RDF::Query::debug);
 		}
 	}
 	
@@ -77,7 +77,7 @@ sub test_models_and_classes {
 						};
 			push(@models, $data);
 		} else {
-			warn "RDF::Core not loaded: $@\n";
+			warn "RDF::Core not loaded: $@\n" if ($RDF::Query::debug);
 		}
 	}
 	
@@ -107,7 +107,7 @@ sub test_models_and_classes {
 						};
 			push(@models, $data);
 		} else {
-			warn "RDF::Base not loaded: $@\n";
+			warn "RDF::Base not loaded: $@\n" if ($RDF::Query::debug);
 		}
 	}
 	

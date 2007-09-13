@@ -1,17 +1,21 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-
-use Test::More tests => 128;
-
+use Test::More;
 use YAML;
 use Data::Dumper;
 use Scalar::Util qw(reftype);
 
+if ($ENV{RDFQUERY_TIMETEST}) {
+	plan tests => 95;
+} else {
+	plan skip_all => 'Developer tests. Set RDFQUERY_TIMETEST to run these tests.';
+	return;
+}
 
-use_ok( 'RDF::Query::Parser::SPARQL' );
-my $parser	= new RDF::Query::Parser::SPARQL ();
-isa_ok( $parser, 'RDF::Query::Parser::SPARQL' );
+use_ok( 'RDF::Query::Parser::tSPARQL' );
+my $parser	= new RDF::Query::Parser::tSPARQL ();
+isa_ok( $parser, 'RDF::Query::Parser::tSPARQL' );
 
 
 
@@ -24,7 +28,6 @@ foreach (@data) {
 	unless ($r) {
 		warn 'PARSE ERROR: ' . $parser->error;
 		warn Dumper($parsed);
-		exit;
 	}
 }
 
@@ -47,443 +50,6 @@ END
 	like( $parser->error, qr/Remaining input/, 'got expected error' );
 }
 
-{
-	my $sparql	= <<"END";
-		PREFIX dc10:  <http://purl.org/dc/elements/1.1/>
-		PREFIX dc11:  <http://purl.org/dc/elements/1.0/>
-		SELECT	?title ?author
-		WHERE	{
-					{ ?book dc10:title ?title .  ?book dc10:creator ?author }
-					UNION
-					?foo
-				}
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, 'missing union part' );
-	like( $parser->error, qr/Expecting GroupGraphPattern/, 'got expected error' );
-}
-
-{
-	my $sparql	= <<"END";
-		PREFIX dc10:  <http://purl.org/dc/elements/1.1/>
-		PREFIX dc11:  <http://purl.org/dc/elements/1.0/>
-		SELECT	?title ?author
-		WHERE	{
-					?book dc10:title ?title .
-					?book dc10:creator ?author .
-					FILTER
-				}
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, 'missing filter' );
-	like( $parser->error, qr/^Syntax error/, 'got expected error' );	# XXX
-#	like( $parser->error, qr/^Expecting FILTER declaration/, 'got expected error' );
-}
-
-{
-	my $sparql	= <<"END";
-		PREFIX dc10:  <http://purl.org/dc/elements/1.1/>
-		PREFIX dc11:  <http://purl.org/dc/elements/1.0/>
-		SELECT	?title ?author
-		WHERE	{
-					?book dc10:title ?title .
-					FILTER( ?title = ) .
-				}
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, 'bad syntax in filter' );
-	like( $parser->error, qr/^Syntax error/, 'got expected error' );	# XXX
-#	like( $parser->error, qr/^Expecting numeric expression/, 'got expected error' );
-}
-
-{
-	my $sparql	= <<"END";
-		PREFIX dc10:  <http://purl.org/dc/elements/1.1/>
-		PREFIX dc11:  <http://purl.org/dc/elements/1.0/>
-		SELECT	?title ?author
-		WHERE	{
-					?book dc10:title ?title .
-					FILTER( ?title = foo ) .
-				}
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, 'bad syntax in filter' );
-	like( $parser->error, qr/^Syntax error/, 'got expected error' );	# XXX
-#	like( $parser->error, qr/^Expecting ":"/, 'got expected error' );
-}
-
-{
-	my $sparql	= <<"END";
-		PREFIX dc:  <http://purl.org/dc/elements/1.1/>
-		SELECT	?title ?author
-		WHERE	{
-					?book dc:title ?title ; dc:identifier ?id .
-					FILTER( ?id < 2 * ) .
-				}
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, 'bad syntax in filter' );
-	like( $parser->error, qr/^Syntax error/, 'got expected error' );	# XXX
-#	like( $parser->error, qr/^Expecting unary expression after '*'/, 'got expected error' );
-}
-
-{
-	my $sparql	= <<"END";
-		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-		SELECT	?x
-		WHERE	{ (1 2) foaf:name }
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, 'missing object' );
-	like( $parser->error, qr/^Syntax error/, 'got expected error' );	# XXX
-#	like( $parser->error, qr/Expecting object after predicate/, 'parse error' );
-}
-
-{
-	my $sparql	= <<"END";
-		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-		SELECT	?x
-		WHERE	{ [] foaf:name }
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, 'missing object' );
-	like( $parser->error, qr/^Syntax error/, 'got expected error' );	# XXX
-#	like( $parser->error, qr/Expecting object after predicate/, 'parse error' );
-}
-
-{
-	my $sparql	= <<"END";
-		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-		SELECT	?x
-		WHERE	{ ?x foaf:name }
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, 'missing object' );
-	like( $parser->error, qr/^Syntax error/, 'got expected error' );	# XXX
-#	like( $parser->error, qr/Expecting object after predicate/, 'parse error' );
-}
-
-{
-	my $sparql	= <<"END";
-		PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-		PREFIX	dcterms: <http://purl.org/dc/terms/>
-		PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
-		PREFIX	mygeo: <http://kasei.us/e/ns/geo#>
-		SELECT	?image ?point ?lat
-		WHERE	{
-					?point geo:lat ?lat .
-					FILTER( 10 > ?lat + )
-				}
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, 'missing multiplicative expression' );
-	like( $parser->error, qr/^Syntax error/, 'got expected error' );	# XXX
-#	like( $parser->error, qr/Expecting multiplicative expression after '[+]'/, 'parse error' );
-}
-
-{
-	my $sparql	= <<"END";
-		PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-		PREFIX	dcterms: <http://purl.org/dc/terms/>
-		PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
-		PREFIX	mygeo: <http://kasei.us/e/ns/geo#>
-		SELECT	?image ?point ?lat
-		WHERE	{
-					?point geo:lat ?lat .
-					FILTER( ! )
-				}
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, 'missing multiplicative expression' );
-	like( $parser->error, qr/^Syntax error/, 'got expected error' );	# XXX
-#	like( $parser->error, qr/Expecting primary expression after '[!]'/, 'parse error' );
-}
-
-{
-	my $sparql	= <<"END";
-		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-		SELECT	?name
-		WHERE	{
-					?person a foaf:Person; foaf:name ?name
-				}
-		ORDER BY ASC
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, 'bad ORDER BY expression' );
-	like( $parser->error, qr/Expecting.*BrackettedExpression/, 'parse error' );
-}
-
-{
-	my $sparql	= <<"END";
-		PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-		SELECT	?name
-		WHERE	{
-					?person a foaf:Person; foaf:name ?name
-				}
-		ORDER BY
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, 'bad ORDER BY expression' );
-	like( $parser->error, qr/^Syntax error/, 'got expected error' );	# XXX
-#	like( $parser->error, qr/Expecting ORDER BY expression/, 'parse error' );
-}
-
-{
-	my $sparql	= <<"END";
-		FOO	?name
-		WHERE	{
-					?person a foaf:Person; foaf:name ?name
-				}
-		ORDER BY
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, 'bad query type expression' );
-	like( $parser->error, qr/Expecting query type/, 'parse error' );
-}
-
-{
-	my $sparql	= <<"END";
-		SELECT	?name
-		WHERE	{
-					]
-				}
-		ORDER BY
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, 'bad triple pattern' );
-	like( $parser->error, qr/^Syntax error/, 'got expected error' );	# XXX
-#	like( $parser->error, qr/Expecting "}"/, 'parse error' );
-}
-
-{
-	my $sparql	= <<"END";
-		PREFIX : <http://example.org/>
-		SELECT *
-		WHERE
-		{
-			_:a ?p ?v . { _:a ?q 1 }
-		}
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, '(DAWG) syn-bad-34.rq' );
-	if ($parsed) {
-		warn "unexpected parse tree: " . Dumper($parsed);
-	}
-	like( $parser->error, qr/^Syntax error; Same blank node identifier/, 'got expected error' );	# XXX
-}
-
-{
-	my $sparql	= <<"END";
-		PREFIX : <http://example.org/>
-		SELECT *
-		WHERE
-		{
-		  { _:a ?p ?v . } _:a ?q 1 
-		}
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, '(DAWG) syn-bad-37.rq' );
-	if ($parsed) {
-		warn "unexpected parse tree: " . Dumper($parsed);
-	}
-	like( $parser->error, qr/^Syntax error/, 'got expected error' );	# XXX
-#	like( $parser->error, qr/Expecting "}"/, 'parse error' );
-}
-
-{
-	my $sparql	= <<'END';
-# bad: re-used BNode label after GRAPH
-# $Id: syn-bad-GRAPH-breaks-BGP.rq,v 1.1 2007/02/15 15:14:31 eric Exp $
-
-PREFIX : <http://example.org/>
-SELECT *
-WHERE
-{
-  _:a ?p ?v . GRAPH ?g { ?s ?p ?v } _:a ?q 1
-}
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, '(DAWG) syn-bad-GRAPH-breaks-BGP.rq' );
-	if ($parsed) {
-		warn "unexpected parse tree: " . Dumper($parsed);
-	}
-	like( $parser->error, qr/^Syntax error/, 'got expected error' );	# XXX
-#	like( $parser->error, qr/Expecting "}"/, 'parse error' );
-}
-
-{
-	my $sparql	= <<"END";
-		PREFIX : <http://example.org/>
-		SELECT *
-		WHERE
-		{
-			_:a ?p ?v . OPTIONAL { ?s ?p ?v } _:a ?q 1
-		}
-END
-	my $parsed	= $parser->parse( $sparql );
-	is( $parsed, undef, '(DAWG) syn-bad-OPT-breaks-BGP.rq' );
-	if ($parsed) {
-		warn "unexpected parse tree: " . Dumper($parsed);
-	}
-	like( $parser->error, qr/^Syntax error/, 'got expected error' );	# XXX
-#	like( $parser->error, qr/Expecting "}"/, 'parse error' );
-}
-
-
-my $scratch	= <<"END";
----
-- filter with variable/function-call equality
-- |
-  PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-  PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-  PREFIX	dcterms: <http://purl.org/dc/terms/>
-  PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
-  SELECT	?person ?homepage
-  WHERE	{
-  			?person foaf:name "Gregory Todd Williams" .
-  			?person ?pred ?homepage .
-  			FILTER( isBLANK([  ]) ) .
-  		}
-- method: SELECT
-  namespaces:
-    dcterms: http://purl.org/dc/terms/
-    foaf: http://xmlns.com/foaf/0.1/
-    geo: http://www.w3.org/2003/01/geo/wgs84_pos#
-    rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
-  sources: []
-  triples:
-    -
-      -
-        - VAR
-        - person
-      -
-        - URI
-        -
-          - foaf
-          - name
-      -
-        - LITERAL
-        - Gregory Todd Williams
-    -
-      -
-        - VAR
-        - person
-      -
-        - VAR
-        - pred
-      -
-        - VAR
-        - homepage
-    -
-      - FILTER
-      -
-        - FUNCTION
-        -
-          - URI
-          - sop:isBlank
-        -
-          - BLANK
-          - a1
-  variables:
-    -
-      - VAR
-      - person
-    -
-      - VAR
-      - homepage
----
-- filter with variable/blank-node equality
-- |
-  PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-  PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-  PREFIX	dcterms: <http://purl.org/dc/terms/>
-  PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
-  SELECT	?person ?homepage
-  WHERE	{
-  			?person foaf:name "Gregory Todd Williams" .
-  			?person ?pred ?homepage .
-  			FILTER( ?person = _:foo ) .
-  		}
-- method: SELECT
-  namespaces:
-    dcterms: http://purl.org/dc/terms/
-    foaf: http://xmlns.com/foaf/0.1/
-    geo: http://www.w3.org/2003/01/geo/wgs84_pos#
-    rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
-  sources: []
-  triples:
-    -
-      -
-        - VAR
-        - person
-      -
-        - URI
-        -
-          - foaf
-          - name
-      -
-        - LITERAL
-        - Gregory Todd Williams
-    -
-      -
-        - VAR
-        - person
-      -
-        - VAR
-        - pred
-      -
-        - VAR
-        - homepage
-    -
-      - FILTER
-      -
-        - ==
-        -
-          - VAR
-          - person
-        -
-          - BLANK
-          - foo
-  variables:
-    -
-      - VAR
-      - person
-    -
-      - VAR
-      - homepage
-
-END
-
-my $todo	= <<"END";
----
-- (DAWG) syntax-keywords-03.rq
-- |
-  # use keyword UNION as a namespace prefix
-  PREFIX UNION: <http://example.org/ns#> 
-  SELECT *
-  WHERE { ?x UNION:foo ?z }
-- method: SELECT
-  namespaces:
-    UNION: http://example.org/ns#
-  sources: []
-  triples:
-    -
-      -
-        - VAR
-        - x
-      -
-        - URI
-        -
-          - UNION
-          - foo
-      -
-        - VAR
-        - z
-  variables:
-    - '*'
-END
 
 __END__
 ---
@@ -4242,17 +3808,17 @@ __END__
 - (DAWG) syn-leading-digits-in-prefixed-names.rq
 - |
   PREFIX dob: <http://placetime.com/interval/gregorian/1977-01-18T04:00:00Z/P> 
-  PREFIX time: <http://www.ai.sri.com/daml/ontologies/time/Time.daml#>
+  PREFIX t: <http://www.ai.sri.com/daml/ontologies/time/Time.daml#>
   PREFIX dc: <http://purl.org/dc/elements/1.1/>
   SELECT ?desc
   WHERE  { 
-    dob:1D a time:ProperInterval;
+    dob:1D a t:ProperInterval;
            dc:description ?desc.
   }
 - method: SELECT
   namespaces:
     dob: http://placetime.com/interval/gregorian/1977-01-18T04:00:00Z/P
-    time: http://www.ai.sri.com/daml/ontologies/time/Time.daml#
+    t: http://www.ai.sri.com/daml/ontologies/time/Time.daml#
     dc: http://purl.org/dc/elements/1.1/
   sources: []
   triples:
@@ -4268,7 +3834,7 @@ __END__
       -
         - URI
         -
-          - time
+          - t
           - ProperInterval
     -
       -
@@ -4990,116 +4556,223 @@ __END__
   variables:
     - '*'
 ---
-- (DAWG) dawg-eval
+- temporal query with time variable
 - |
-  PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-  PREFIX ex: <http://example.com/#>
-  SELECT ?val
-  WHERE {
-    ex:foo rdf:value ?val .
-    FILTER regex(str(?val), "example\\.com")
+  # select the person who held a given email address on 2007-01-01
+  SELECT ?t ?p WHERE {
+      TIME ?t { ?p foaf:mbox <mailto:gtw@cs.umd.edu> } .
   }
 - method: SELECT
-  namespaces:
-    rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
-    ex: http://example.com/#
+  namespaces: {}
   sources: []
   triples:
     -
-      -
-        - URI
-        -
-          - ex
-          - foo
-      -
-        - URI
-        -
-          - rdf
-          - value
+      - TIME
       -
         - VAR
-        - val
-    -
-      - FILTER
+        - t
       -
-        - '~~'
         -
-          - FUNCTION
-          -
-            - URI
-            - sop:str
           -
             - VAR
-            - val
-        -
-          - LITERAL
-          - 'example\.com'
+            - p
+          -
+            - URI
+            -
+              - foaf
+              - mbox
+          -
+            - URI
+            - mailto:gtw@cs.umd.edu
   variables:
     -
       - VAR
-      - val
+      - t
+    -
+      - VAR
+      - p
 ---
-- (DAWG) dawg-eval: sameTerm
+- temporal query with empty time bNode
 - |
-  PREFIX : <http://example.org/things#>
-  SELECT * {
-    ?x1 :p ?v1 .
-    ?x2 :p ?v2 .
-    FILTER ( !sameTerm(?v1, ?v2) && ?v1 = ?v2 )
-  } 
+  # select the person who held a given email address on 2007-01-01
+  SELECT ?p WHERE {
+      TIME [] { ?p foaf:mbox <mailto:gtw@cs.umd.edu> } .
+  }
 - method: SELECT
-  namespaces:
-    __DEFAULT__: http://example.org/things#
+  namespaces: {}
   sources: []
   triples:
     -
+      - TIME
       -
-        - VAR
-        - x1
+        - BLANK
+        - a1
       -
-        - URI
         -
-          - __DEFAULT__
-          - p
-      -
-        - VAR
-        - v1
-    -
-      -
-        - VAR
-        - x2
-      -
-        - URI
-        -
-          - __DEFAULT__
-          - p
-      -
-        - VAR
-        - v2
-    -
-      - FILTER
-      -
-        - '&&'
-        -
-          - '!'
-          -
-            - FUNCTION
-            -
-              - URI
-              - sparql:sameTerm
-            -
-              - VAR
-              - v1
-            -
-              - VAR
-              - v2
-        -
-          - '=='
           -
             - VAR
-            - v1
+            - p
           -
-            - VAR
-            - v2
+            - URI
+            -
+              - foaf
+              - mbox
+          -
+            - URI
+            - mailto:gtw@cs.umd.edu
   variables:
-    - '*'
+    -
+      - VAR
+      - p
+---
+- temporal query with time bNode
+- |
+  # select the person who held a given email address on 2007-01-01
+  SELECT ?p WHERE {
+      TIME [ :inside "2007-01-01" ] { ?p foaf:mbox <mailto:gtw@cs.umd.edu> } .
+  }
+- method: SELECT
+  namespaces: {}
+  sources: []
+  triples:
+    -
+      - TIME
+      -
+        - VAR
+        - _____rdfquery_private_0
+      -
+        -
+          -
+            - VAR
+            - p
+          -
+            - URI
+            -
+              - foaf
+              - mbox
+          -
+            - URI
+            - mailto:gtw@cs.umd.edu
+    -
+      -
+        - VAR
+        - _____rdfquery_private_0
+      -
+        - URI
+        -
+          - __DEFAULT__
+          - inside
+      -
+        - LITERAL
+        - 2007-01-01
+  variables:
+    -
+      - VAR
+      - p
+---
+- temporal query with time bNode and extra triple
+- |
+  # select all the email addresses ever held by the person
+  # who held a given email address on 2007-01-01
+  SELECT ?mbox WHERE {
+      TIME [ :inside "2007-01-01" ] { ?p foaf:mbox <mailto:gtw@cs.umd.edu> } .
+      ?p foaf:mbox ?mbox
+  }
+- method: SELECT
+  namespaces: {}
+  sources: []
+  triples:
+    -
+      - TIME
+      -
+        - VAR
+        - _____rdfquery_private_1
+      -
+        -
+          -
+            - VAR
+            - p
+          -
+            - URI
+            -
+              - foaf
+              - mbox
+          -
+            - URI
+            - mailto:gtw@cs.umd.edu
+    -
+      -
+        - VAR
+        - _____rdfquery_private_1
+      -
+        - URI
+        -
+          - __DEFAULT__
+          - inside
+      -
+        - LITERAL
+        - 2007-01-01
+    -
+      -
+        - VAR
+        - p
+      -
+        - URI
+        -
+          - foaf
+          - mbox
+      -
+        - VAR
+        - mbox
+  variables:
+    -
+      - VAR
+      - mbox
+---
+- select with TIME
+- |
+  PREFIX t: <http://www.w3.org/2006/09/time#>
+  PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+  SELECT ?name WHERE {
+  	TIME [ t:begins "2000-01-01" ] { ?p foaf:name ?name . }
+  }
+- method: SELECT
+  namespaces:
+    foaf: http://xmlns.com/foaf/0.1/
+    t: http://www.w3.org/2006/09/time#
+  sources: []
+  triples:
+    -
+      - TIME
+      -
+        - VAR
+        - _____rdfquery_private_2
+      -
+        -
+          -
+            - VAR
+            - p
+          -
+            - URI
+            -
+              - foaf
+              - name
+          -
+            - VAR
+            - name
+    -
+      -
+        - VAR
+        - _____rdfquery_private_2
+      -
+        - URI
+        -
+          - t
+          - begins
+      -
+        - LITERAL
+        - 2000-01-01
+  variables:
+    -
+      - VAR
+      - name
