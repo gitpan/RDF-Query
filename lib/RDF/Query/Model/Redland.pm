@@ -9,7 +9,9 @@ use Carp qw(carp croak confess);
 use File::Spec;
 use RDF::Redland 1.00;
 use Data::Dumper;
-use Scalar::Util qw(blessed);
+use LWP::Simple qw(get);
+use Scalar::Util qw(blessed reftype);
+use Unicode::Normalize qw(normalize);
 use Encode;
 
 use RDF::Query::Stream;
@@ -19,7 +21,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 224 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 267 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
 ######################################################################
@@ -35,7 +37,8 @@ Returns a new bridge object for the specified C<$model>.
 =cut
 
 sub new {
-	my $class	= shift;
+	my $proto	= shift;
+	my $class	= ref($proto) || $proto;
 	my $model	= shift;
 	my %args	= @_;
 	
@@ -111,12 +114,13 @@ sub new_literal {
 	my $value	= shift;
 	my $lang	= shift;
 	my $type	= shift;
-	my @args	= ($value);
+	my @args	= ("$value");
 	no warnings 'uninitialized';
 	if ($type and $RDF::Redland::VERSION >= 1.00_02) {
 		# $RDF::Redland::VERSION is introduced in 1.0.2, and that's also when datatypes are fixed.
 		$type	= RDF::Redland::URI->new( $type );
 		push(@args, $type);
+		push(@args, undef);
 	} elsif ($lang) {
 		push(@args, undef);
 		push(@args, $lang);
@@ -132,7 +136,8 @@ sub new_literal {
 	close($fh);
 	# XXX XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 	
-	return RDF::Redland::Node->new_literal( @args );
+	my $literal	= RDF::Redland::Node->new_literal( @args );
+	return $literal;
 }
 
 =item C<new_blank ( $identifier )>
@@ -196,7 +201,12 @@ Returns true if C<$node> is a literal object for the current model.
 sub isa_literal {
 	my $self	= shift;
 	my $node	= shift;
-	return (ref($node) and $node->is_literal);
+	return unless (blessed($node));
+	if ($node->isa('DateTime')) {
+		return 1;
+	} else {
+		return (ref($node) and $node->is_literal);
+	}
 }
 
 =item C<is_blank ( $node )>
@@ -254,7 +264,13 @@ Returns the string value of the literal object.
 sub literal_value {
 	my $self	= shift;
 	my $node	= shift;
-	return decode('utf8', $node->literal_value);
+	return undef unless (blessed($node));
+	if ($node->isa('DateTime')) {
+		my $f	= DateTime::Format::W3CDTF->new;
+		return $f->format_datetime( $node );
+	} else {
+		return decode('utf8', $node->literal_value) || '';
+	}
 }
 
 =item C<literal_datatype ( $node )>
@@ -267,11 +283,12 @@ sub literal_datatype {
 	my $self	= shift;
 	my $node	= shift;
 	return unless (blessed($node));
+	return unless ($self->is_literal($node));
 	if ($node->isa('DateTime')) {
 		return 'http://www.w3.org/2001/XMLSchema#dateTime';
 	} else {
 		my $type	= $node->literal_datatype;
-		return unless $type;
+		return undef unless $type;
 		return $type->as_string;
 	}
 }
@@ -285,6 +302,8 @@ Returns the language of the literal object.
 sub literal_value_language {
 	my $self	= shift;
 	my $node	= shift;
+	return undef unless (blessed($node));
+	return undef unless ($self->is_literal($node));
 	my $lang	= $node->literal_value_language;
 	return $lang;
 }
@@ -298,7 +317,8 @@ Returns the URI string of the resource object.
 sub uri_value {
 	my $self	= shift;
 	my $node	= shift;
-	return unless UNIVERSAL::isa($node,'RDF::Redland::Node');
+	return undef unless (blessed($node));
+	return undef unless ($self->is_resource($node));
 	return $node->uri->as_string;
 }
 
@@ -311,6 +331,8 @@ Returns the identifier for the blank node object.
 sub blank_identifier {
 	my $self	= shift;
 	my $node	= shift;
+	return undef unless (blessed($node));
+	return undef unless ($self->is_blank($node));
 	return $node->blank_identifier;
 }
 
@@ -331,16 +353,9 @@ sub add_uri {
 	my $model		= $self->{model};
 	my $parser		= RDF::Redland::Parser->new($format);
 	
-	my $uriobj		= URI->new( $uri );
-	my $redlanduri	= RDF::Redland::URI->new( $uri );
-	my $base		= RDF::Redland::URI->new( join(':', $uriobj->scheme, $uriobj->opaque ) );
-	
-	if ($named) {
-		my $stream		= $parser->parse_as_stream($redlanduri, $base);
-		$model->add_statements( $stream, $redlanduri );
-	} else {
-		$parser->parse_into_model( $redlanduri, $base, $model );
-	}
+	my $data		= get( $uri );
+	$data			= decode_utf8( $data );
+	$self->add_string( $data, $uri, $named, $format );
 }
 
 =item C<add_string ( $data, $base_uri, $named, $format )>
@@ -352,11 +367,12 @@ the data is added to the model using C<$base_uri> as the named context.
 
 sub add_string {
 	my $self	= shift;
-	my $data	= shift;
+	my $_data	= shift;
 	my $uri		= shift;
 	my $named	= shift;
 	my $format	= shift || 'guess';
 	
+	my $data		= normalize( 'C', $_data );
 	my $model		= $self->{model};
 	my $parser		= RDF::Redland::Parser->new($format);
 	my $redlanduri	= RDF::Redland::URI->new( $uri );
@@ -437,11 +453,12 @@ sub get_statements {
 	
 #	warn "GETTING " . $stmt->as_string if ($RDF::Query::debug);
 	
-	my %args	= ( bridge => $self, named => 1 );
+	my %args	= ( bridge => $self );
 	
 	if ($context) {
 		my $iter	= $model->find_statements( $stmt, $context );
 		$args{ context }	= $context;
+		$args{ named }		= 1;
 
 		my $finished	= 0;
 		$stream	= sub {
@@ -457,6 +474,8 @@ sub get_statements {
 			} else {
 				my $ret	= $iter->current;
 				$iter->next;
+				my $ctx	= blessed($context) ? $context->as_string : '';
+#				warn ">>>>> " . $ret->as_string . "\t<$ctx>\n" if (blessed($ret));	# XXX
 				return $ret;
 			}
 		};
@@ -491,6 +510,8 @@ sub get_statements {
 					$iter->next;
 					my $s	= $stmt->clone;
 					$s->$smethod( $ret );
+					my $ctx	= blessed($context) ? $context->as_string : '';
+#					warn ">>>>> " . $s->as_string . "\t<$ctx>\n" if (blessed($s));	# XXX
 					return $s;
 				}
 			};
@@ -515,6 +536,8 @@ sub get_statements {
 					my $ret	= $iter->current;
 					$context	= $iter->context;
 					$iter->next;
+					my $ctx	= blessed($context) ? $context->as_string : '';
+#					warn ">>>>> " . $ret->as_string . "\t<$ctx>\n" if (blessed($ret));	# XXX
 					return $ret;
 				}
 			};
@@ -603,10 +626,18 @@ sub remove_statement {
 }
 
 
+=begin private
 
+=item C<< ignore_contexts >>
 
+=end private
 
+=cut
 
+sub ignore_contexts {
+	my $self	= shift;
+	# no-op
+}
 
 
 =item C<get_context ($stream)>
@@ -628,6 +659,7 @@ sub get_context {
 		RDF::Query::_debug_closure( $stream );
 	}
 	
+	Carp::confess "Not a CODE reference: " . Dumper($stream) unless (reftype($stream) eq 'CODE');
 	my $context	= $stream->('context');
 	return $context;
 }
@@ -650,6 +682,7 @@ sub supports {
 	
 	return 1 if ($feature eq 'temp_model');
 	return 1 if ($feature eq 'named_graph');
+	return 1 if ($feature eq 'named_graphs');
 	return 1 if ($feature eq 'xml');
 #	return 1 if ($feature eq 'node_counts');	# XXX just used for testing -- redland doesn't have efficient statement counting. see C<node_count> below.
 	return 0;

@@ -11,7 +11,65 @@ my (@data)	= test_models_and_classes( @files );
 
 
 use Test::More;
-plan tests => 1 + 15 * scalar(@data);
+plan tests => 21 + 15 * scalar(@data);
+
+use RDF::Query::Stream (qw(sgrep smap));
+
+{
+	my @data	= (1 .. 3);
+	my $data	= sub { shift(@data); };
+	my $stream	= RDF::Query::Stream->new( $data );
+	isa_ok( $stream, 'RDF::Query::Stream' );
+	is( $stream->next, 1, 'stream data: 1' );
+	is( $stream->next, 2, 'stream data: 2' );
+	is( $stream->next, 3, 'stream data: 3' );
+	is( $stream->next, undef, 'end-of-stream' );
+}
+
+{
+	my @data	= (1 .. 3);
+	my $data	= sub { shift(@data); };
+	my $stream	= RDF::Query::Stream->new( $data );
+	my $odd		= sgrep { $_ % 2 == 1 } $stream;
+	isa_ok( $odd, 'RDF::Query::Stream' );
+	is( $odd->next, 1, 'odd: 1' );
+	is( $odd->next, 3, 'odd: 3' );
+	is( $odd->next, undef, 'end-of-stream' );
+}
+
+{
+	my @data	= (1 .. 3);
+	my $data	= sub { shift(@data); };
+	my $stream	= RDF::Query::Stream->new( $data );
+	my $odd		= smap { $_ * 2 } $stream;
+	isa_ok( $odd, 'RDF::Query::Stream' );
+	is( $odd->next, 2, 'double: 2' );
+	is( $odd->next, 4, 'double: 4' );
+	is( $odd->next, 6, 'double: 6' );
+	is( $odd->next, undef, 'end-of-stream' );
+}
+
+{
+	my @data1	= (1,2);
+	my $data1	= sub { shift(@data1); };
+	my $stream1	= RDF::Query::Stream->new( $data1 );
+	my @data2	= (3,4);
+	my $data2	= sub { shift(@data2); };
+	my $stream2	= RDF::Query::Stream->new( $data2 );
+	
+	my $stream	= $stream1->concat( $stream2 );
+	isa_ok( $stream, 'RDF::Query::Stream' );
+	is( $stream->next, 1, 'concat data: 1' );
+	is( $stream->next, 2, 'concat data: 2' );
+	is( $stream->next, 3, 'concat data: 3' );
+	is( $stream->next, 4, 'concat data: 3' );
+	is( $stream->next, undef, 'end-of-stream' );
+}
+
+
+
+
+
 
 use_ok( 'RDF::Query' );
 foreach my $data (@data) {

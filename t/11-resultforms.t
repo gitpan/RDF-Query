@@ -1,80 +1,83 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use URI::file;
-use Test::More tests => 29;
+use Test::More;
+
+use lib qw(. t);
+require "models.pl";
+
+my @files	= map { "data/$_" } qw(about.xrdf foaf.xrdf);
+my @models	= test_models( @files );
+my $tests	= 1 + (scalar(@models) * 26);
+plan tests => $tests;
 
 use_ok( 'RDF::Query' );
+foreach my $model (@models) {
+	print "\n#################################\n";
+	print "### Using model: $model\n\n";
 
-SKIP: {
-	eval "use RDF::Query::Model::Redland;";
-	skip "Failed to load RDF::Redland", 28 if $@;
-	
-	my @uris	= map { URI::file->new_abs( "data/$_" ) } qw(about.xrdf foaf.xrdf);
-	my @data	= map { RDF::Redland::URI->new( "$_" ) } @uris;
-	my $storage	= new RDF::Redland::Storage("hashes", "test", "new='yes',hash-type='memory'");
-	my $model	= new RDF::Redland::Model($storage, "");
-	my $parser	= new RDF::Redland::Parser("rdfxml");
-	$parser->parse_into_model($_, $_, $model) for (@data);
-	
-	my %seen;
-	
-	
 	{
-		print "# foaf:Person ORDER BY name with LIMIT\n";
-		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
-			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-			SELECT	DISTINCT ?p ?name
-			WHERE	{
-						?p a foaf:Person; foaf:name ?name
-					}
-			ORDER BY ?name
-			LIMIT 2
+		my %seen;
+		{
+			print "# foaf:Person ORDER BY name with LIMIT\n";
+			my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+				PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+				SELECT	DISTINCT ?p ?name
+				WHERE	{
+							?p a foaf:Person; foaf:name ?name .
+							FILTER(lang(?name) = "")
+						}
+				ORDER BY ?name
+				LIMIT 2
 END
-		my $stream	= $query->execute( $model );
-		isa_ok( $stream, 'RDF::Query::Stream' );
-		my ($count, $last);
-		while (my $row = $stream->()) {
-			my ($p, $node)	= @{ $row };
-			my $name	= $node->literal_value;
-			$seen{ $name }++;
-			if (defined($last)) {
-				cmp_ok( $name, 'ge', $last, "In order: $name (" . $query->bridge->as_string( $p ) . ")" );
-			} else {
-				ok( $name, "First: $name (" . $query->bridge->as_string( $p ) . ")" );
-			}
-			$last	= $name;
-		} continue { ++$count };
-		is( $count, 2, 'good LIMIT' );
-	}
-	
-	{
-		print "# foaf:Person ORDER BY name with LIMIT and OFFSET\n";
-		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
-			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
-			SELECT	DISTINCT ?p ?name
-			WHERE	{
-						?p a foaf:Person; foaf:name ?name
-					}
-			ORDER BY ?name
-			LIMIT 2
-			OFFSET 2
+			my $stream	= $query->execute( $model );
+			my $bridge	= $query->bridge;
+			isa_ok( $stream, 'RDF::Query::Stream' );
+			my ($count, $last);
+			while (my $row = $stream->()) {
+				my ($p, $node)	= @{ $row };
+				my $name	= $bridge->literal_value( $node );
+				$seen{ $name }++;
+				if (defined($last)) {
+					cmp_ok( $name, 'ge', $last, "In order: $name (" . $bridge->as_string( $p ) . ")" );
+				} else {
+					ok( $name, "First: $name (" . $bridge->as_string( $p ) . ")" );
+				}
+				$last	= $name;
+			} continue { ++$count };
+			is( $count, 2, 'good LIMIT' );
+		}
+		
+		{
+			print "# foaf:Person ORDER BY name with LIMIT and OFFSET\n";
+			my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+				PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+				SELECT	DISTINCT ?p ?name
+				WHERE	{
+							?p a foaf:Person; foaf:name ?name .
+							FILTER(lang(?name) = "")
+						}
+				ORDER BY ?name
+				LIMIT 2
+				OFFSET 2
 END
-		my $stream	= $query->execute( $model );
-		isa_ok( $stream, 'RDF::Query::Stream' );
-		my ($count, $last);
-		while (my $row = $stream->()) {
-			my ($p, $node)	= @{ $row };
-			my $name	= $node->literal_value;
-			is( exists($seen{ $name }), '', "not seen before with offset" );
-			if (defined($last)) {
-				cmp_ok( $name, 'ge', $last, "In order: $name (" . $query->bridge->as_string( $p ) . ")" );
-			} else {
-				ok( $name, "First: $name (" . $query->bridge->as_string( $p ) . ")" );
-			}
-			$last	= $name;
-		} continue { ++$count };
-		is( $count, 2, 'good LIMIT' );
+			my $stream	= $query->execute( $model );
+			my $bridge	= $query->bridge;
+			isa_ok( $stream, 'RDF::Query::Stream' );
+			my ($count, $last);
+			while (my $row = $stream->()) {
+				my ($p, $node)	= @{ $row };
+				my $name	= $bridge->literal_value( $node );
+				is( exists($seen{ $name }), '', "not seen before with offset: $name" );
+				if (defined($last)) {
+					cmp_ok( $name, 'ge', $last, "In order: $name (" . $bridge->as_string( $p ) . ")" );
+				} else {
+					ok( $name, "First: $name (" . $bridge->as_string( $p ) . ")" );
+				}
+				$last	= $name;
+			} continue { ++$count };
+			is( $count, 1, 'good LIMIT' );
+		}
 	}
 	
 	{
@@ -88,12 +91,13 @@ END
 			LIMIT 2
 END
 		my $stream	= $query->execute( $model );
+		my $bridge	= $query->bridge;
 		isa_ok( $stream, 'RDF::Query::Stream' );
 		my ($count);
 		while (my $row = $stream->()) {
 			my ($p, $node)	= @{ $row };
-			my $name	= $node->literal_value;
-			ok( $name, "First: $name (" . $query->bridge->as_string( $p ) . ")" );
+			my $name	= $bridge->literal_value( $node );
+			ok( $name, "First: $name (" . $bridge->as_string( $p ) . ")" );
 		} continue { ++$count };
 		is( $count, 2, 'good LIMIT' );
 	}
@@ -110,12 +114,13 @@ END
 			OFFSET 1
 END
 		my $stream	= $query->execute( $model );
+		my $bridge	= $query->bridge;
 		isa_ok( $stream, 'RDF::Query::Stream' );
 		my ($count);
 		while (my $row = $stream->()) {
 			my ($p, $node)	= @{ $row };
-			my $name	= $node->literal_value;
-			ok( $name, "Got person with nick: $name (" . $query->bridge->as_string( $p ) . ")" );
+			my $name	= $bridge->literal_value( $node );
+			ok( $name, "Got person with nick: $name (" . $bridge->as_string( $p ) . ")" );
 		} continue { ++$count };
 		is( $count, 1, "Good DISTINCT with OFFSET" );
 	}
@@ -135,11 +140,12 @@ END
 			OFFSET 1
 END
 		my $stream	= $query->execute( $model );
+		my $bridge	= $query->bridge;
 		isa_ok( $stream, 'RDF::Query::Stream' );
 		my ($count);
 		while (my $row = $stream->()) {
 			my ($n, $c)	= @{ $row };
-			my $name	= $n->literal_value;
+			my $name	= $bridge->literal_value( $n );
 			ok( $name, "Got image creator: $name" );
 		} continue { ++$count };
 		is( $count, 1, "Good DISTINCT with LIMIT" );
@@ -162,14 +168,15 @@ END
 			ORDER BY ASC(?long * -1)
 END
 		my $stream	= $query->execute( $model );
+		my $bridge	= $query->bridge;
 		isa_ok( $stream, 'RDF::Query::Stream' );
 		my $count	= 0;
 		
 		my $min;
 		while (my $row = $stream->()) {
 			my ($i, $l)	= @{ $row };
-			my $image	= $query->bridge->uri_value($i);
-			my $long	= $query->bridge->literal_value($l);
+			my $image	= $bridge->uri_value($i);
+			my $long	= $bridge->literal_value($l);
 			if (defined($min)) {
 				cmp_ok( $long, '<=', $min, "decreasing longitude $long on $image" );
 				if ($long <= $min) {
@@ -200,14 +207,15 @@ END
 			ORDER BY DESC(?long * -1)
 END
 		my $stream	= $query->execute( $model );
+		my $bridge	= $query->bridge;
 		isa_ok( $stream, 'RDF::Query::Stream' );
 		my $count	= 0;
 		
 		my $max;
 		while (my $row = $stream->()) {
 			my ($i, $l)	= @{ $row };
-			my $image	= $query->bridge->uri_value($i);
-			my $long	= $query->bridge->literal_value($l);
+			my $image	= $bridge->uri_value($i);
+			my $long	= $bridge->literal_value($l);
 			if (defined($max)) {
 				cmp_ok( $long, '>=', $max, "increasing longitude $long on $image" );
 				if ($long >= $max) {

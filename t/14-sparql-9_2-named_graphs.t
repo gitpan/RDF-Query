@@ -10,11 +10,11 @@ use Test::More;
 
 my @models	= test_models();
 
-my $tests	= 36;
-#plan tests => 1 + ($tests * scalar(@models));
-plan qw(no_plan);	# the number of tests is currently broken because named graphs
-					# are adding triples to the underyling model. when that's fixed,
-					# this should be changed back to a test number.
+my $tests	= 58;
+plan tests => 1 + ($tests * scalar(@models));
+# plan qw(no_plan);	# the number of tests is currently broken because named graphs
+# 					# are adding triples to the underyling model. when that's fixed,
+# 					# this should be changed back to a test number.
 
 my $alice	= URI::file->new_abs( 'data/named_graphs/alice.rdf' );
 my $bob		= URI::file->new_abs( 'data/named_graphs/bob.rdf' );
@@ -25,8 +25,6 @@ foreach my $model (@models) {
 	print "\n#################################\n";
 	print "### Using model: $model\n";
 	SKIP: {
-		skip "This model does not support named graphs", $tests unless RDF::Query->supports( $model, 'named_graph' );
-
 		{
 			print "# variable named graph\n";
 			my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
@@ -143,10 +141,6 @@ END
 			my $stream	= $query->execute( $model );
 			
 			
-#			my $s	= RDF::Redland::Serializer->new('rdfxml-abbrev');
-#			warn $s->serialize_model_to_string( RDF::Redland::URI->new('foo:'), $query->{model} );
-
-			
 			while (my $row = $stream->current) {
 				$stream->next;
 				isa_ok( $row, 'ARRAY' );
@@ -165,10 +159,7 @@ END
 				$count++;
 			}
 			
-			TODO: {
-				local($TODO)	= "Named graphs currently add triples to the underlying store. Needs fixing.";
-				is( $count, 2, 'got results' );
-			}
+			is( $count, 2, 'got results' );
 		}
 		
 		{
@@ -212,10 +203,91 @@ END
 				$count++;
 			}
 			
-			TODO: {
-				local($TODO)	= "Named graphs currently add triples to the underlying store. Needs fixing.";
-				is( $count, 2, 'got results' );
-			}
+			is( $count, 2, 'got results' );
 		}
+	}
+
+	{
+		print "# graph-1\n";
+		my $foaf	= URI::file->new_abs( "data/foaf.xrdf" );
+		my $about	= URI::file->new_abs( "data/about.xrdf" );
+		
+		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+			PREFIX	rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+			PREFIX	dcterms: <http://purl.org/dc/terms/>
+			SELECT DISTINCT ?s ?o
+			FROM <$foaf>
+			FROM NAMED <$about>
+			WHERE	{
+						?s dcterms:spatial ?o
+					}
+END
+		my $stream	= $query->execute();
+		my $bridge	= $query->bridge;
+		isa_ok( $stream, 'RDF::Query::Stream' );
+		my $count	= 0;
+		while (my $data = $stream->next) {
+			$count++;
+		}
+		is( $count, 0, 'graph-1: BGP does not match NAMED data' );
+	}
+
+	{
+		print "# graph-2\n";
+		my $foaf	= URI::file->new_abs( "data/foaf.xrdf" );
+		my $about	= URI::file->new_abs( "data/about.xrdf" );
+		
+		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+			PREFIX	rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+			PREFIX	dcterms: <http://purl.org/dc/terms/>
+			SELECT DISTINCT ?g ?s
+			FROM <$foaf>
+			FROM NAMED <$about>
+			WHERE	{
+						GRAPH ?g { ?s foaf:firstName "Gary" }
+					}
+END
+		my $stream	= $query->execute();
+		my $bridge	= $query->bridge;
+		isa_ok( $stream, 'RDF::Query::Stream' );
+		my $count	= 0;
+		while (my $data = $stream->next) {
+			$count++;
+		}
+		is( $count, 0, 'graph-2: GRAPH does not match non-NAMED data' );
+	}
+	
+	{
+		print "# graph-3\n";
+		my $foaf	= URI::file->new_abs( "data/foaf.xrdf" );
+		my $about	= URI::file->new_abs( "data/about.xrdf" );
+		
+		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+			PREFIX	rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+			SELECT DISTINCT ?p ?g ?img
+			FROM <$foaf>
+			FROM NAMED <$about>
+			WHERE	{
+						?p a foaf:Person .
+						GRAPH ?g { ?img foaf:maker ?p } .
+					}
+END
+		my $stream	= $query->execute( $model );
+		my $bridge	= $query->bridge;
+		isa_ok( $stream, 'RDF::Query::Stream' );
+		my $count	= 0;
+		while ($stream and not $stream->finished) {
+			my $row		= $stream->current;
+			my ($p,$g,$i)	= @{ $row };
+			ok( $bridge->is_resource( $g ), 'graph-3: context is resource' );
+			ok( $bridge->is_resource( $p ), 'graph-3: person is resource' );
+			is( $bridge->uri_value( $p ), 'http://kasei.us/about/foaf.xrdf#greg', 'graph-3: correct person uri' );
+			like( $bridge->uri_value( $i ), qr/[.]jpg/, 'graph-3: made image' );
+			$count++;
+		} continue { $stream->next }
+		is( $count, 4, 'graph-3: expected count' );
 	}
 }

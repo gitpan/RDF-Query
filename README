@@ -28,6 +28,65 @@ INSTALLATION
 
 VERSION HISTORY
 
+  Version 1.500 (2007-11-13)
+
+     * Query Engine:
+       * URIs are now properly qualified with a BASE when present.
+       * Base URI passed to constructor is now used if no BASE clause exists in the query.
+       * Fixed BASE qualification when an IRI contains Unicode characters (Emulating IRI support with the URI module).
+       * NAMED graph data is now seperated from the default model into new (temporary) models.
+       * NAMED graphs now work with RDF::Core.
+       * Added new RDF::Query::Algebra:: classes that are used to represent query ASTs.
+       * Added new RDF::Query::Node:: classes that are used to represent RDF Nodes and Variables.
+       * Major refactoring to RDF::Query::query_more() to enhance extensibility.
+       * Added RDF::Query::query_more_triple() and RDF::Query::query_more_bgp() for triple and bgp matching.
+       * Improved support of GGP pattern matching.
+       * Added sgrep, smap, swatch and concat methods to RDF::Query::Stream class.
+       * Refactored query_more() variants and sort_rows() to use new stream methods sgrep, smap, and concat.
+       * Continued to fix bugs to more closely align with DAWG tests.
+       * Updated DAWG tests to run with the RDF::Core backend.
+       * Any DAWG tests with mf:requires are now automatically marked TODO.
+       * DAWG tests graph equality is now punted to user verification.
+       * Fixed bNode merging code in DAWG tests.
+       * query_more() variants and sort_rows() now all return RDF::Query::Stream objects.
+       * query_more() (and everything it calls) now expects bridge object as a method argument (to ensure NAMED graph querying works).
+       * Added join_streams() to perform netsted-loop natural joins on two Stream objects.
+     * Filters:
+       * Added call_function() method to abstract the generation of ['FUNCTION',...] blocks.
+       * FILTER operator != is now negative for unknown datatypes.
+       * Fixed exception handling in check_constraints().
+       * Fixed type-promotion in arithmetic operations and added recognized xsd numeric types.
+       * API Chnage: extension functions now take a bridge object as their second argument (after the query object).
+       * Fixed equals() method in RDF::Core bridge to properly use the RDF::Core API.
+       * Javascript function makeTerm now accepts language and datatype parameters.
+       * toString() javascript funtion now returns just the literal value (not including language or datatype).
+       * sop:str now will stringify blank nodes properly.
+       * sparql:langmatches now properly differentiates between no language tag and an empty language tag.
+     * Parsers:
+       * Parsers now generate ASTs using the Algebra and Node classes.
+       * Fixed bugs in SPARQL tokenizer for some Unicode strings (with combining accents).
+       * RDF::Query::Parser::new_literal() now canonicalizes language tags (to lowercase).
+       * Fixed GGP verification in RDF::Query::Parser::SPARQL::fixup().
+       * Merged GGPAtom changes from tSPARQL to SPARQL grammar.
+     * Backends:
+       * Fixed bug in RDF::Query::Model::RDFCore::equals() when comparing two blank nodes.
+       * Changed RDF::Query::Model::RDFCore::as_string to return strings where node type is identifiable (like Redland, URIs as [...], literal \"...\", bnodes (...)).
+       * Model methods literal_value, literal_datatype and literal_value_langauge now return undef if argument isn't a literal.
+       * Model methods uri_value and blank_identifier now return undef unless argument is of correct type.
+       * Model add_string methods now normalize Unicode input.
+       * Blank node prefix is now scoped to bridge, not lexically in RDF::Query::Model::RDFCore.
+       * RDF::Query::Model::Redland::new_literal now forces argument to a string (XS code breaks on non-PVOK scalars).
+       * RDF::Query::Model::Redland::add_uri now uses LWP instead of relying on Redland to fetch content.
+       * Redland model class now recognizes DateTime objects as literals.
+       * Updated add_uri() method in RDF::Core bridge to support named graphs (only one name per model for now).
+     * Miscellaneous:
+       * Added rudimentary profiling code (Devel::DProf seems to crash on RDF::Query)
+       * Added initial code for supporting property functions (using time:inside as an example).
+       * Removed multi_get code.
+       * Removed code for MULTI patterns. Will replace with algebra-based optimization in the future.
+       * RDF::Query::Stream constructor now accepts an ARRAY reference.
+       * Stopped using the peephole optimizers. Will replace with an algebra-based optimizer in the future.
+
   Version 1.044 (2007-09-13)
 
      * DAWG tests now emit EARL reports.
@@ -396,4 +455,4 @@ AUTHOR
 
 	Gregory Williams <gwilliams@cpan.org>
 
-$Id: README 237 2007-09-13 17:51:30Z samofool $
+$Id: README 290 2007-11-13 04:31:04Z samofool $

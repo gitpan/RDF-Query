@@ -5,7 +5,6 @@ use warnings;
 use base qw(RDF::Query::Model);
 
 use Carp qw(carp croak);
-use Scalar::Util qw(blessed);
 
 use File::Spec;
 use RDF::Core::Model;
@@ -14,6 +13,8 @@ use RDF::Core::Model::Parser;
 use RDF::Core::Storage::Memory;
 use RDF::Core::NodeFactory;
 use RDF::Core::Model::Serializer;
+use Scalar::Util qw(blessed);
+use Unicode::Normalize qw(normalize);
 
 use RDF::Query::Stream;
 
@@ -22,7 +23,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 224 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 266 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	eval "use LWP::Simple ();";
 	our $LWP_SUPPORT	= ($@) ? 0 : 1;
 }
@@ -40,7 +41,8 @@ Returns a new bridge object for the specified C<$model>.
 =cut
 
 sub new {
-	my $class	= shift;
+	my $proto	= shift;
+	my $class	= ref($proto) || $proto;
 	my $model	= shift;
 	my %args	= @_;
 	
@@ -158,7 +160,8 @@ Returns true if C<$node> is a node object for the current model.
 sub isa_node {
 	my $self	= shift;
 	my $node	= shift;
-	return UNIVERSAL::isa($node,'RDF::Core::Node');
+	return unless (blessed($node));
+	return $node->isa('RDF::Core::Node');
 }
 
 =item C<is_resource ( $node )>
@@ -172,7 +175,8 @@ Returns true if C<$node> is a resource object for the current model.
 sub isa_resource {
 	my $self	= shift;
 	my $node	= shift;
-	my $rsrc	= (blessed($node) and $node->isa('RDF::Core::Resource'));
+	return unless (blessed($node));
+	my $rsrc	= ($node->isa('RDF::Core::Resource'));
 	if ($rsrc) {
 		my $label	= $node->getLabel;
 		return ($label !~ m/^_:/);
@@ -192,7 +196,8 @@ Returns true if C<$node> is a literal object for the current model.
 sub isa_literal {
 	my $self	= shift;
 	my $node	= shift;
-	return UNIVERSAL::isa($node,'RDF::Core::Literal');
+	return unless (blessed($node));
+	return $node->isa('RDF::Core::Literal');
 }
 
 =item C<is_blank ( $node )>
@@ -206,7 +211,8 @@ Returns true if C<$node> is a blank node object for the current model.
 sub isa_blank {
 	my $self	= shift;
 	my $node	= shift;
-	return (UNIVERSAL::isa($node,'RDF::Core::Resource') and $node->getURI =~ /^_:/);
+	return unless (blessed($node));
+	return ($node->isa('RDF::Core::Resource') and $node->getURI =~ /^_:/);
 }
 *RDF::Query::Model::RDFCore::is_node		= \&isa_node;
 *RDF::Query::Model::RDFCore::is_resource	= \&isa_resource;
@@ -224,7 +230,7 @@ sub equals {
 	my $nodea	= shift;
 	my $nodeb	= shift;
 	if ($self->isa_resource( $nodea ) and $self->isa_resource( $nodeb )) {
-		return ($nodea->uri_value eq $nodeb->uri_value);
+		return ($self->uri_value( $nodea ) eq $self->uri_value( $nodeb ));
 	} elsif ($self->isa_literal( $nodea ) and $self->isa_literal( $nodeb )) {
 		my @values	= map { $self->literal_value( $_ ) } ($nodea, $nodeb);
 		my @langs	= map { $self->literal_value_language( $_ ) } ($nodea, $nodeb);
@@ -243,7 +249,7 @@ sub equals {
 			return 0;
 		}
 	} elsif ($self->isa_blank( $nodea ) and $self->isa_blank( $nodeb )) {
-		return ($nodea->blank_identifier eq $nodeb->blank_identifier);
+		return ($self->blank_identifier( $nodea ) eq $self->blank_identifier( $nodeb ));
 	} else {
 		return 0;
 	}
@@ -260,7 +266,26 @@ sub as_string {
 	my $self	= shift;
 	my $node	= shift;
 	return unless blessed($node);
-	return $node->getLabel;
+	if ($self->isa_resource( $node )) {
+		my $uri	= $node->getLabel;
+		return qq<[$uri]>;
+	} elsif ($self->isa_literal( $node )) {
+		my $value	= $self->literal_value( $node );
+		my $lang	= $self->literal_value_language( $node );
+		my $dt		= $self->literal_datatype( $node );
+		if ($lang) {
+			return qq["$value"\@${lang}];
+		} elsif ($dt) {
+			return qq["$value"^^<$dt>];
+		} else {
+			return qq["$value"];
+		}
+	} elsif ($self->isa_blank( $node )) {
+		my $id	= $self->blank_identifier( $node );
+		return qq[($id)];
+	} else {
+		return;
+	}
 }
 
 =item C<literal_value ( $node )>
@@ -285,6 +310,7 @@ sub literal_datatype {
 	my $self	= shift;
 	my $node	= shift;
 	return unless (blessed($node));
+	return unless ($self->is_literal($node));
 	if ($node->isa('DateTime')) {
 		return 'http://www.w3.org/2001/XMLSchema#dateTime';
 	} else {
@@ -302,6 +328,8 @@ Returns the language of the literal object.
 sub literal_value_language {
 	my $self	= shift;
 	my $node	= shift;
+	return undef unless (blessed($node));
+	return undef unless ($self->is_literal($node));
 	my $lang	= $node->getLang;
 	return $lang;
 }
@@ -315,6 +343,8 @@ Returns the URI string of the resource object.
 sub uri_value {
 	my $self	= shift;
 	my $node	= shift;
+	return undef unless (blessed($node));
+	return undef unless ($self->is_resource($node));
 	return $node->getLabel;
 }
 
@@ -327,6 +357,8 @@ Returns the identifier for the blank node object.
 sub blank_identifier {
 	my $self	= shift;
 	my $node	= shift;
+	return undef unless (blessed($node));
+	return undef unless ($self->is_blank($node));
 	my $label	= $node->getLabel;
 	$label		=~ s/^_://;
 	return $label;
@@ -340,30 +372,97 @@ named context.
 
 =cut
 
-{ my $counter	= 0;
 sub add_uri {
 	my $self	= shift;
 	my $url		= shift;
 	my $named	= shift;
-	
-	die "This model does not support named graphs" if ($named);
 	
 	our $LWP_SUPPORT;
 	unless ($LWP_SUPPORT) {
 		die "LWP::Simple is not available for loading external data";
 	}
 	
+	$self->set_context( $url );
 	my $rdf		= LWP::Simple::get($url);
 	my %options = (
 				Model		=> $self->{'model'},
 				Source		=> $rdf,
 				SourceType	=> 'string',
 				BaseURI		=> $url,
-				BNodePrefix	=> "genid" . $counter++,
+				BNodePrefix	=> "genid" . $self->{counter}++ . 'r',
 			);
 	my $parser	= new RDF::Core::Model::Parser (%options);
 	$parser->parse;
 }
+
+=item C<add_string ( $data, $base_uri, $named, $format )>
+
+Addsd the contents of C<$data> to the model. If C<$named> is true,
+the data is added to the model using C<$base_uri> as the named context.
+
+=cut
+
+sub add_string {
+	my $self	= shift;
+	my $_data	= shift;
+	my $uri		= shift;
+	my $named	= shift;
+	
+	my $data	= normalize( 'C', $_data );
+	$self->set_context( $uri );
+	my %options = (
+				Model		=> $self->{'model'},
+				Source		=> $data,
+				SourceType	=> 'string',
+				BNodePrefix	=> "genid" . $self->{counter}++ . 'r',
+			);
+	$options{ BaseURI }	= $uri if ($uri);
+	my $parser	= new RDF::Core::Model::Parser (%options);
+	$parser->parse;
+}
+
+=item C<< set_context ( $url ) >>
+
+Sets the context of triples in this model.
+
+=cut
+
+sub set_context {
+	my $self	= shift;
+	my $name	= shift;
+	if (exists($self->{context}) and not($self->{ignore_contexts})) {
+		Carp::confess "RDF::Core models can only represent a single context" unless ($self->{context} eq $name);
+	}
+	$self->{context}	= $name;
+}
+
+=begin private
+
+=item C<< ignore_contexts >>
+
+=end private
+
+=cut
+
+sub ignore_contexts {
+	my $self	= shift;
+	$self->{ignore_contexts}	= 1;
+}
+
+=item C<< get_context () >>
+
+If the triples in this model are named, returns the resource object representing
+the context. Otherwise returns undef.
+
+=cut
+
+sub get_context {
+	my $self	= shift;
+	if (exists($self->{context})) {
+		return $self->new_resource( $self->{context} );
+	} else {
+		return;
+	}
 }
 
 =item C<statement_method_map ()>
@@ -410,6 +509,7 @@ Returns the object node of the specified C<$statement>.
 sub object {
 	my $self	= shift;
 	my $stmt	= shift;
+	return unless (blessed($stmt));
 	return $stmt->getObject;
 }
 
@@ -422,7 +522,15 @@ predicate and objects. Any of the arguments may be undef to match any value.
 
 sub get_statements {
 	my $self	= shift;
-	my $enum	= $self->{'model'}->getStmts( @_ );
+	my @triple	= splice(@_, 0, 3);
+	my $context	= shift;
+	if ($context) {
+		unless ($self->equals( $context, $self->get_context)) {
+			return RDF::Query::Stream->new( sub {undef}, 'graph', undef, bridge => $self );
+		}
+	}
+	
+	my $enum	= $self->{'model'}->getStmts( @triple );
 	my $stmt	= $enum->getNext;
 	my $finished	= 0;
 	my $stream	= sub {

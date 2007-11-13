@@ -1,23 +1,20 @@
-#!/usr/bin/perl
 use strict;
 use warnings;
-use Test::More tests => 40;
+use Test::More;
 
-use URI::file;
-use Data::Dumper;
+use lib qw(. t);
+require "models.pl";
+
+my @files	= map { "data/$_" } qw(about.xrdf foaf.xrdf Flower-2.rdf);
+my @models	= test_models( @files );
+my $tests	= 0 + (scalar(@models) * 43);
+plan tests => $tests;
+
 use RDF::Query;
+foreach my $model (@models) {
+	print "\n#################################\n";
+	print "### Using model: $model\n\n";
 
-SKIP: {
-	eval "use RDF::Query::Model::Redland;";
-	skip "Failed to load RDF::Redland", 40 if $@;
-	
-	my @uris	= map { URI::file->new_abs( "data/$_" ) } qw(about.xrdf foaf.xrdf Flower-2.rdf);
-	my @data	= map { RDF::Redland::URI->new( "$_" ) } @uris;
-	my $storage	= new RDF::Redland::Storage("hashes", "test", "new='yes',hash-type='memory'");
-	my $model	= new RDF::Redland::Model($storage, "");
-	my $parser	= new RDF::Redland::Parser("rdfxml");
-	$parser->parse_into_model($_, $_, $model) for (@data);
-	
 	
 	{
 		my $sparql	= <<"END";
@@ -35,15 +32,15 @@ SKIP: {
 					}
 END
 		my $query	= RDF::Query->new( $sparql, undef, undef, 'sparql' );
-		
 		my $count	= 0;
 		my $stream	= $query->execute( $model );
+		my $bridge	= $query->bridge;
 		while (my $row = $stream->()) {
 			my ($image, $thing, $ttype, $tname)	= @{ $row };
-			my $url		= $image->uri->as_string;
-			my $node	= $thing->as_string;
-			my $name	= $tname->literal_value;
-			my $type	= $ttype->as_string;
+			my $url		= $bridge->uri_value( $image );
+			my $node	= $bridge->as_string( $thing );
+			my $name	= $bridge->literal_value( $tname );
+			my $type	= $bridge->as_string( $ttype );
 			like( $type, qr/Flower/, "$node is a Flower" );
 			$count++;
 		}
@@ -63,12 +60,15 @@ END
 END
 		my $stream	= $query->execute( $model );
 		isa_ok( $stream, 'RDF::Query::Stream' );
+		my $count	= 0;
 		while (my $row = $stream->()) {
 			isa_ok( $row, "ARRAY" );
 			my ($p,$n)	= @{ $row };
 			ok( $query->bridge->isa_node( $p ), $query->bridge->as_string( $p ) . ' is a node' );
-			like( $query->bridge->as_string( $n ), qr/^Gary Peck/, 'name' );
+			like( $query->bridge->literal_value( $n ), qr/^Gary Peck/, 'name' );
+			$count++;
 		}
+		is( $count, 1, "1 person (bnode) found" );
 	}
 	
 	{
@@ -84,17 +84,20 @@ END
 END
 		my $stream	= $query->execute( $model );
 		isa_ok( $stream, 'RDF::Query::Stream' );
+		my $count	= 0;
 		while (my $row = $stream->()) {
 			isa_ok( $row, "ARRAY" );
 			my ($p,$n)	= @{ $row };
 			ok( $query->bridge->isa_node( $p ), $query->bridge->as_string( $p ) . ' is a node' );
-			like( $query->bridge->as_string( $n ), qr/^(Greg|Liz|Lauren)/, 'name' );
+			like( $query->bridge->literal_value( $n ), qr/^(Greg|Liz|Lauren)/, 'name' );
+			$count++;
 		}
+		is( $count, 3, "3 people (uris) found" );
 	}
 	
 	SKIP: {
 		eval "use Geo::Distance 0.09;";
-		skip( "Need Geo::Distance 0.09 or higher to run these tests.", 3 ) if ($@);
+		skip( "Need Geo::Distance 0.09 or higher to run these tests.", 4 ) if ($@);
 		my $sparql	= <<"END";
 			PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
@@ -114,11 +117,12 @@ END
 		my $query	= RDF::Query->new( $sparql, undef, undef, 'sparql' );
 		$query->add_function( 'http://kasei.us/e/ns/geo#distance', sub {
 			my $query	= shift;
+			my $bridge	= shift;
 			my $geo		= new Geo::Distance;
 			my $point	= shift;
-			my $plat	= get_first_literal( $model, $point, 'http://www.w3.org/2003/01/geo/wgs84_pos#lat' );
-			my $plon	= get_first_literal( $model, $point, 'http://www.w3.org/2003/01/geo/wgs84_pos#long' );
-			my ($lat, $lon)	= @_;
+			my $plat	= get_first_literal( $bridge, $point, 'http://www.w3.org/2003/01/geo/wgs84_pos#lat' );
+			my $plon	= get_first_literal( $bridge, $point, 'http://www.w3.org/2003/01/geo/wgs84_pos#long' );
+			my ($lat, $lon)	= map { Scalar::Util::blessed($_) ? $bridge->literal_value( $_ ) : $_ } @_;
 			my $dist	= $geo->distance(
 							'kilometer',
 							$lon,
@@ -126,34 +130,46 @@ END
 							$plon,
 							$plat
 						);
-			# warn "\t-> ${dist} kilometers from Providence";
-			return $dist;
+#			warn "\t-> ${dist} kilometers from Providence";
+			return $bridge->new_literal("$dist", undef, 'http://www.w3.org/2001/XMLSchema#float');
 		} );
 		my $stream	= $query->execute( $model );
+		my $bridge	= $query->bridge;
+		my $count	= 0;
 		while (my $row = $stream->()) {
 			my ($image, $point, $pname, $lat, $lon)	= @{ $row };
-			my $url		= $image->uri->as_string;
-			my $name	= $pname->literal_value;
+			my $url		= $bridge->uri_value( $image );
+			my $name	= $bridge->literal_value( $pname );
 			like( $name, qr/, (RI|MA|CT)$/, "$name ($url)" );
+			$count++;
 		}
+		is( $count, 3, "3 distance-based images found" );
 	};
 	
 	{
 		RDF::Query->add_function( 'http://kasei.us/e/ns/rdf#isa', sub {
 			my $query	= shift;
+			my $bridge	= shift;
 			my $node	= shift;
-			my $ntype	= RDF::Redland::Node->new_from_uri( shift );
+			my $ntype	= $bridge->new_resource( shift );
 			my $model	= $query->{model};
-			my $p_type	= RDF::Redland::Node->new_from_uri( 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type' );
-			my $p_sub	= RDF::Redland::Node->new_from_uri( 'http://www.w3.org/2000/01/rdf-schema#subClassOf' );
-			my @types	= $model->targets( $node, $p_type );
+			my $p_type	= $bridge->new_resource( 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type' );
+			my $p_sub	= $bridge->new_resource( 'http://www.w3.org/2000/01/rdf-schema#subClassOf' );
+			my $stmts	= $bridge->get_statements( $node, $p_type, undef );
 			my %seen;
+			my @types;
+			while (my $s = $stmts->next) {
+				push( @types, $bridge->object( $s ) );
+			}
 			while (my $type = shift @types) {
-				if ($type->equals($ntype)) {
+				if ($bridge->equals( $type, $ntype )) {
 					return 1;
 				} else {
-					next if ($seen{$type->as_string}++);
-					push( @types, $model->targets( $type, $p_sub ) );
+					next if ($seen{ $bridge->as_string($type) }++);
+					my $sub_stmts	= $bridge->get_statements( $type, $p_sub, undef );
+					while (my $s = $sub_stmts->next) {
+						push( @types, $bridge->object( $s ) );
+					}
 				}
 			}
 			return 0;
@@ -176,12 +192,13 @@ END
 		my $query	= RDF::Query->new( $sparql, undef, undef, 'sparql' );
 		my $count	= 0;
 		my $stream	= $query->execute( $model );
+		my $bridge	= $query->bridge;
 		while (my $row = $stream->()) {
 			my ($image, $thing, $ttype, $tname)	= @{ $row };
-			my $url		= $image->uri->as_string;
-			my $node	= $thing->as_string;
-			my $name	= $tname->literal_value;
-			my $type	= $ttype->as_string;
+			my $url		= $bridge->uri_value( $image );
+			my $node	= $bridge->as_string( $thing );
+			my $name	= $bridge->literal_value( $tname );
+			my $type	= $bridge->as_string( $ttype );
 			ok( $name, "$node is a $name (${type} isa wn:Object)" );
 			$count++;
 		}
@@ -234,7 +251,9 @@ END
 		is( $count, 1, "xpath:matches: 1 object found" );
 	}
 
-	{
+	SKIP: {
+		eval "use Geo::Distance 0.09;";
+		skip( "Need Geo::Distance 0.09 or higher to run these tests.", 4 ) if ($@);
 		my $sparql	= <<"END";
 			PREFIX	ldodds: <java:com.ldodds.sparql.>
 			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
@@ -252,11 +271,12 @@ END
 END
 		my $query	= RDF::Query->new( $sparql, undef, undef, 'sparql' );
 		my $stream	= $query->execute( $model );
+		my $bridge	= $query->bridge;
 		my $count	= 0;
 		while (my $row = $stream->()) {
 			my ($image, $point, $pname, $lat, $lon)	= @{ $row };
-			my $url		= $image->uri->as_string;
-			my $name	= $pname->literal_value;
+			my $url		= $bridge->uri_value( $image );
+			my $name	= $bridge->literal_value( $pname );
 			like( $name, qr/, (RI|MA|CT)$/, "$name ($url)" );
 			$count++;
 		}
@@ -296,21 +316,22 @@ END
 ######################################################################
 
 sub get_first_literal {
-	my $node	= get_first_obj( @_ );
-	return $node ? $node->literal_value : undef;
+	my $bridge	= shift;
+	my $node	= get_first_obj( $bridge, @_ );
+	return $node ? $bridge->literal_value( $node ) : undef;
 }
 
 sub get_first_obj {
-	my $model	= shift;
+	my $bridge	= shift;
 	my $node	= shift;
 	my $uri		= shift;
 	my @uris	= UNIVERSAL::isa($uri, 'ARRAY') ? @{ $uri } : ($uri);
-	my @preds	= map { ref($_) ? $_ : RDF::Redland::Node->new_from_uri( $_ ) } @uris;
+	my @preds	= map { ref($_) ? $_ : $bridge->new_resource( $_ ) } @uris;
 	foreach my $pred (@preds) {
-		my $targets	= $model->targets_iterator( $node, $pred );
-		while ($targets and !$targets->end) {
-			my $node	= $targets->current;
+		my $stmts	= $bridge->get_statements( $node, $pred, undef );
+		while (my $s = $stmts->next) {
+			my $node	= $bridge->object( $s );
 			return $node if ($node);
-		} continue { $targets->next }
+		}
 	}
 }

@@ -1,22 +1,21 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use URI::file;
-use Test::More tests => 6;
+use Test::More;
 
-use Data::Dumper;
-use RDF::Query;
+use lib qw(. t);
+require "models.pl";
 
-SKIP: {
-	eval "use RDF::Query::Model::Redland;";
-	skip "Failed to load RDF::Redland", 6 if $@;
-	
-	my @uris	= map { URI::file->new_abs( "data/$_" ) } qw(about.xrdf foaf.xrdf);
-	my @data	= map { RDF::Redland::URI->new( "$_" ) } @uris;
-	my $storage	= new RDF::Redland::Storage("hashes", "test", "new='yes',hash-type='memory'");
-	my $model	= new RDF::Redland::Model($storage, "");
-	my $parser	= new RDF::Redland::Parser("rdfxml");
-	$parser->parse_into_model($_, $_, $model) for (@data);
+my @files	= map { "data/$_" } qw(about.xrdf foaf.xrdf);
+my @models	= test_models( @files );
+my $tests	= 1 + (scalar(@models) * 6);
+plan tests => $tests;
+
+use_ok( 'RDF::Query' );
+foreach my $model (@models) {
+	print "\n#################################\n";
+	print "### Using model: $model\n\n";
+
 	
 	{
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );

@@ -1,7 +1,7 @@
 # RDF::Query
 # -------------
-# $Revision: 235 $
-# $Date: 2007-09-13 13:31:06 -0400 (Thu, 13 Sep 2007) $
+# $Revision: 286 $
+# $Date: 2007-11-12 23:26:54 -0500 (Mon, 12 Nov 2007) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -10,7 +10,7 @@ RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF
 
 =head1 VERSION
 
-This document describes RDF::Query version 1.044.
+This document describes RDF::Query version 1.500, released 13 November 2007.
 
 =head1 SYNOPSIS
 
@@ -37,7 +37,7 @@ L<RDF::Redland|RDF::Redland> or L<RDF::Core|RDF::Core>
 
 L<Parse::RecDescent|Parse::RecDescent> (for RDF::Core)
 
-L<LWP::Simple|LWP::Simple>
+L<LWP|LWP>
 
 L<DateTime::Format::W3CDTF|DateTime::Format::W3CDTF>
 
@@ -51,38 +51,73 @@ use strict;
 use warnings;
 use Carp qw(carp croak confess);
 
-use URI::Fetch;
 use Data::Dumper;
+use LWP::UserAgent;
+use I18N::LangTags;
 use Storable qw(dclone);
 use List::Util qw(first);
 use Scalar::Util qw(blessed reftype looks_like_number);
 use DateTime::Format::W3CDTF;
 
-use RDF::Query::Stream;
+use RDF::Query::Functions;	# all the built-in functions including:
+							#     datatype casting, language ops, logical ops,
+							#     numeric ops, datetime ops, and node type testing
+							# also, custom functions including:
+							#     jena:sha1sum, jena:now, jena:langeq, jena:listMember
+							#     ldodds:Distance, kasei:warn
+use RDF::Query::Algebra;
+use RDF::Query::Node;
+use RDF::Query::Stream qw(sgrep smap swatch);
 use RDF::Query::Parser::RDQL;
 use RDF::Query::Parser::SPARQL;
-# use RDF::Query::Parser::tSPARQL;	# XXX temporal extensions
+use RDF::Query::Parser::tSPARQL;	# XXX temporal extensions
 use RDF::Query::Compiler::SQL;
 use RDF::Query::Error qw(:try);
 
-#use RDF::Query::Optimizer::Multiget;
-use RDF::Query::Optimizer::Peephole::Naive;
-use RDF::Query::Optimizer::Peephole::Cost;
-
 ######################################################################
 
-our ($REVISION, $VERSION, $debug, $js_debug, $DEFAULT_PARSER);
+our ($REVISION, $VERSION, $debug, $js_debug, $DEFAULT_PARSER, $PROF);
 use constant DEBUG	=> 0;
+use constant PROF	=> 0;
 BEGIN {
 	$debug		= DEBUG;
 	$js_debug	= 0;
-	$REVISION	= do { my $REV = (qw$Revision: 235 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
-	$VERSION	= '1.044';
+	$REVISION	= do { my $REV = (qw$Revision: 286 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= '1.500';
 	$ENV{RDFQUERY_NO_RDFBASE}	= 1;	# XXX Not ready for release
 	$DEFAULT_PARSER		= 'sparql';
+	
+	# PROFILING
+	if (PROF) {
+		require Time::HiRes;
+		Time::HiRes->import(qw(gettimeofday));
+		open( $PROF, '>>', "rdfquery.profile.out" );
+	}
 }
 
-my $KEYWORD_RE	= qr/^(OPTIONAL|GRAPH|FILTER|TIME)$/;
+######################################################################
+if (PROF) {
+	require Hook::LexWrap;
+	Hook::LexWrap->import();
+eval <<"END" for (qw(new get execute describe construct ask supports set_named_graph_query loadable_bridge_class new_bridge get_bridge fixup fixup_triple_bridge_variables query_more get_statements union optional query_more_ggp query_more_graph qualify_uri check_constraints _isa_known_node_type _one_isa _promote_to get_value add_function get_function net_filter_function _is_trusted new_javascript_engine add_hook get_hooks run_hook ncmp is_numeric_type sort_rows parse_url variables all_variables parsed error set_error clear_error));
+wrap "RDF::Query::$_",
+	pre		=> sub { _PROFILE(1,"$_") },
+	post	=> sub { _PROFILE(0,"$_") };
+END
+}
+######################################################################
+
+
+
+our %PATTERN_TYPES	= map { $_ => 1 } (qw(
+						BGP
+						GGP
+						GRAPH
+						OPTIONAL
+						UNION
+						TRIPLE
+					));
+my $KEYWORD_RE	= qr/^(BGP|GGP|OPTIONAL|UNION|GRAPH|FILTER|TIME)$/;
 
 ######################################################################
 
@@ -109,7 +144,7 @@ sub new {
 	my %names	= (
 					rdql	=> 'RDF::Query::Parser::RDQL',
 					sparql	=> 'RDF::Query::Parser::SPARQL',
-					tsparql	=> 'RDF::Query::Parser::tSPARQL'
+					tsparql	=> 'RDF::Query::Parser::tSPARQL',
 				);
 	my %uris	= (
 					'http://jena.hpl.hp.com/2003/07/query/RDQL'	=> 'RDF::Query::Parser::RDQL',
@@ -122,12 +157,17 @@ sub new {
 #	my $parser	= ($lang eq 'rdql' or $languri eq 'http://jena.hpl.hp.com/2003/07/query/RDQL')
 #				? RDF::Query::Parser::RDQL->new()
 #				: RDF::Query::Parser::SPARQL->new();
-	my $parsed		= $parser->parse( $query );
+	my $parsed	= $parser->parse( $query );
+	
+	my $ua		= LWP::UserAgent->new( agent => "RDF::Query/${VERSION}" );
 	my $self 	= bless( {
-					dateparser	=> $f,
-					parser		=> $parser,
-					parsed		=> $parsed,
-					parsed_orig	=> $parsed,
+					base			=> $baseuri,
+					dateparser		=> $f,
+					parser			=> $parser,
+					parsed			=> $parsed,
+					parsed_orig		=> $parsed,
+					named_models	=> {},
+					useragent		=> $ua,
 				}, $class );
 	unless ($parsed->{'triples'}) {
 		$class->set_error( $parser->error );
@@ -166,7 +206,7 @@ and returns the first row found.
 sub get {
 	my $self	= shift;
 	my $stream	= $self->execute( @_ );
-	my $row		= $stream->();
+	my $row		= $stream->next;
 	if (ref($row)) {
 		return @{ $row };
 	} else {
@@ -185,7 +225,7 @@ sub execute {
 	my $model	= shift;
 	my %args	= @_;
 	
-	
+	local($::NO_BRIDGE)	= 0;
 	$self->{parsed}	= dclone( $self->{parsed_orig} );
 	my $parsed	= $self->{parsed};
 	
@@ -248,23 +288,20 @@ sub execute {
 	} elsif ($args{'require_sql'}) {
 		throw RDF::Query::Error::CompilationError ( -text => 'Failed to compile query to SQL' );
 	} else {
-		unless ($self->{optimized}{'peephole'}++) {
-			my $opt		= RDF::Query::Optimizer::Peephole->new( $self, $bridge );
-			my $cost	= $opt->optimize;
-		}
-		
-#		unless ($self->{optimized}{'multi_get'}++) {
-#			if ($bridge->supports('multi_get')) {
-#				my $mopt	= RDF::Query::Optimizer::Multiget->new( $self, $bridge, size => 3 );
-#				$mopt->optimize;
-#			}
-#		}
-		
+		# JIT: Load external data, swap in model objects (Redland, RDF::Core, etc.) for abstract RDF Nodes
 		$parsed		= $self->fixup( $self->{parsed} );
 		my @vars	= $self->variables( $parsed );
-		$stream		= $self->query_more( bound => \%bound, triples => [@{ $parsed->{'triples'} }], variables => \@vars );
 		
-		_debug( "got stream: $stream" );
+		# RUN THE QUERY!
+		$stream		= $self->query_more(
+			bound		=> \%bound,
+			triples		=> [@{ $parsed->{'triples'} }],
+			variables	=> \@vars,
+			bridge		=> $bridge,
+			debug		=> 0,			# XXX DEBUG
+		);
+		
+		_debug( "got stream: $stream" ) if (DEBUG);
 		my $sorted		= $self->sort_rows( $stream, $parsed );
 		my $projected	= sub {
 			my $bound	= $sorted->();
@@ -375,16 +412,18 @@ sub construct {
 		my $row	= $stream->current;
 		my @triples;	# XXX move @triples out of the while block, and only push one stream below (just before the continue{})
 		foreach my $triple (@{ $parsed->{'construct_triples'} }) {
-			my @triple	= @{ $triple };
+			my (undef, @triple)	= @{ $triple };
 			for my $i (0 .. 2) {
-				if (reftype($triple[$i]) eq 'ARRAY') {
-					if ($triple[$i][0] eq 'VAR') {
-						$triple[$i]	= $row->[ $variable_map{ $triple[$i][1] } ];
-					} elsif ($triple[$i][0] eq 'BLANK') {
-						unless (exists($blank_map{ $triple[$i][1] })) {
-							$blank_map{ $triple[$i][1] }	= $self->bridge->new_blank();
+				if (blessed($triple[$i]) and $triple[$i]->isa('RDF::Query::Node')) {
+					if ($triple[$i]->isa('RDF::Query::Node::Variable')) {
+						my $name	= $triple[$i]->name;
+						$triple[$i]	= $row->[ $variable_map{ $name } ];
+					} elsif ($triple[$i]->isa('RDF::Query::Node::Blank')) {
+						my $id	= $triple[$i]->blank_identifier;
+						unless (exists($blank_map{ $id })) {
+							$blank_map{ $id }	= $self->bridge->new_blank();
 						}
-						$triple[$i]	= $blank_map{ $triple[$i][1] };
+						$triple[$i]	= $blank_map{ $id };
 					}
 				}
 			}
@@ -461,7 +500,7 @@ This entails creating a new context-aware bridge (and model) object.
 sub set_named_graph_query {
 	my $self	= shift;
 	my $bridge	= $self->new_bridge();
-	_debug( "Replacing model bridge with a new (empty) one for a named graph query" );
+	_debug( "Replacing model bridge with a new (empty) one for a named graph query" ) if (DEBUG);
 	$self->{bridge}	= $bridge;
 }
 
@@ -485,7 +524,7 @@ sub loadable_bridge_class {
 		} else {
 			warn "RDF::Query::Model::RDFBase didn't load cleanly" if ($debug);
 		}
-	} else { warn "RDF::Base supressed" unless ($ENV{RDFQUERY_SILENT}) }
+	} else { warn "RDF::Base supressed" if ($debug and not $ENV{RDFQUERY_SILENT}) }
 	
 	if (not $ENV{RDFQUERY_NO_REDLAND}) {
 		eval "use RDF::Query::Model::Redland;";
@@ -494,7 +533,7 @@ sub loadable_bridge_class {
 		} else {
 			warn "RDF::Query::Model::Redland didn't load cleanly" if ($debug);
 		}
-	} else { warn "RDF::Redland supressed" unless ($ENV{RDFQUERY_SILENT}) }
+	} else { warn "RDF::Redland supressed" if ($debug and not $ENV{RDFQUERY_SILENT}) }
 	
 # 	if (0) {
 # 		eval "use RDF::Query::Model::SQL;";
@@ -512,7 +551,7 @@ sub loadable_bridge_class {
 		} else {
 			warn "RDF::Query::Model::RDFCore didn't load cleanly" if ($debug);
 		}
-	} else { warn "RDF::Core supressed" unless ($ENV{RDFQUERY_SILENT}) }
+	} else { warn "RDF::Core supressed" if ($debug and not $ENV{RDFQUERY_SILENT}) }
 	
 	return undef;
 }
@@ -626,73 +665,25 @@ sub fixup {
 				$named_query++;
 #				$self->set_named_graph_query();
 				$bridge		= $self->{bridge};
-				unless ($bridge->supports( 'named_graph' )) {
-					throw RDF::Query::Error::ModelError ( -text => "This RDF model does not support named graphs." );
-				}
 			}
 			
-			$self->parse_url( $source->[1], $named_source );
+			$self->parse_url( $self->qualify_uri( $source->[1] ), $named_source );
 		}
-		$self->run_hook( 'http://kasei.us/code/rdf-query/hooks/post-create-model', $self->bridge );
+		$self->run_hook( 'http://kasei.us/code/rdf-query/hooks/post-create-model', $bridge );
 	}
 	
 	## CONVERT URIs to Resources, and strings to Literals
 	my @triples	= @{ $parsed->{'triples'} || [] };
 	while (my $triple = shift(@triples)) {
-		if ($triple->[0] eq 'OPTIONAL') {
-			push(@triples, @{$triple->[1]});
-		} elsif ($triple->[0] eq 'GRAPH') {
-			push(@triples, @{$triple->[2]});
-			if ($triple->[1][0] eq 'URI') {
-				$triple->[1]	= $bridge->new_resource( $triple->[1][1] );
-			}
-		} elsif ($triple->[0] eq 'TIME') {
-			push(@triples, @{$triple->[2]});
-			if ($triple->[1][0] eq 'URI') {
-				$triple->[1]	= $bridge->new_resource( $triple->[1][1] );
-			}
-		} elsif ($triple->[0] eq 'UNION') {
-			push(@triples, @{$triple->[1]});
-			push(@triples, @{$triple->[2]});
-		} elsif ($triple->[0] eq 'FILTER') {
-			my @constraints	= ($triple->[1]);
-			while (my $data = shift @constraints) {
-				_debug( "FIXING CONSTRAINT DATA: " . Dumper($data), 2 ) if (DEBUG);
-				if (reftype($data) eq 'ARRAY') {
-					my ($op, @rest)	= @$data;
-					if ($op eq 'URI') {
-						$data->[1]	= $self->qualify_uri( $data );
-						_debug( "FIXED: " . $data->[1], 2 );
-					} elsif ($op eq 'LITERAL') {
-						no warnings 'uninitialized';
-						if (reftype($data->[3]) eq 'ARRAY' and $data->[3][0] eq 'URI') {
-							$data->[3][1]	= $self->qualify_uri( $data->[3] );
-						}
-					} elsif ($op !~ /^(VAR|LITERAL)$/) {
-						push(@constraints, @rest);
-					}
-				}
-			}
-		} elsif ($triple->[0] eq 'MULTI') {
-			warn "MULTI: " . Dumper($triple) if ($debug);
-			foreach my $i (1 .. $#{ $triple }) {
-				push(@triples, $triple->[ $i ]);
-			}
-		} else {
-			my @vars	= map { $_->[1] }
-							grep { ref($_) and reftype($_) eq 'ARRAY' and $_->[0] eq 'VAR' }
-								@{ $triple };
-			foreach my $var (@vars) {
-				$known_variables{ $var }++
-			}
-			
-			$self->fixup_triple_bridge_variables( $triple );
-		}
+#		warn "fixup: " . Dumper($triple);
+		my @new	= $self->fixup_pattern( $triple );
+#		warn "====> adding " . Dumper(\@new);
+		push( @triples, @new );
 	}
 	
 	## SELECT * implies selecting all known variables
 	no warnings 'uninitialized';
-	$self->{known_variables}	= [ map { ['VAR', $_] } (keys %known_variables) ];
+	$self->{known_variables}	= [ map { ['VAR', $_] } (keys %{ $self->{ known_variables_hash } }) ];
 	if ($parsed->{variables}[0] eq '*') {
 		$parsed->{variables}	= $self->{known_variables};
 	}
@@ -706,9 +697,7 @@ sub fixup {
 		my %seen;
 		foreach my $triple (@{ $parsed->{'construct_triples'} }) {
 			$self->fixup_triple_bridge_variables( $triple );
-		}
-		foreach my $triple (@{ $parsed->{'triples'} }) {
-			my @nodes	= @{ $triple };
+			my (undef, @nodes)	= @{ $triple };
 			foreach my $node (@nodes) {
 				if (reftype($node) eq 'ARRAY' and $node->[0] eq 'VAR') {
 					push(@{ $parsed->{'variables'} }, ['VAR', $node->[1]]) unless ($seen{$node->[1]}++);
@@ -718,6 +707,87 @@ sub fixup {
 	}
 	
 	return $parsed;
+}
+
+
+=begin private
+
+=item C<fixup_pattern ( $pattern )>
+
+Called by fixup() with individual graph patterns. Returns a list of sub-patterns
+that may need fixing up.
+
+=end private
+
+=cut
+
+sub fixup_pattern {
+	my $self	= shift;
+	my $triple	= shift;
+	my $bridge		= $self->{bridge};
+
+	Carp::confess "not an array: " . Dumper($triple) unless (reftype($triple) eq 'ARRAY');
+	unless (blessed($triple) and $triple->isa('RDF::Query::Algebra')) {
+		Carp::confess "not a graph pattern: " . Dumper($triple);
+	}
+	
+	my $type	= $triple->type;
+	if ($triple->isa('RDF::Query::Algebra::Triple')) {
+		my @nodes	= $triple->nodes;
+		my @vars	= map { $_->name } grep { blessed($_) and $_->isa('RDF::Query::Node::Variable') } @nodes;
+		foreach my $var (@vars) {
+			$self->{ known_variables_hash }{ $var }++
+		}
+		
+		$self->fixup_triple_bridge_variables( $triple );
+		return ();
+	} elsif ($triple->isa('RDF::Query::Algebra::Optional')) {
+		return ($triple->pattern, $triple->optional);
+	} elsif ($triple->isa('RDF::Query::Algebra::GroupGraphPattern')) {
+		return($triple->patterns);
+	} elsif ($triple->isa('RDF::Query::Algebra::BasicGraphPattern')) {
+		return($triple->triples);
+	} elsif ($triple->isa('RDF::Query::Algebra::NamedGraph')) {
+		my @triples;
+		push(@triples, $triple->pattern);
+		if ($triple->graph->isa('RDF::Query::Node::Resource')) {
+			$triple->graph( $bridge->new_resource( $triple->graph->uri_value ) );
+		} elsif ($triple->graph->isa('RDF::Query::Node::Variable')) {
+			my $var	= $triple->graph->name;;
+			$self->{ known_variables_hash }{ $var }++
+		}
+		return @triples;
+	} elsif ($triple->isa('RDF::Query::Algebra::Union')) {
+		return($triple->first, $triple->second);
+	} elsif ($triple->isa('RDF::Query::Algebra::OldFilter')) {
+		my @constraints	= ($triple->[1]);
+		while (my $data = shift @constraints) {
+			_debug( "FIXING CONSTRAINT DATA: " . Dumper($data), 2 ) if (DEBUG);
+			if (reftype($data) eq 'ARRAY') {
+				my ($op, @rest)	= @$data;
+				if ($op eq 'URI') {
+					$data->[1]	= $self->qualify_uri( $data );
+					_debug( "FIXED: " . $data->[1], 2 ) if (DEBUG);
+				} elsif ($op eq 'LITERAL') {
+					no warnings 'uninitialized';
+					if (reftype($data->[3]) eq 'ARRAY' and $data->[3][0] eq 'URI') {
+						$data->[3][1]	= $self->qualify_uri( $data->[3] );
+					}
+				} elsif ($op !~ /^(VAR|LITERAL)$/) {
+					push(@constraints, @rest);
+				}
+			}
+		}
+		return ();
+### XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+	} elsif ($type eq 'TIME') {
+		if ($triple->[1][0] eq 'URI') {
+			$triple->[1]	= $bridge->new_resource( $triple->[1][1] );
+		}
+		return(@{$triple->[2]});
+	} else {
+		die "unknown pattern in fixup: $type";
+	}
 }
 
 =begin private
@@ -733,35 +803,37 @@ Called by C<fixup()> to replace URIs and strings with model-specific objects.
 sub fixup_triple_bridge_variables {
 	my $self	= shift;
 	my $triple	= shift;
-	my ($sub,$pred,$obj)	= @{ $triple };
-	
+	my ($type,$sub,$pred,$obj)	= @{ $triple };
+	Carp::confess 'not a triple: ' . Dumper($triple) unless ($type eq 'TRIPLE');
 	Carp::cluck "No predicate in triple passed to fixup_triple_bridge_variable: " . Dumper($triple) unless ref($pred);
+	
+	no warnings 'uninitialized';
+	if (ref($sub) and reftype($sub) eq 'ARRAY' and $sub->[0] eq 'URI') {
+		my $resource	= $self->qualify_uri( $sub );
+		$triple->[1]	= $self->bridge->new_resource($resource);
+#	} elsif (reftype($sub) eq 'ARRAY' and $sub->[0] eq 'BLANK') {
+#		my $blank		= $self->bridge->new_blank($sub->[1]);
+#		$triple->[1]	= $blank;
+	}
 	
 	if (reftype($pred) eq 'ARRAY' and $pred->[0] eq 'URI') {
 		my $preduri		= $self->qualify_uri( $pred );
-		$triple->[1]	= $self->bridge->new_resource($preduri);
-	}
-	
-	if (reftype($sub) eq 'ARRAY' and $sub->[0] eq 'URI') {
-		my $resource	= $self->qualify_uri( $sub );
-		$triple->[0]	= $self->bridge->new_resource($resource);
-#	} elsif (reftype($sub) eq 'ARRAY' and $sub->[0] eq 'BLANK') {
-#		my $blank		= $self->bridge->new_blank($sub->[1]);
-#		$triple->[0]	= $blank;
+		
+		$triple->[2]	= $self->bridge->new_resource($preduri);
 	}
 	
 # XXX THIS CONDITIONAL SHOULD ALWAYS BE TRUE ... ? (IT IS IN ALL TEST CASES)
 #	if (ref($obj)) {
-		if (reftype($obj) eq 'ARRAY' and $obj->[0] eq 'LITERAL') {
+		if (ref($obj) and reftype($obj) eq 'ARRAY' and $obj->[0] eq 'LITERAL') {
 			no warnings 'uninitialized';
 			if (reftype($obj->[3]) eq 'ARRAY' and $obj->[3][0] eq 'URI') {
 				$obj->[3]	= $self->qualify_uri( $obj->[3] );
 			}
 			my $literal		= $self->bridge->new_literal(@{$obj}[ 1 .. $#{$obj} ]);
-			$triple->[2]	= $literal;
+			$triple->[3]	= $literal;
 		} elsif (reftype($obj) eq 'ARRAY' and $obj->[0] eq 'URI') {
 			my $resource	= $self->qualify_uri( $obj );
-			$triple->[2]	= $self->bridge->new_resource($resource);
+			$triple->[3]	= $self->bridge->new_resource($resource);
 		}
 #	} else {
 #		warn "Object not a reference: " . Dumper($obj) . ' ';
@@ -781,111 +853,137 @@ variables are left and found from the RDF store. Called from C<query>.
 sub query_more {
 	my $self	= shift;
 	my %args	= @_;
+	local($::NO_BRIDGE)	= 1;
+
+	my $bound		= delete($args{bound});
+	my $triples		= delete($args{triples});
+	my $context		= $args{context};
+	my $variables	= $args{variables};
+	my $bridge		= $args{bridge};
+	Carp::confess unless (blessed($bridge));	# XXXassert
+
+	my $debug		= delete($args{debug});	# XXX
+	
+	my @triples		= @{$triples};
+	
+	if (@triples) {
+		my @streams;
+		my @filters;
+		foreach my $triple (@triples) {
+#			warn "TRIPLE: " . Dumper($triple);
+			Carp::confess "not an array: " . Dumper($triple) unless (reftype($triple) eq 'ARRAY');
+			Carp::confess "not an algebra or rdf node: " . Dumper($triple) unless ($triple->isa('RDF::Query::Algebra') or $triple->isa('RDF::Query::Node'));
+			
+			my $type	= $triple->type;
+			if ($PATTERN_TYPES{ $type }) {
+				my $method	= 'query_more_' . lc($type);
+				my $stream	= $self->$method( bound => {%$bound}, triples => [$triple], %args );
+				push(@streams, $stream);
+			} elsif ($type eq 'FILTER') {
+				push(@filters, $triple);
+			} elsif ($type eq 'TIME') {
+				$triples[0][0]	= 'GRAPH';
+				push(@streams, $self->query_more_graph( bound => {%$bound}, triples => [$triple], %args ));
+			} else {
+				push(@streams, $self->query_more_triple( bound => {%$bound}, triples => [ ['TRIPLE', @$triple] ], %args ));
+			}
+		}
+		if (@streams) {
+			while (@streams > 1) {
+				my $a	= shift(@streams);
+				my $b	= shift(@streams);
+				unshift(@streams, $self->join_streams( $a, $b, %args, debug => $debug ));	# XXX remove debug
+			}
+		} else {
+			push(@streams, RDF::Query::Stream->new([{}], 'bindings', []));
+		}
+		my $stream	= shift(@streams);
+		
+		foreach my $data (@filters) {
+			$stream	= sgrep {
+						my $bound			= $_;
+						my $filter_value	= $self->call_function( $bridge, $bound, 'sop:boolean', $data->[1] );
+						return ($filter_value);
+					} $stream;
+		}
+		
+		return $stream;
+	} else {
+		# no more triples. return what we've got.
+		my @rows	= {%$bound};
+		return RDF::Query::Stream->new(\@rows, 'bindings', [keys %$bound]);
+	}
+}
+
+=begin private
+
+=item C<query_more_triple ( bound => \%bound, triples => [$triple], variables => \@variables, bridge => $bridge )>
+
+Called by C<query_more()> to handle individual triple patterns.
+Calls C<get_statements()> with the triple pattern, returning an
+RDF::Query::Stream of resulting bound variables.
+
+=end private
+
+=cut
+
+sub query_more_triple {
+	my $self		= shift;
+	my %args	= @_;
 	
 	my $bound		= delete($args{bound});
 	my $triples		= delete($args{triples});
 	my $context		= $args{context};
 	my $variables	= $args{variables};
+	my $bridge		= $args{bridge};
 	
-	my @triples		= @{$triples};
-# 	if ($debug > 0.1) {
-# 		warn 'query_more: ' . Data::Dumper->Dump([\@triples, $bound], [qw(triples bound)]);
-# 		warn "with context: " . Dumper($context) if ($context);
-# 	}
+	my ($triple)	= @{$triples};
+#	my @triple		= @{ $triple };
 	our $indent;
-
-	my $parsed		= $self->parsed;
-	my $bridge		= $self->bridge;
 	
-	if (@triples) {
-		if ($triples[0][0] eq 'GGP') {
-			return $self->groupgraphpattern( bound => $bound, triples => \@triples, %args );
-		} elsif ($triples[0][0] eq 'OPTIONAL') {
-			return $self->optional( bound => $bound, triples => \@triples, %args );
-		} elsif ($triples[0][0] eq 'GRAPH') {
-			if ($context) {
-				throw RDF::Query::Error::QueryPatternError ( -text => "Can't use nested named graphs" );
-			} else {
-				return $self->named_graph( bound => $bound, triples => \@triples, variables => $variables );
-			}
-		} elsif ($triples[0][0] eq 'TIME') {
-			$triples[0][0]	= 'GRAPH';
-			return $self->named_graph( bound => $bound, triples => \@triples, variables => $variables );
-		} elsif ($triples[0][0] eq 'FILTER') {
-			my $data	= shift(@triples);
-			my $filter	= [ 'FUNCTION', ['URI', 'sop:boolean'], $data->[1] ];
-			
-			my $filter_value	= $self->check_constraints( $bound, $filter );
-			
-			if ($filter_value) {
-				return $self->query_more( bound => $bound, triples => \@triples, variables => $variables );
-			} else {
-				return sub { undef };
-			}
-		} elsif ($triples[0][0] eq 'UNION') {
-			return $self->union( bound => $bound, triples => \@triples, %args );
-#		} elsif ($triples[0][0] eq 'MULTI') {
-#			return $self->multi( bound => $bound, triples => \@triples, %args );
-		}
-	} else {
-		# no more triples. return what we've got.
-#		my @values	= map { $bound->{$_} } @$variables;
-#		my @rows	= [@values];
-		my @rows	= {%$bound};
-		return sub { shift(@rows) };
-	}
+	Carp::confess unless (blessed($triple) and $triple->isa('RDF::Query::Algebra::Triple'));
+	my @triple		= (
+						$triple->subject,
+						$triple->predicate,
+						$triple->object,
+					);
 	
-	
-# 	if ($bridge->supports('multi_get') and scalar(@triples) == 4) {
-# 		try {
-# 			my $iter	= $bridge->multi_get( triples => [@triples] );
-# 			warn $iter;
-# 		} catch RDF::Query::Error::SimpleQueryPatternError with {
-# 			my $e	= shift;
-# #			warn "caught $e";
-# 		};
-# 	}
-	
-	
-	my $triple		= shift(@triples);
-	my @triple		= @{ $triple };
-	
-	no warnings 'uninitialized';
-	if (DEBUG) {
-		_debug( "${indent}query_more: " . join(' ', map { (($bridge->is_node($_)) ? '<' . $bridge->as_string($_) . '>' : (reftype($_) eq 'ARRAY') ? $_->[1] : Dumper($_)) } @triple) . "\n" );
-		_debug( "${indent}-> with " . scalar(@triples) . " triples to go\n" );
-		_debug( "${indent}-> more: " . (($_->[0] =~ $KEYWORD_RE) ? "$1 block" : join(' ', map { $bridge->is_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
-	}
+	my %bind;
 	
 	my $vars	= 0;
 	my ($var, $method);
 	my (@vars, @methods);
-	
 	my @methodmap	= $bridge->statement_method_map;
+	
+	my %map;
+	my %seen;
+	my $dup_var	= 0;
+	my @dups;
 	for my $idx (0 .. 2) {
-		_debug( "looking at triple " . $methodmap[ $idx ] );
+		_debug( "looking at triple " . $methodmap[ $idx ] ) if (DEBUG);
 		my $data	= $triple[$idx];
-		if (reftype($data) eq 'ARRAY') {	# and $data->[0] eq 'VAR'
-			if ($data->[0] eq 'VAR' or $data->[0] eq 'BLANK') {
-				my $tmpvar	= ($data->[0] eq 'VAR') ? $data->[1] : '_' . $data->[1];
+		if (ref($data) and reftype($data) eq 'ARRAY') {	# and $data->[0] eq 'VAR'
+			if ($data->isa('RDF::Query::Node::Variable') or $data->isa('RDF::Query::Node::Blank')) {
+				my $tmpvar	= ($data->isa('RDF::Query::Node::Variable'))
+							? $data->name
+							: '_' . $data->blank_identifier;
+				$map{ $methodmap[ $idx ] }	= $tmpvar;
+				if ($seen{ $tmpvar }++) {
+					$dup_var	= 1;
+				}
 				my $val		= $bound->{ $tmpvar };
 				if ($bridge->is_node($val)) {
-					_debug( "${indent}-> already have value for $tmpvar: " . $bridge->as_string( $val ) . "\n" );
+					_debug( "${indent}-> already have value for $tmpvar: " . $bridge->as_string( $val ) . "\n" ) if (DEBUG);
 					$triple[$idx]	= $val;
 				} else {
 					++$vars;
-					_debug( "${indent}-> found variable $tmpvar (we've seen $vars variables already)\n" );
+					_debug( "${indent}-> found variable $tmpvar (we've seen $vars variables already)\n" ) if (DEBUG);
 					$triple[$idx]	= undef;
 					$vars[$idx]		= $tmpvar;
 					$methods[$idx]	= $methodmap[ $idx ];
 				}
 			}
 		}
-	}
-	
-	if (DEBUG) {
-		_debug( "${indent}getting: " . join(', ', grep defined, @vars) . "\n" );
-		_debug( 'query_more triple: ' . Dumper([map { blessed($_) ? $bridge->as_string($_) : ($_) ? Dumper($_) : 'undef' } (@triple, (($bridge->is_node($context)) ? $context : ()))]) );
 	}
 	
 	my @graph;
@@ -905,131 +1003,271 @@ sub query_more {
 	my $stream;
 	my @streams;
 	
-	my $statments	= $bridge->get_statements( @triple, @graph );
-	if ($statments) {
-		push(@streams, sub {
-			my $result;
-			_debug_closure( $statments );
-			my $stmt	= $statments->current();
-			unless ($stmt) {
-				_debug( 'no more statements' );
-				$statments	= undef;
-				return undef;
+	my $statments	= $self->get_statements( triple => \@triple, graph => \@graph, require_context => 1, %args );
+	if ($dup_var) {
+		# there's a node in the triple pattern that is repeated (like (?a ?b ?b)), but since get_statements() can't
+		# directly make that query, we're stuck filtering the triples after we get the stream back.
+		my %counts;
+		my $dup_key;
+		for (keys %map) {
+			my $val	= $map{ $_ };
+			if ($counts{ $val }++) {
+				$dup_key	= $val;
 			}
-			
-			my $context_var;
-			if (ref($context) and reftype($context) eq 'ARRAY' and ($context->[0] eq 'VAR')) {
-				# if we're in a GRAPH ?var {} block, bind the current context to ?var
-				warn "Trying to get context of current statement..." if ($debug);
-				my $graph	= $statments->context;
-				if ($graph) {
-					$context_var				= $context->[1];
-					$bound->{ $context_var }	= $graph;
-					_debug( "Got context ($context_var) from iterator: " . $bridge->as_string( $graph ) );
-				} else {
-					_debug( "No context returned by iterator." );
-				}
-			}
-			
-			$statments->next;
-			if ($vars) {
-				my %private_bound;
-				foreach (0 .. $#vars) {
-					_debug( "looking at variable $_" );
-					next unless defined($vars[$_]);
-					my $var		= $vars[ $_ ];
-					my $method	= $methods[ $_ ];
-					_debug( "${indent}-> got variable $var = " . $bridge->as_string( $stmt->$method() ) . "\n" );
-					if (defined($private_bound{$var})) {
-						_debug( "${indent}-> uh oh. $var has been defined more than once.\n" );
-						if ($bridge->as_string( $stmt->$method() ) eq $bridge->as_string( $private_bound{$var} )) {
-							_debug( "${indent}-> the two values match. problem avoided.\n" );
-						} else {
-							_debug( "${indent}-> the two values don't match. this triple won't work.\n" );
-							_debug( "${indent}-> the existing value is" . $bridge->as_string( $private_bound{$var} ) . "\n" );
-							return ();
-						}
-					} else {
-						$private_bound{ $var }	= $stmt->$method();
-					}
-				}
-				@{ $bound }{ keys %private_bound }	= values %private_bound;
+		}
+		my @dup_methods	= grep { $map{$_} eq $dup_key } @methodmap;
+		$statments	= sgrep {
+			my $stmt	= $_;
+			if (2 == @dup_methods) {
+				my ($a, $b)	= @dup_methods;
+				return ($bridge->equals( $stmt->$a(), $stmt->$b() )) ? 1 : 0;
 			} else {
-				_debug( "${indent}-> triple with no variable. ignoring.\n" );
+				my ($a, $b, $c)	= @dup_methods;
+				return (($bridge->equals( $stmt->$a(), $stmt->$b() )) and ($bridge->equals( $stmt->$a(), $stmt->$c() ))) ? 1 : 0;
 			}
-			
-			if (scalar(@triples)) {
-				if (DEBUG) {
-					_debug( "${indent}-> now for more triples...\n" );
-					_debug( "${indent}-> more: " . (($_->[0] =~ $KEYWORD_RE) ? "$1 block" : join(' ', map { $bridge->is_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
-					_debug( "${indent}-> " . Dumper(\@triples) );
-				}
-				
-				$indent	.= '  ';
-				_debug( 'adding a new stream for more triples' );
-				unshift(@streams, $self->query_more( bound => { %{ $bound } }, triples => [@triples], variables => $variables, ($context ? (context => $context ) : ()) ) );
-			} else {
-				my @values	= map { $bound->{$_} } @$variables;
-				_debug( "${indent}-> no triples left: result: " . join(', ', map {$bridge->as_string($_)} grep defined, @values) . "\n" );
-				$result	= {%$bound};
-			}
-			
-			foreach my $var (@vars) {
-				if (defined($var)) {
-					_debug( "deleting value for $var" );
-					delete $bound->{ $var };
-				}
-			}
-			
-			if ($context_var) {
-				_debug( "deleting context value for $context_var" );
-				delete $bound->{ $context_var };
-			}
-			
-			if ($result) {
-				if (DEBUG) {
-					local($Data::Dumper::Indent)	= 0;
-					_debug( 'found a result: ' . Dumper($result) );
-				}
-				
-				return ($result);
-			} else {
-				_debug( 'no results yet...' );
-				return ();
-			}
-		} );
+		} $statments;
 	}
 	
-	substr($indent, -2, 2)	= '';
-	
-	return sub {
-		_debug( 'query_more closure with ' . scalar(@streams) . ' streams' );
-		while (@streams) {
-			_debug( '-> fetching from stream ' . $streams[0] );
-			_debug_closure( $streams[0] );
+	return smap {
+		my $stmt	= $_;
+		
+		my $result	= { %$bound };
+		foreach (0 .. $#vars) {
+			my $var		= $vars[ $_ ];
+			my $method	= $methods[ $_ ];
+			next unless (defined($var));
 			
-			my @val	= $streams[0]->();
-			_debug( '-> ' . (@val ? 'got' : 'no') . ' value' );
-			if (@val) {
-				_debug( '-> "' . $val[0] . '"', 1, 1);
-				if (defined $val[0]) {
-					return $val[0];
+			_debug( "${indent}-> got variable $var = " . $bridge->as_string( $stmt->$method() ) . "\n" ) if (DEBUG);
+			if (defined($bound->{$var})) {
+				_debug( "${indent}-> uh oh. $var has been defined more than once.\n" ) if (DEBUG);
+				if ($bridge->as_string( $stmt->$method() ) eq $bridge->as_string( $bound->{$var} )) {
+					_debug( "${indent}-> the two values match. problem avoided.\n" ) if (DEBUG);
+				} else {
+					_debug( "${indent}-> the two values don't match. this triple won't work.\n" ) if (DEBUG);
+					_debug( "${indent}-> the existing value is" . $bridge->as_string( $bound->{$var} ) . "\n" ) if (DEBUG);
+					return ();
 				}
 			} else {
-				_debug( '-> no value returned from stream. using next stream.', 1);
-				next;
+				$result->{ $var }	= $stmt->$method();
 			}
-			shift(@streams);
 		}
-
-		_debug( '-> no more streams.', 1);
-		return undef;
-	};	
+		$result;
+	} $statments, 'bindings', [@vars], { bridge => $bridge };
 }
+
+
+# sub query_more_triple {
+# 	my $self		= shift;
+# 	my %args	= @_;
+# 	
+# 	my $bound		= delete($args{bound});
+# 	my $triples		= delete($args{triples});
+# 	my $context		= $args{context};
+# 	my $variables	= $args{variables};
+# 	my $bridge		= $args{bridge};
+# 	
+# 	my @triples		= @{$triples};
+# 	my $triple		= shift(@triples);
+# 	my @triple		= @{ $triple };
+# 	
+# 	my $type		= shift(@triple);	# 'TRIPLE'
+# 	Carp::confess unless ($type eq 'TRIPLE');
+# 	
+# 	our $indent;
+# 	if (DEBUG) {
+# 		no warnings 'uninitialized';
+# 		_debug( "${indent}query_more: " . join(' ', map { (($bridge->is_node($_)) ? '<' . $bridge->as_string($_) . '>' : (reftype($_) eq 'ARRAY') ? $_->[1] : Dumper($_)) } @triple) . "\n" );
+# 		_debug( "${indent}-> with " . scalar(@triples) . " triples to go\n" );
+# 		_debug( "${indent}-> more: " . (($_->[0] =~ $KEYWORD_RE) ? "$1 block" : join(' ', map { $bridge->is_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
+# 	}
+# 	
+# 	my $vars	= 0;
+# 	my ($var, $method);
+# 	my (@vars, @methods);
+# 	
+# 	my @methodmap	= $bridge->statement_method_map;
+# 	for my $idx (0 .. 2) {
+# 		_debug( "looking at triple " . $methodmap[ $idx ] ) if (DEBUG);
+# 		my $data	= $triple[$idx];
+# 		if (ref($data) and reftype($data) eq 'ARRAY') {	# and $data->[0] eq 'VAR'
+# 			if ($data->[0] eq 'VAR' or $data->[0] eq 'BLANK') {
+# 				my $tmpvar	= ($data->[0] eq 'VAR') ? $data->[1] : '_' . $data->[1];
+# 				my $val		= $bound->{ $tmpvar };
+# 				if ($bridge->is_node($val)) {
+# 					_debug( "${indent}-> already have value for $tmpvar: " . $bridge->as_string( $val ) . "\n" ) if (DEBUG);
+# 					$triple[$idx]	= $val;
+# 				} else {
+# 					++$vars;
+# 					_debug( "${indent}-> found variable $tmpvar (we've seen $vars variables already)\n" ) if (DEBUG);
+# 					$triple[$idx]	= undef;
+# 					$vars[$idx]		= $tmpvar;
+# 					$methods[$idx]	= $methodmap[ $idx ];
+# 				}
+# 			}
+# 		}
+# 	}
+# 	
+# 	if (DEBUG) {
+# 		_debug( "${indent}getting: " . join(', ', grep defined, @vars) . "\n" );
+# 		_debug( 'query_more triple: ' . Dumper([map { blessed($_) ? $bridge->as_string($_) : (($_) ? Dumper($_) : 'undef') } (@triple, (($bridge->is_node($context)) ? $context : ()))]) );
+# 	}
+# 	
+# 	my @graph;
+# 	if (ref($context) and reftype($context) eq 'ARRAY' and ($context->[0] eq 'VAR')) {
+# 		# if we're in a GRAPH ?var {} block...
+# 		my $context_var	= $context->[1];
+# 		my $graph		= $bound->{ $context_var };
+# 		if ($graph) {
+# 			# and ?var has already been bound, get the bound value and pass that on
+# 			@graph	= $graph;
+# 		}
+# 	} elsif ($bridge->is_node( $context )) {
+# 		# if we're in a GRAPH <uri> {} block, just pass it on
+# 		@graph	= $context;
+# 	}
+# 	
+# 	my $stream;
+# 	my @streams;
+# 	
+# 	my $statments	= $self->get_statements( triple => \@triple, graph => \@graph, require_context => 1, %args );
+# 	if ($statments) {
+# 		my $sub	= sub {
+# 			my $result;
+# 			my ($stmt, $context_var);
+# 			LOOP: while (not $statments->finished) {
+# 				_debug_closure( $statments ) if (DEBUG);
+# 				$stmt	= $statments->current();
+# 				unless ($stmt) {
+# 					_debug( 'no more statements' ) if (DEBUG);
+# 					$statments	= undef;
+# 					return undef;
+# 				}
+# 				
+# 				if (ref($context) and reftype($context) eq 'ARRAY' and ($context->[0] eq 'VAR')) {
+# 					# if we're in a GRAPH ?var {} block, bind the current context to ?var
+# 					warn "Trying to get context of current statement..." if ($debug);
+# 					my $graph	= $statments->context;
+# 					if ($graph) {
+# 						$context_var				= $context->[1];
+# 						$bound->{ $context_var }	= $graph;
+# 						_debug( "Got context ($context_var) from iterator: " . $bridge->as_string( $graph ) ) if (DEBUG);
+# 					} else {
+# 						$statments->next;
+# 						next LOOP;
+# 						_debug( "No context returned by iterator." ) if (DEBUG);
+# 					}
+# 				}
+# 				last LOOP;
+# 			}
+# 			
+# 			$statments->next;
+# 			unless ($stmt) {
+# 				warn "returning undef because there isn't a statement" if (DEBUG);
+# 				return undef;
+# 			}
+# 			
+# 			if ($vars) {
+# 				my %private_bound;
+# 				foreach (0 .. $#vars) {
+# 					_debug( "looking at variable $_" ) if (DEBUG);
+# 					next unless defined($vars[$_]);
+# 					my $var		= $vars[ $_ ];
+# 					my $method	= $methods[ $_ ];
+# 					_debug( "${indent}-> got variable $var = " . $bridge->as_string( $stmt->$method() ) . "\n" ) if (DEBUG);
+# 					if (defined($private_bound{$var})) {
+# 						_debug( "${indent}-> uh oh. $var has been defined more than once.\n" ) if (DEBUG);
+# 						if ($bridge->as_string( $stmt->$method() ) eq $bridge->as_string( $private_bound{$var} )) {
+# 							_debug( "${indent}-> the two values match. problem avoided.\n" ) if (DEBUG);
+# 						} else {
+# 							_debug( "${indent}-> the two values don't match. this triple won't work.\n" ) if (DEBUG);
+# 							_debug( "${indent}-> the existing value is" . $bridge->as_string( $private_bound{$var} ) . "\n" ) if (DEBUG);
+# 							return ();
+# 						}
+# 					} else {
+# 						$private_bound{ $var }	= $stmt->$method();
+# 					}
+# 				}
+# 				@{ $bound }{ keys %private_bound }	= values %private_bound;
+# 			} else {
+# 				_debug( "${indent}-> triple with no variable. ignoring.\n" ) if (DEBUG);
+# 			}
+# 			
+# 			if (scalar(@triples)) {
+# 				if (DEBUG) {
+# 					_debug( "${indent}-> now for more triples...\n" );
+# 					_debug( "${indent}-> more: " . (($_->[0] =~ $KEYWORD_RE) ? "$1 block" : join(' ', map { $bridge->is_node($_) ? '<' . $bridge->as_string( $_ ) . '>' : $_->[1] } @{$_})) . "\n" ) for (@triples);
+# 					_debug( "${indent}-> " . Dumper(\@triples) );
+# 					_debug( 'adding a new stream for more triples' );
+# 					$indent	.= '  ';
+# 				}
+# 				unshift(@streams, $self->query_more( bound => { %{ $bound } }, triples => [@triples], variables => $variables, ($context ? (context => $context ) : ()), %args ) );
+# 			} else {
+# 				my @values	= map { $bound->{$_} } @$variables;
+# 				_debug( "${indent}-> no triples left: result: " . join(', ', map {$bridge->as_string($_)} grep defined, @values) . "\n" ) if (DEBUG);
+# 				$result	= {%$bound};
+# 			}
+# 			
+# 			foreach my $var (@vars) {
+# 				if (defined($var)) {
+# 					_debug( "deleting value for $var" ) if (DEBUG);
+# 					delete $bound->{ $var };
+# 				}
+# 			}
+# 			
+# 			if ($context_var) {
+# 				_debug( "deleting context value for $context_var" ) if (DEBUG);
+# 				delete $bound->{ $context_var };
+# 			}
+# 			
+# 			if ($result) {
+# 				if (DEBUG) {
+# 					local($Data::Dumper::Indent)	= 0;
+# 					_debug( 'found a result: ' . Dumper($result) ) if (DEBUG);
+# 				}
+# 				
+# #					warn "*** returning result ($result) to " . join(' ', caller());
+# 				return ($result);
+# 			} else {
+# 				_debug( 'no results yet...' ) if (DEBUG);
+# 				return ();
+# 			}
+# 		};
+# 		push(@streams, $sub);
+# 	}
+# 	
+# 	if (DEBUG) {
+# 		substr($indent, -2, 2)	= '';
+# 	}
+# 	
+# 	return RDF::Query::Stream->new( sub {
+# 		_debug( 'query_more closure with ' . scalar(@streams) . ' streams' ) if (DEBUG);
+# 		while (@streams) {
+# 			_debug( '-> fetching from stream ' . $streams[0] ) if (DEBUG);
+# 			_debug_closure( $streams[0] ) if (DEBUG);
+# 			
+# 			my @val	= $streams[0]->();
+# 			_debug( '-> ' . (@val ? 'got' : 'no') . ' value' ) if (DEBUG);
+# 			if (@val) {
+# 				_debug( '-> "' . $val[0] . '"', 1, 1) if (DEBUG);
+# 				if (defined $val[0]) {
+# 					return $val[0];
+# 				}
+# 			} else {
+# 				_debug( '-> no value returned from stream. using next stream.', 1) if (DEBUG);
+# 				next;
+# 			}
+# 			shift(@streams);
+# 		}
+# 
+# 		_debug( '-> no more streams.', 1) if (DEBUG);
+# 		return undef;
+# 	}, 'bindings', undef, bridge => $bridge );	
+# }
+
 
 =begin private
 
-=item C<union ( bound => \%bound, triples => \@triples )>
+=item C<query_more_union ( bound => \%bound, triples => \@triples )>
 
 Called by C<query_more()> to handle UNION queries.
 Calls C<query_more()> with each UNION branch, and returns an aggregated data stream.
@@ -1038,93 +1276,39 @@ Calls C<query_more()> with each UNION branch, and returns an aggregated data str
 
 =cut
 
-sub union {
+sub query_more_union {
 	my $self		= shift;
 	my %args	= @_;
 	
 	my $bound	= delete($args{bound});
 	my $triples	= delete($args{triples});
 	my $context	= $args{context};
+	my $bridge	= $args{bridge};
 	
-	my @triples	= @{$triples};
-	my $triple	= shift(@triples);
+	my ($triple)	= @{$triples};
 	
-	my $parsed		= $self->parsed;
 	my @streams;
-	foreach my $u_triples (@{ $triple }[1 .. $#{$triple}]) {
-		my $stream	= $self->query_more( bound => { %{ $bound } }, triples => [@{ $u_triples }, @triples], %args );
+	foreach my $u_triples ($triple->first, $triple->second) {
+		my $stream	= $self->query_more( bound => { %{ $bound } }, triples => [ $u_triples ], %args );
 		push(@streams, $stream);
 	}
-	return sub {
-		while (@streams) {
-			_debug_closure( $streams[0] );
-			my @val	= $streams[0]->();
-			if (@val) {
-				return $val[0] if defined($val[0]);
-			} else {
-				next;
-			}
-			shift(@streams);
-		}
-		return undef;
-	};	
+	
+	my $stream	= shift(@streams);
+	while (@streams) {
+		$stream	= $stream->concat( shift(@streams) );
+	}
+	
+	$stream	= swatch {
+		my $row	= $_;
+#		warn "[UNION] " . join(', ', map { join('=',$_,$bridge->as_string($row->{$_})) } (keys %$row)) . "\n";
+	} $stream;
+	
+	return $stream;
 }
-
-# =begin private
-# 
-# =item C<multi ( bound => \%bound, triples => \@triples )>
-# 
-# Called by C<query_more()> to handle multi-get queries (where multiple triples
-# have been combined into one functional unit). Returns by calling C<query_more()>
-# with any remaining triples.
-# 
-# =end private
-# 
-# =cut
-# 
-# sub multi {
-# 	my $self		= shift;
-# 	my %args	= @_;
-# 	
-# 	my $bound	= delete($args{bound});
-# 	my $triples	= delete($args{triples});
-# 	my $context	= $args{context};
-# 	
-# 	my @triples	= @{$triples};
-# 	my $multi	= shift(@triples);
-# 	
-# 	my $bridge	= $self->bridge;
-# 	my $stream	= $bridge->multi_get( triples => [ @{ $multi }[ 1 .. $#{ $multi } ] ] );
-# 	
-# 	my $closed	= 0;
-# 	my $more_stream;
-# 	my $multi_bindings; #	= $stream->next;
-# 	return sub {
-# 		while (1) {
-# 			if (not($more_stream)) {
-# 				$multi_bindings	= $stream->next;
-# 				if ($multi_bindings) {
-# 					$more_stream	= $self->query_more( bound => { %{ $bound }, %{ $multi_bindings } }, triples => [@triples], %args );
-# 				} else {
-# 					$closed	= 1;
-# 					undef $stream;
-# 				}
-# 			}
-# 			
-# 			return undef if ($closed);
-# 			my $value	= $more_stream->();
-# 			if ($value) {
-# 				return $value;
-# 			} else {
-# 				undef $more_stream;
-# 			}
-# 		}
-# 	};
-# }
 
 =begin private
 
-=item C<optional ( bound => \%bound, triples => \@triples )>
+=item C<query_more_optional ( bound => \%bound, triples => \@triples )>
 
 Called by C<query_more()> to handle OPTIONAL query patterns.
 Calls C<query_more()> with the OPTIONAL pattern, binding variables if the
@@ -1134,76 +1318,132 @@ pattern succeeds. Returns by calling C<query_more()> with any remaining triples.
 
 =cut
 
-sub optional {
-	my $self	= shift;
-	my %args	= @_;
-
+sub query_more_optional {
+	my $self		= shift;
+	my %args		= @_;
 	my $bound		= delete($args{bound});
 	my $triples		= delete($args{triples});
 	my $variables	= delete $args{variables};
 	my $context		= $args{context};
+	my $bridge		= $args{bridge};
 	
 	my @triples		= @{$triples};
 	my $triple		= shift(@triples);
 	
-	my $parsed		= $self->parsed;
+	my @triple			= @{ $triple };
+	my $data_triples	= $triple[1];
+	my $opt_triples		= $triple[2];
 	
-	my @triple		= @{ $triple };
-	my @opt_triples	= @{ $triple[1] };
+	my $dstream		= $self->query_more(
+			bound		=> $bound,
+			triples		=> [ $data_triples ],
+			%args
+		);
 	
-	my @known		= $self->all_variables;
-	my $ostream		= $self->query_more( bound => { %{ $bound } }, triples => [@opt_triples], variables => \@known, %args );
-	$ostream		= RDF::Query::Stream->new(
-					$ostream,
-					'bindings',
-					\@known,
-					bridge => $self->bridge
-				);
-	
-	if ($ostream->current) {
-		my $substream;
-		my $current;
-		my $stream	= sub {
-			my %local_bound	= %$bound;
-			until ($ostream->finished and not $ostream->current and not $substream) {
-				if ($substream) {
-					my $data	= $substream->();
-					return $data if (defined $data);
-					undef $substream;
+	my @names;
+	my @results;
+	while (my $rowa = $dstream->next) {
+# 		warn "****************\n";
+# 		warn "OUTER DATA:\n";
+# 		foreach my $key (keys %$rowa) {
+# 			warn "$key\t=> " . $bridge->as_string( $rowa->{ $key } ) . "\n";
+# 		}
+		
+# 		warn "OPTIONAL TRIPLES: " . Dumper($opt_triples);
+		my %obound	= (%$bound, %$rowa);
+		my $ostream	= smap {
+# 			warn "----------------\n";
+# 			warn "OPTIONAL DATA:\n";
+# 			foreach my $key (keys %$_) {
+# 				warn "$key\t=> " . $bridge->as_string( $_->{ $key } ) . "\n";
+# 			}
+			$_
+		} $self->query_more( bound => \%obound, triples => [$opt_triples], %args );
+#		warn 'OPTIONAL ALREADY BOUND: ' . Dumper(\%obound, $opt_triples);
+		
+		my $count	= 0;
+		while (my $rowb = $ostream->next) {
+			$count++;
+# 			warn "OPTIONAL JOINING: (" . join(', ', keys %$rowa) . ") JOIN (" . join(', ', keys %$rowb) . ")\n";
+			my %keysa	= map {$_=>1} (keys %$rowa);
+			my @shared	= grep { $keysa{ $_ } } (keys %$rowb);
+			@names		= @shared unless (@names);
+			my $ok		= 1;
+			foreach my $key (@shared) {
+				my $val_a	= $rowa->{ $key };
+				my $val_b	= $rowb->{ $key };
+				unless ($bridge->equals($val_a, $val_b)) {
+					warn "can't join because mismatch of $key (" . join(' <==> ', map {$bridge->as_string($_)} ($val_a, $val_b)) . ")";
+					$ok	= 0;
+					last;
 				}
-				
-				$current	= $ostream->current;
-				last unless ($current);
-				$ostream->next;
-				foreach my $i (0 .. $#known) {
-					my $name	= $known[ $i ];
-					my $value	= $current->{ $name };
-					if (defined $value) {
-						if (not exists $bound->{ $name }) {
-							$local_bound{ $name }	= $value;
-							_debug( "Setting $name = " . $value->as_string . "\n" );
-						} else {
-							_debug( "Existing value for $name = " . $bound->{ $name }->as_string . "\n" );
-						}
-					} else {
-	#						warn "$name wasn't defined\n";
-					}
-				}
-				$substream	= $self->query_more( bound => { %local_bound }, triples => [@triples], variables => $variables, %args );
 			}
 			
-			return undef;
-		};
-		return $stream;
-	} else {
-		return $self->query_more( bound => { %{ $bound } }, triples => [@triples], variables => $variables, %args );
+			if ($ok) {
+				my $row	= { %$rowa, %$rowb };
+# 				warn "JOINED:\n";
+# 				foreach my $key (keys %$row) {
+# 					warn "$key\t=> " . $bridge->as_string( $row->{ $key } ) . "\n";
+# 				}
+				push(@results, $row);
+			} else {
+				push(@results, $rowa);
+			}
+		}
+		
+		unless ($count) {
+#################### XXXXXXXXXXXXXXXXXXXXXXXXX								
+#			warn "[optional] didn't return any results. passing through outer result: " . Dumper($rowa);
+			push(@results, $rowa);
+		}
 	}
+	
+	my $stream	= RDF::Query::Stream->new( \@results, 'bindings', \@names );
+	$stream	= swatch {
+		my $row	= $_;
+#		warn "[OPTIONAL] " . join(', ', map { join('=',$_,$bridge->as_string($row->{$_})) } (keys %$row)) . "\n";
+	} $stream;
+	return $stream;
 }
 
 
 =begin private
 
-=item C<groupgraphpattern ( bound => \%bound, triples => \@triples )>
+=item C<query_more_bgp ( bound => \%bound, triples => \@triples, variables => \@variables, bridge => $bridge )>
+
+Called by C<query_more()> to handle BasicGraphPattern query patterns (groups of triples).
+Calls C<query_more()> with the BGP, which will in turn call C<query_more_triple> for each
+of the BGP's triples.
+
+=end private
+
+=cut
+
+sub query_more_bgp {
+	my $self		= shift;
+	my %args		= @_;
+	
+	my $bound		= { %{ delete($args{bound}) } };
+	my $triples		= delete($args{triples});
+	my $variables	= $args{variables};
+	my $bridge		= $args{bridge};
+	
+	my @triples	= @{$triples};
+	my $triple	= shift(@triples);
+	
+	my (undef, @bgp_triples)	= @{ $triple };
+	
+	my $stream	= $self->query_more( bound => $bound, triples => \@bgp_triples, variables => $variables, %args );
+	$stream	= swatch {
+		my $row	= $_;
+#		warn "[BGP] " . join(', ', map { join('=',$_,$bridge->as_string($row->{$_})) } (keys %$row)) . "\n";
+	} $stream;
+	return $stream;
+}
+
+=begin private
+
+=item C<query_more_ggp ( bound => \%bound, triples => \@triples )>
 
 Called by C<query_more()> to handle GroupGraphPattern query patterns (groups
 of triples surrounded by '{ }'). Calls C<query_more()> with the GGP.
@@ -1213,27 +1453,26 @@ Returns by calling C<query_more()> with any remaining triples.
 
 =cut
 
-sub groupgraphpattern {
+sub query_more_ggp {
 	my $self		= shift;
 	my %args		= @_;
 	
 	my $bound		= { %{ delete($args{bound}) } };
 	my $triples		= delete($args{triples});
 	my $variables	= $args{variables};
+	my $bridge		= $args{bridge};
 	
 	my @triples	= @{$triples};
 	my $triple	= shift(@triples);
-	
-	my $parsed		= $self->parsed;
 	
 	my (undef, $ggp_triples)	= @{ $triple };
 	my @ggp_triples	= @{ $ggp_triples };
 	
 	my $ggpstream	= $self->query_more( bound => $bound, triples => \@ggp_triples, variables => $variables, %args );
 	if (@triples) {
-		_debug( "with more triples to match." );
+		_debug( "with more triples to match." ) if (DEBUG);
 		my $stream;
-		return sub {
+		my $ret	= sub {
 			while ($ggpstream or $stream) {
 				if (ref($stream)) {
 					my $data	= $stream->();
@@ -1252,7 +1491,7 @@ sub groupgraphpattern {
 							my $value	= $data->{ $name };
 							if (defined $value) {
 								$bound->{ $name }	= $value;
-								_debug( "Setting $name from named graph = $value\n" );
+								_debug( "Setting $name from named graph = $value\n" ) if (DEBUG);
 							}
 						}
 						$stream	= $self->query_more( bound => $bound, triples => \@triples, variables => $variables );
@@ -1263,8 +1502,9 @@ sub groupgraphpattern {
 			}
 			return undef;
 		};
+		return RDF::Query::Stream->new( $ret, 'bindings', undef, bridge => $bridge );
 	} else {
-		_debug( "No more triples. Returning NAMED stream." );
+		_debug( "No more triples. Returning NAMED stream." ) if (DEBUG);
 		return $ggpstream;
 	}
 }
@@ -1272,7 +1512,7 @@ sub groupgraphpattern {
 
 =begin private
 
-=item C<named_graph ( bound => \%bound, triples => \@triples )>
+=item C<query_more_graph ( bound => \%bound, triples => \@triples )>
 
 Called by C<query_more()> to handle NAMED graph query patterns.
 Matches graph context (binding the graph to a variable if applicable).
@@ -1282,40 +1522,65 @@ Returns by calling C<query_more()> with any remaining triples.
 
 =cut
 
-sub named_graph {
+sub query_more_graph {
 	my $self		= shift;
 	my %args		= @_;
+
+	if ($args{context}) {
+		throw RDF::Query::Error::QueryPatternError ( -text => "Can't use nested named graphs" );
+	}
 	
 	my $bound		= { %{ delete($args{bound}) } };
 	my $triples		= delete($args{triples});
 	my $variables	= $args{variables};
+	my $bridge		= delete $args{bridge};
+	Carp::confess unless (blessed($bridge));	# XXXassert
 	
 	my @triples	= @{$triples};
 	my $triple	= shift(@triples);
 	
-	my $parsed		= $self->parsed;
+	my $context			= $triple->graph;
+	my $named_triples	= $triple->pattern;
 	
-	my (undef, $context, $named_triples)	= @{ $triple };
-	my @named_triples	= @{ $named_triples };
+	_debug( 'named triples: ' . Dumper($named_triples), 1 ) if (DEBUG);
 	
-	_debug( 'named triples: ' . Dumper(\@named_triples), 1 ) if (DEBUG);
-	my $nstream	= $self->query_more( bound => $bound, triples => \@named_triples, variables => $variables, context => $context );
 	
-	_debug( 'named stream: ' . $nstream, 1 );
-	_debug_closure( $nstream );
+	my $nstream		= RDF::Query::Stream->new();
+	foreach my $nmodel_data (values %{ $self->{named_models} }) {
+		my ($nbridge, $name)	= @{ $nmodel_data };
+		my $stream	= $self->query_more(
+								bound => $bound,
+								triples => [$named_triples],
+								variables => $variables,
+								context => $context,
+								bridge => $nbridge,
+								named_graph => 1
+							);
+		if (reftype($context) eq 'ARRAY' and $context->[0] eq 'VAR') {
+			$stream	= smap {
+				my $cvar	= $context->[1];
+				my $row	= $_;
+				return { %$row, $cvar => $name };
+			} $stream;
+		}
+		$nstream	= $nstream->concat( $stream );
+	}
 	
-	_debug( 'got named stream' );
+	_debug( 'named stream: ' . $nstream, 1 ) if (DEBUG);
+	_debug_closure( $nstream ) if (DEBUG);
+	
+	_debug( 'got named stream' ) if (DEBUG);
 	if (@triples) {
-		_debug( "with more triples to match." );
-		my $stream;
-		return sub {
-			while ($nstream or $stream) {
-				if (ref($stream)) {
-					my $data	= $stream->();
+		_debug( "with more triples to match." ) if (DEBUG);
+		my $_stream;
+		my $ret	= sub {
+			while ($nstream or $_stream) {
+				if (ref($_stream)) {
+					my $data	= $_stream->();
 					if ($data) {
 						return $data;
 					} else {
-						undef $stream;
+						undef $_stream;
 					}
 				}
 				
@@ -1327,10 +1592,15 @@ sub named_graph {
 							my $value	= $data->{ $name };
 							if (defined $value) {
 								$bound->{ $name }	= $value;
-								_debug( "Setting $name from named graph = $value\n" );
+								_debug( "Setting $name from named graph = $value\n" ) if (DEBUG);
 							}
 						}
-						$stream	= $self->query_more( bound => $bound, triples => \@triples, variables => $variables );
+						$_stream	= $self->query_more(
+									bound		=> $bound,
+									triples		=> \@triples,
+									variables	=> $variables,
+									bridge		=> $bridge,
+								);
 					} else {
 						undef $nstream;
 					}
@@ -1338,10 +1608,169 @@ sub named_graph {
 			}
 			return undef;
 		};
+		
+		my $stream	= RDF::Query::Stream->new( $ret, 'bindings', undef, bridge => $bridge );
+		$stream	= swatch {
+			my $row	= $_;
+#			warn "[GRAPH] " . join(', ', map { join('=',$_,$bridge->as_string($row->{$_})) } (keys %$row)) . "\n";
+		} $stream;
+		return $stream;
 	} else {
-		_debug( "No more triples. Returning NAMED stream." );
+		_debug( "No more triples. Returning NAMED stream." ) if (DEBUG);
 		return $nstream;
 	}
+}
+
+=begin private
+
+=item C<join_streams ( $stream1, $stream2, bridge => $bridge )>
+
+Performs a natural, nested loop join of the two streams, returning a new stream
+of joined results.
+
+=end private
+
+=cut
+
+sub join_streams {
+	my $self	= shift;
+	my $a		= shift;
+	my $b		= shift;
+	my %args	= @_;
+	my $bridge	= $args{bridge};
+	my $debug	= $args{debug};
+	
+	my @results;
+	my @data	= $b->get_all();
+	my @names;
+	while (my $rowa = $a->next) {
+		LOOP: foreach my $rowb (@data) {
+			warn "[--JOIN--] " . join(' ', map { my $row = $_; '{' . join(', ', map { join('=',$_,$bridge->as_string($row->{$_})) } (keys %$row)) . '}' } ($rowa, $rowb)) . "\n" if ($debug);
+#			warn "JOINING: (" . join(', ', keys %$rowa) . ") JOIN (" . join(', ', keys %$rowb) . ")\n";
+# 			warn "JOINING:\n";
+# 			foreach my $row ($rowa, $rowb) {
+# 				warn "------\n";
+# 				foreach my $key (keys %$row) {
+# 					warn "$key\t=> " . $bridge->as_string( $row->{ $key } ) . "\n";
+# 				}
+# 			}
+# 			warn "------\n";
+			my %keysa	= map {$_=>1} (keys %$rowa);
+			my @shared	= grep { $keysa{ $_ } } (keys %$rowb);
+			@names		= @shared unless (@names);
+			foreach my $key (@shared) {
+				my $val_a	= $rowa->{ $key };
+				my $val_b	= $rowb->{ $key };
+				unless ($bridge->equals($val_a, $val_b)) {
+					warn "can't join because mismatch of $key (" . join(' <==> ', map {$bridge->as_string($_)} ($val_a, $val_b)) . ")" if ($debug);
+					next LOOP;
+				}
+			}
+			
+			my $row	= { %$rowa, %$rowb };
+			if ($debug) {
+				warn "JOINED:\n";
+				foreach my $key (keys %$row) {
+					warn "$key\t=> " . $bridge->as_string( $row->{ $key } ) . "\n";
+				}
+			}
+			push(@results, $row);
+		}
+	}
+	return RDF::Query::Stream->new( \@results, 'bindings', \@names );
+}
+
+=begin private
+
+=item C<get_statements ( $subject, $predicate, $object [, $graph] )>
+
+Returns a RDF::Query::Stream iterator of statements matching the statement
+pattern (including an optional context).
+
+=end private
+
+=cut
+
+sub get_statements {
+	my $self			= shift;
+	my %args			= @_;
+	my $class			= ref($self);
+	
+	my ($s,$p,$o)		= @{ delete $args{ triple } };
+	my @c				= @{ (delete $args{ graph }) || [] };
+	my $req_context		= $args{ require_context };
+	my $named_graph		= $args{ named_graph };
+	my $bridge			= $args{ bridge };
+	
+#	warn "get_statements:\n";
+#	warn "-> " . (blessed($_) ? $bridge->as_string($_) : '') . "\n" for ($s,$p,$o);
+	my $stream			= $bridge->get_statements( $s, $p, $o, @c );
+#	$stream	= swatch { warn (blessed($_) ? $bridge->as_string($_) : '') } $stream;
+	
+	if (ref($p) and $bridge->is_resource($p) and $bridge->uri_value($p) =~ m<^http://www.w3.org/2006/09/time#(.*)>) {
+ 		my $pred	= $1;
+# 		warn "owl-time predicate: $pred\n";
+ 		if ($pred eq 'inside') {
+#			warn "-> " . (blessed($_) ? $bridge->as_string($_) : '') . "\n" for ($s,$p,$o);
+#			warn Dumper([$s,$p,$o]);
+ 			my $interval	= $s;
+ 			my $instant		= $o;
+ 			if ($bridge->is_node( $instant )) {
+ 				if (not defined($interval)) {
+#		 			warn "instant: " . $instant->as_string;
+# 					warn Data::Dumper->Dump([$interval, $instant], [qw(interval instant)]);
+ 					my ($dt)	= $self->_promote_to( $bridge, 'DateTime', $bridge->literal_as_array( $instant ) );
+ 					my $sparql	= sprintf( <<"END", ($dt) x 4 );
+ 						PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+ 						PREFIX t: <http://www.w3.org/2006/09/time#>
+ 						SELECT ?interval ?b ?e
+ 						WHERE {
+							{
+								?interval a t:Interval ;
+											t:begins ?b ; t:ends ?e .
+								FILTER( ?b <= "%s"^^xsd:dateTime && ?e > "%s"^^xsd:dateTime )
+							} UNION {
+								?interval a t:Interval ;
+											t:begins ?b .
+								OPTIONAL { ?interval t:ends ?e } .
+								FILTER( !BOUND(?e) ) .
+								FILTER( ?b <= "%s"^^xsd:dateTime )
+							} UNION {
+								?interval a t:Interval .
+								OPTIONAL { ?interval t:begins ?b } .
+								?interval t:ends ?e .
+								FILTER( !BOUND(?b) ) .
+								FILTER( ?e > "%s"^^xsd:dateTime )
+							} UNION {
+								?interval a t:Interval .
+								OPTIONAL { ?interval t:begins ?b } .
+								OPTIONAL { ?interval t:ends ?e } .
+								FILTER( !BOUND(?b) && !BOUND(?e) ) .
+							}
+ 						}
+END
+					my $query		= $class->new( $sparql, undef, undef, 'sparql' );
+					my $time_stream	= $query->execute( $bridge->model );
+					my $inside		= $bridge->new_resource('http://www.w3.org/2006/09/time#inside');
+					my $time_stmts	= smap {
+										return undef unless (reftype($_) eq 'ARRAY');
+										warn sprintf("found an interval that contains $dt: [%s, %s]", map {blessed($_) ? $bridge->as_string($_) : '' } (@{$_}[1,2]));
+										my $stmt	= $bridge->new_statement($_->[0],$inside,$instant);
+										$stmt
+									} $time_stream;
+					$stream			= $stream->concat( $time_stmts );
+ 				} else {
+ 					warn "time:inside called with known interval";
+ 				}
+ 			} else {
+ 				warn "cannot inference time:inside without a time instant";
+ 			}
+ 		}
+ 	}
+	
+	
+	return $stream;
+	
 }
 
 =begin private
@@ -1362,19 +1791,26 @@ concatenates with the QName local part.
 sub qualify_uri {
 	my $self	= shift;
 	my $data	= shift;
+	my $parsed	= $self->{parsed};
+	my $base	= $parsed->{base};
+	if ($base) {
+		$base	= $base->[1];
+	} else {
+		$base	= $self->{base};
+	}
+	
 	if (ref($data) and reftype($data) eq 'ARRAY') {
 		if ($data->[0] ne 'URI') {
 			$data	= ['URI',$data];
 		}
 	}
 	
-	my $parsed	= $self->{parsed};
 	my $uri;
 	if (ref($data)) {
 		if (reftype($data) eq 'ARRAY' and ref($data->[1])) {
 			my $prefix	= $data->[1][0];
 			unless (exists($parsed->{'namespaces'}{$data->[1][0]})) {
-				_debug( "No namespace defined for prefix '${prefix}'" );
+				_debug( "No namespace defined for prefix '${prefix}'" ) if (DEBUG);
 			}
 			my $ns	= $parsed->{'namespaces'}{$prefix};
 			$uri	= join('', $ns, $data->[1][1]);
@@ -1384,12 +1820,38 @@ sub qualify_uri {
 	} else {
 		$uri	= $data;
 	}
-	return $uri;
+	
+	if ($base) {
+		
+		### We have to work around the URI module not accepting IRIs. If there's
+		### Unicode in the IRI, pull it out, leaving behind a breadcrumb. Turn
+		### the URI into an absolute URI, and then replace the breadcrumbs with
+		### the Unicode.
+		my @uni;
+		my $count	= 0;
+		while ($uri =~ /([\x{00C0}-\x{00D6}\x{00D8}-\x{00F6}\x{00F8}-\x{02FF}\x{0370}-\x{037D}\x{037F}-\x{1FFF}\x{200C}-\x{200D}\x{2070}-\x{218F}\x{2C00}-\x{2FEF}\x{3001}-\x{D7FF}\x{F900}-\x{FDCF}\x{FDF0}-\x{FFFD}\x{10000}-\x{EFFFF}]+)/) {
+			my $text	= $1;
+			push(@uni, $text);
+			$uri		=~ s/$1/',____' . $count . '____,'/e;
+			$count++;
+		}
+		my $abs			= URI->new_abs( $uri, $base );
+		my $uri			= $abs->as_string;
+		while ($uri =~ /,____(\d+)____,/) {
+			my $num	= $1;
+			my $i	= index($uri, ",____${num}____,");
+			my $len	= 10 + length($num);
+			substr($uri, $i, $len)	= shift(@uni);
+		}
+		return $uri;
+	} else {
+		return $uri;
+	}
 }
 
 =begin private
 
-=item C<check_constraints ( \%bound, \@data )>
+=item C<_check_constraints ( \%bound, \@data )>
 
 Returns the value returned by evaluating the expression structures in C<@data>
 with the bound variables in C<%bound>.
@@ -1404,33 +1866,37 @@ no warnings 'numeric';
 my %dispatch	= (
 					VAR		=> sub {
 								my ($self, $values, $data) = @_;
-								my $value	= $values->{ $data->[0] };
+								my $name	= $data->[0];
+								my $value	= $values->{ $name };
 								return $value;
 							},
 					URI		=> sub { my ($self, $values, $data) = @_; return $data->[0] },
 					LITERAL	=> sub {
-								my ($self, $values, $data) = @_;
+								my $self	= shift;
+								my $values	= shift;
+								my $data	= shift;
+								my %args	= @_;
+								my $bridge	= $args{bridge};
+								
 								if (defined($data->[2])) {
-									my $uri		= $data->[2];
 									my $literal	= $data->[0];
-									local($self->{options}{net_filters})	= 0;
-									my $func	= $self->get_function( $self->qualify_uri( $uri ) );
-									if ($func) {
-										my $funcdata	= [ 'FUNCTION', $uri, [ 'LITERAL', $literal ] ];
-										return $self->check_constraints( $values, $funcdata );
-									} else {
-										warn "no conversion function found for " . $self->qualify_uri( $uri ) if ($debug);	# XXX
-									}
+									my $lang	= $data->[1];
+									my $uri		= $self->qualify_uri( $data->[2] );
+									return $bridge->new_literal( $literal, $lang, $uri );
 								}
 								return $data->[0];
 							},
 					'~~'	=> sub {
-								my ($self, $values, $data) = @_;
-								my $bridge	= $self->bridge;
-								my $text	= $self->check_constraints( $values, $data->[0] );
-								my $pattern	= $self->check_constraints( $values, $data->[1] );
+								my $self	= shift;
+								my $values	= shift;
+								my $data	= shift;
+								my %args	= @_;
+								my $bridge	= $args{bridge};
+								
+								my $text	= $self->_check_constraints( $values, $data->[0], %args );
+								my $pattern	= $self->_check_constraints( $values, $data->[1], %args );
 								if (scalar(@$data) == 3) {
-									my $flags	= $self->get_value( $self->check_constraints( $values, $data->[2] ) );
+									my $flags	= $self->get_value( $self->_check_constraints( $values, $data->[2], %args ), %args );
 									if ($flags !~ /^[smix]*$/) {
 										throw RDF::Query::Error::FilterEvaluationError ( -text => 'REGEX() called with unrecognized flags' );
 									}
@@ -1445,38 +1911,110 @@ my %dispatch	= (
 								return ($text =~ /$pattern/)
 							},
 					'=='	=> sub {
-								my ($self, $values, $data) = @_;
-								my @operands = map { $self->get_value( $self->check_constraints( $values, $_ ) ) } @{ $data };
-								my $eq	= ncmp($operands[0], $operands[1]) == 0;
+								my $self	= shift;
+								my $values	= shift;
+								my $data	= shift;
+								my %args	= @_;
+								my $bridge	= $args{bridge};
+								my @operands = map {
+									my $value	= $self->_check_constraints( $values, $_, %args );
+									my $v		= $self->get_value( $value, %args );
+									$v;
+								} @{ $data };
+								
+								my $eq;
+								if ($self->_one_isa( $bridge, 'DateTime', @operands )) {
+									@operands	= $self->_promote_to( $bridge, 'DateTime', @operands );
+									$eq			= (0 == DateTime->compare( $operands[0], $operands[1] ));
+								} else {
+									$eq		= eval { (0 == ncmp(@operands, $bridge)) };
+#									warn $@;
+								}
+# 								warn "EQ [$eq]: " . Dumper(\@operands);
 								return $eq;
 							},
-					'!='	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->get_value( $self->check_constraints( $values, $_ ) ) } @{ $data }; return ncmp($operands[0], $operands[1]) != 0 },
+					'!='	=> sub {
+								my $self	= shift;
+								my $values	= shift;
+								my $data	= shift;
+								my %args	= @_;
+								my $bridge	= $args{bridge};
+								my @operands = map { $self->get_value( $self->_check_constraints( $values, $_, %args ), %args ) } @{ $data };
+								if ($self->_one_isa( $bridge, 'DateTime', @operands )) {
+									@operands	= $self->_promote_to( $bridge, 'DateTime', @operands );
+								}
+								foreach my $node (@operands) {
+									next unless (ref($node));
+									unless ($self->_isa_known_node_type( $bridge, $node )) {
+										warn "not a known type in neq: " . Dumper($node) if ($debug);
+										return 0;
+									}
+								}
+								my $eq	= ncmp($operands[0], $operands[1], $bridge) != 0;
+								return $eq;
+							},
 					'<'		=> sub {
-								my ($self, $values, $data) = @_;
-								my @operands = map { $self->get_value( $self->check_constraints( $values, $_ ) ) } @{ $data };
-								return ncmp($operands[0], $operands[1]) == -1;
+								my $self	= shift;
+								my $values	= shift;
+								my $data	= shift;
+								my %args	= @_;
+								my $bridge	= $args{bridge};
+								my @operands = map { $self->_check_constraints( $values, $_, %args ) } @{ $data };
+								my $cmp		= ncmp($operands[0], $operands[1], $bridge);
+#								warn '-----------------------------';
+#								warn "LESS-THAN OP[0]: " . eval { $operands[0]->as_string };
+#								warn "LESS-THAN OP[1]: " . eval { $operands[1]->as_string };
+#								warn "LESS-THAN: $cmp\n";
+								return $cmp == -1;
 							},
 					'>'		=> sub {
-								my ($self, $values, $data) = @_;
-								my @operands = map { $self->get_value( $self->check_constraints( $values, $_ ) ) } @{ $data };
-								return ncmp($operands[0], $operands[1]) == 1;
+								my $self	= shift;
+								my $values	= shift;
+								my $data	= shift;
+								my %args	= @_;
+								my $bridge	= $args{bridge};
+								my @operands = map { $self->_check_constraints( $values, $_, %args ) } @{ $data };
+								return ncmp($operands[0], $operands[1], $bridge) == 1;
 							},
-					'<='	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->get_value( $self->check_constraints( $values, $_ ) ) } @{ $data }; return ncmp($operands[0], $operands[1]) != 1 },
-					'>='	=> sub { my ($self, $values, $data) = @_; my @operands = map { $self->get_value( $self->check_constraints( $values, $_ ) ) } @{ $data }; return ncmp($operands[0], $operands[1]) != -1 },
+					'<='	=> sub {
+								my $self	= shift;
+								my $values	= shift;
+								my $data	= shift;
+								my %args	= @_;
+								my $bridge	= $args{bridge};
+								my @operands = map { $self->_check_constraints( $values, $_, %args ) } @{ $data };
+								return ncmp($operands[0], $operands[1], $bridge) != 1
+							},
+					'>='	=> sub {
+								my $self	= shift;
+								my $values	= shift;
+								my $data	= shift;
+								my %args	= @_;
+								my $bridge	= $args{bridge};
+								my @operands = map { $self->_check_constraints( $values, $_, %args ) } @{ $data };
+								return ncmp($operands[0], $operands[1], $bridge) != -1
+							},
 					'&&'	=> sub {
-								my ($self, $values, $data) = @_;
+								my $self	= shift;
+								my $values	= shift;
+								my $data	= shift;
+								my %args	= @_;
+								my $bridge	= $args{bridge};
 								my @results;
 								foreach my $part (@{ $data }) {
 									my $error;
 									my $value;
 									try {
-										$value	= $functions{'sop:boolean'}->( $self, $self->check_constraints( $values, $part ) );
+										my $data	= $self->_check_constraints( $values, $part, %args );
+										$value		= $self->get_function('sop:boolean')->( $self, $bridge, $data );
 										push(@results, $value);
 									} catch RDF::Query::Error::FilterEvaluationError with {
 										$error	= shift;
 										push(@results, $error);
 									};
-									return 0 if (not $error and not $value);
+									if (not $error and not $value) {
+										return 0;
+									}
 								}
 								
 								if ($results[0] and $results[1]) {
@@ -1489,65 +2027,127 @@ my %dispatch	= (
 								}
 							},
 					'||'	=> sub {
-								my ($self, $values, $data) = @_;
+								my $self	= shift;
+								my $values	= shift;
+								my $data	= shift;
+								my %args	= @_;
+								my $bridge	= $args{bridge};
 								my $error;
+								my $bool	= 0;
 								foreach my $part (@{ $data }) {
+									undef $error;
 									my $value;
 									try {
-										$value	= $functions{'sop:boolean'}->( $self, $self->check_constraints( $values, $part ) );
+										my $data	= $self->_check_constraints( $values, $part, %args );
+										$value		= $self->get_function('sop:boolean')->( $self, $bridge, $data );
 									} catch RDF::Query::Error::FilterEvaluationError with {
 										$error	= shift;
 										$value	= 0;
 									};
 									
-									return 1 if ($value);
+# 									warn "OR [1]: " . Dumper($part);
+									if ($value) {
+										$bool	= 1;
+										last;
+									}
 								}
 								
 								if ($error) {
 									throw $error;
 								} else {
-									return 0;
+									return $bool;
 								}
 							},
-					'*'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $functions{'sop:numeric'}->( $self, $self->check_constraints( $values, $_ ) ) } @{ $data }; return $operands[0] * $operands[1] },
-					'/'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $functions{'sop:numeric'}->( $self, $self->check_constraints( $values, $_ ) ) } @{ $data }; return $operands[0] / $operands[1] },
-					'+'		=> sub { my ($self, $values, $data) = @_; my @operands = map { $functions{'sop:numeric'}->( $self, $self->check_constraints( $values, $_ ) ) } @{ $data }; return $operands[0] + $operands[1] },
+					'*'		=> sub {
+								my $self	= shift;
+								my $values	= shift;
+								my $data	= shift;
+								my %args	= @_;
+								my $bridge	= $args{bridge};
+								my @operands	= map { $self->_check_constraints( $values, $_, %args ) } @{ $data };
+								my @types		= map { $bridge->literal_datatype( $_ ) } @operands;
+								my @values		= map { $self->get_function('sop:numeric')->( $self, $bridge, $_ ) } @operands;
+								my $value		= $values[0] * $values[1];
+								my $type		= $self->_result_type( '*', @types );
+								return $bridge->new_literal($value, undef, $type);
+							},
+					'/'		=> sub {
+								my $self	= shift;
+								my $values	= shift;
+								my $data	= shift;
+								my %args	= @_;
+								my $bridge	= $args{bridge};
+								my @operands	= map { $self->_check_constraints( $values, $_, %args ) } @{ $data };
+								my @types		= map { $bridge->literal_datatype( $_ ) } @operands;
+								my @values		= map { $self->get_function('sop:numeric')->( $self, $bridge, $_ ) } @operands;
+								my $value		= $values[0] / $values[1];
+								my $type		= $self->_result_type( '/', @types );
+								return $bridge->new_literal($value, undef, $type);
+							},
+					'+'		=> sub {
+								my $self	= shift;
+								my $values	= shift;
+								my $data	= shift;
+								my %args	= @_;
+								my $bridge	= $args{bridge};
+								my @operands	= map { $self->_check_constraints( $values, $_, %args ) } @{ $data };
+								my @types		= map { $bridge->literal_datatype( $_ ) } @operands;
+								my @values		= map { $self->get_function('sop:numeric')->( $self, $bridge, $_ ) } @operands;
+								my $value		= $values[0] + $values[1];
+								my $type		= $self->_result_type( '+', @types );
+								return $bridge->new_literal($value, undef, $type);
+							},
 					'-'		=> sub {
-								my ($self, $values, $data) = @_;
-								my @operands	= map { $functions{'sop:numeric'}->( $self, $self->check_constraints( $values, $_ ) ) } @{ $data };
-								if (1 == @operands) {
-									return -1 * $operands[0];
-								} else {
-									return $operands[0] - $operands[1]
-								}
+								my $self	= shift;
+								my $values	= shift;
+								my $data	= shift;
+								my %args	= @_;
+								my $bridge	= $args{bridge};
+								my @operands	= map { $self->_check_constraints( $values, $_, %args ) } @{ $data };
+								my @types		= map { $bridge->literal_datatype( $_ ) } @operands;
+								my @values		= map { $self->get_function('sop:numeric')->( $self, $bridge, $_ ) } @operands;
+								my $value		= (1 == @operands) ? (-1 * $values[0]) : ($values[0] - $values[1]);
+								my $type		= $self->_result_type( '-', @types );
+								return $bridge->new_literal($value, undef, $type);
 							},
 					'!'		=> sub {
-								my ($self, $values, $data) = @_;
-								my $value	= $self->check_constraints( $values, $data->[0] );
+								my $self	= shift;
+								my $values	= shift;
+								my $data	= shift;
+								my %args	= @_;
+								my $bridge	= $args{bridge};
+								my $value	= $self->_check_constraints( $values, $data->[0], %args );
 								if (defined $value) {
-									return not $functions{'sop:boolean'}->( $self, $value );
+									my $bool	= $self->get_function('sop:boolean')->( $self, $bridge, $value );
+									return (not $bool) ? $self->_true( $bridge ) : $self->_false( $bridge );
 								} else {
 									throw RDF::Query::Error::TypeError ( -text => 'Cannot negate an undefined value' );
 								}
 							},
 					'FUNCTION'	=> sub {
 						our %functions;
-						my ($self, $values, $data) = @_;
+						my $self	= shift;
+						my $values	= shift;
+						my $data	= shift;
+						my %args	= @_;
+						my $bridge	= $args{bridge};
 						my $uri		= $self->qualify_uri( $data->[0][1] );
-						my $func	= $self->get_function( $uri );
-						if ($func) {
+						my $func	= $self->get_function( $uri, %args );
+						if (ref($func) and reftype($func) eq 'CODE') {
+							my $value;
 							$self->{'values'}	= $values;
 							my @args	= map {
 												($_->[0] eq 'VAR')
 													? $values->{ $_->[1] }
-													: $self->check_constraints( $values, $_ )
+													: $self->_check_constraints( $values, $_, %args )
 											} @{ $data }[1..$#{ $data }];
-							my $value	= $func->(
-											$self,
-											@args
-										);
+							$value	= $func->(
+										$self,
+										$bridge,
+										@args
+									);
 							{ no warnings 'uninitialized';
-								_debug( "function <$uri> -> $value" );
+								_debug( "function <$uri> -> $value" ) if (DEBUG);
 							}
 							return $value;
 						} else {
@@ -1557,33 +2157,180 @@ my %dispatch	= (
 						}
 					},
 				);
-sub check_constraints {
+sub _check_constraints {
 	my $self	= shift;
 	my $values	= shift;
 	my $data	= shift;
+	my %args	= @_;
+	Carp::confess unless ($args{bridge});	# XXXassert
 	
-	_debug( 'check_constraints: ' . Dumper($data), 2 ) if (DEBUG);
+	_debug( '_check_constraints: ' . Dumper($data), 2 ) if (DEBUG);
 	return 1 unless scalar(@$data);
 	my $op		= $data->[0];
 	my $code	= $dispatch{ $op };
 	
 	if ($code) {
 #		local($Data::Dumper::Indent)	= 0;
-		my $result;
-		try {
-			$result	= $code->( $self, $values, [ @{$data}[1..$#{$data}] ] );
-		} catch RDF::Query::Error::FilterEvaluationError with {
-			$result	= undef;
-		} catch RDF::Query::Error::TypeError with {
-			$result	= undef;
-		};
+		my $result	= $code->( $self, $values, [ @{$data}[1..$#{$data}] ], %args );
 		_debug( "OP: $op -> " . Dumper($data), 2 ) if (DEBUG);
-#		warn "RESULT: " . $result . "\n\n";
 		return $result;
 	} else {
 		confess "OPERATOR $op NOT IMPLEMENTED!";
 	}
 }
+}
+
+=begin private
+
+=item C<check_constraints ( \%bound, \@data )>
+
+Returns the value returned by evaluating the expression structures in C<@data>
+with the bound variables in C<%bound>. Catches any evaluation exceptions,
+returning undef if an error is raised.
+
+=end private
+
+=cut
+
+sub check_constraints {
+	my $self	= shift;
+	my $values	= shift;
+	my $data	= shift;
+	my %args	= @_;
+	
+	my $result;
+	try {
+		$result	= $self->_check_constraints( $values, $data, %args );
+	} catch RDF::Query::Error::FilterEvaluationError with {
+		my $error	= shift;
+		warn "FilterEvaluationError: $error\n" if ($debug);
+		$result	= undef;
+	} catch RDF::Query::Error::TypeError with {
+		my $error	= shift;
+		warn "TypeError: $error\n" if ($debug);
+		$result	= undef;
+	} except {
+		my $error	= shift;
+		warn "Error: $error\n" if ($debug);
+	};
+	return $result;
+}
+
+
+{
+my $xsd				= 'http://www.w3.org/2001/XMLSchema#';
+my $integerTypes	= qr<^http://www.w3.org/2001/XMLSchema#(integer|non(Positive|Negative)Integer|(positive|negative)Integer|long|int|short|byte|unsigned(Long|Int|Short|Byte))>;
+my @typeOrder		= qw(double float decimal integer);
+sub _result_type {
+	my $self	= shift;
+	my $op		= shift;
+	my @data	= @_;
+	no warnings 'uninitialized';
+	return "${xsd}integer" if ($data[0] =~ $integerTypes and $data[1] =~ $integerTypes);
+	foreach my $t (@typeOrder) {
+		no warnings 'uninitialized';
+		return "${xsd}${t}" if ($data[0] =~ /$t/i or $data[1] =~ /$t/i);
+	}
+}
+}
+
+sub _true {
+	my $self	= shift;
+	my $bridge	= shift || $self->bridge;
+	return $bridge->new_literal('true', undef, 'http://www.w3.org/2001/XMLSchema#boolean');
+}
+
+sub _false {
+	my $self	= shift;
+	my $bridge	= shift || $self->bridge;
+	return $bridge->new_literal('false', undef, 'http://www.w3.org/2001/XMLSchema#boolean');
+}
+
+sub _isa_known_datatype {
+	my $self	= shift;
+	my $type	= shift;
+	no warnings 'uninitialized';
+	return 1 if ($type =~ m<^http://www.w3.org/2001/XMLSchema#(boolean|double|float|decimal|integer|dateTime|string)$>);
+	return 0;
+}
+
+sub _isa_known_node_type {
+	my $self	= shift;
+	my $bridge	= shift;
+	my $data	= shift;
+	
+	return 0 unless (ref($data));
+	return 1 if (blessed($_) and $_->isa( 'DateTime' ));
+	return 1 if (blessed($_) and $bridge->is_resource($_));
+	if (blessed($data) and $bridge->is_literal($data)) {
+		my $type	= $bridge->literal_datatype( $data );
+		if ($type) {
+			return $self->_isa_known_datatype( $type );
+		} else {
+			return 1;
+		}
+	}
+	
+	if (reftype($data) eq 'ARRAY') {
+		if ($data->[0] eq 'LITERAL') {
+			if ($data->[3]) {
+				my $type	= $data->[3];
+				return $self->_isa_known_datatype( $type );
+			} else {
+				return 1;
+			}
+		} else {
+			if ($data->[2]) {
+				my $type	= $data->[2];
+				return 1 if ($type =~ m<^http://www.w3.org/2001/XMLSchema#(boolean|double|float|decimal|integer|dateTime|string)$>);
+				return 0;
+			} else {
+				return 1;
+			}
+		}
+	} else {
+		return 0;
+	}
+}
+
+sub _one_isa {
+	my $self	= shift;
+	my $bridge	= shift;
+	my $type	= shift;
+	my $a		= shift;
+	my $b		= shift;
+#	warn Data::Dumper->Dump([$a,$b], [qw(a b)]);
+	for ($a, $b) {
+		return 1 if (blessed($_) and $_->isa( $type ));
+		return 1 if (blessed($_) and reftype($_) eq 'ARRAY' and $_->[0] eq $type);
+		if ($type eq 'DateTime') {
+			return 1 if (blessed($_) and $bridge->is_literal($_) and $bridge->literal_datatype($_) eq 'http://www.w3.org/2001/XMLSchema#dateTime');
+			no warnings 'uninitialized';
+			if (reftype($_) eq 'ARRAY') {
+				return 1 if ($_->[2] eq 'http://www.w3.org/2001/XMLSchema#dateTime');
+			}
+		}
+	}
+	return 0;
+}
+
+sub _promote_to {
+	my $self	= shift;
+	my $bridge	= shift;
+	Carp::confess unless (blessed($bridge));	# XXXassert
+	
+	my $type	= shift;
+	my @objects	= @_;
+	if ($type eq 'DateTime') {
+		@objects	= map {
+						(blessed($_) and $_->isa($type))
+							? $_
+							: (reftype($_) eq 'ARRAY' and $_->[0] eq 'LITERAL')
+								? $self->call_function( $bridge, {}, 'http://www.w3.org/2001/XMLSchema#dateTime', $_ )
+								: $self->call_function( $bridge, {}, 'http://www.w3.org/2001/XMLSchema#dateTime', [ 'LITERAL', @$_ ] );
+					} @objects;
+	}
+	return @objects;
 }
 
 =begin private
@@ -1600,7 +2347,10 @@ for the specified model-specific node object.
 sub get_value {
 	my $self	= shift;
 	my $value	= shift;
-	my $bridge	= $self->bridge;
+	my %args	= @_;
+	my $bridge	= $args{bridge};
+	Carp::confess unless ($bridge);	# XXXassert
+	
 	if (ref($value) and $value->isa('DateTime')) {
 		return $value;
 		return $self->{dateparser}->format_datetime($value);
@@ -1643,7 +2393,7 @@ sub add_function {
 
 =begin private
 
-=item C<get_function ( $uri )>
+=item C<get_function ( $uri, %args )>
 
 If C<$uri> is associated with a query function, returns a CODE reference
 to the function. Otherwise returns C<undef>.
@@ -1655,6 +2405,7 @@ to the function. Otherwise returns C<undef>.
 sub get_function {
 	my $self	= shift;
 	my $uri		= shift;
+	my %args	= @_;
 	warn "trying to get function from $uri" if ($debug);
 	
 	my $func	= $self->{'functions'}{$uri}
@@ -1662,9 +2413,31 @@ sub get_function {
 	if ($func) {
 		return $func;
 	} elsif ($self->{options}{net_filters}) {
-		return $self->net_filter_function( $uri );
+		return $self->net_filter_function( $uri, %args );
 	}
 	return;
+}
+
+
+=begin private
+
+=item C<< call_function ( $bridge, $bound, $uri, @args ) >>
+
+If C<$uri> is associated with a query function, calls the function with the supplied arguments.
+
+=end private
+
+=cut
+
+sub call_function {
+	my $self	= shift;
+	my $bridge	= shift;
+	my $bound	= shift;
+	my $uri		= shift;
+	warn "trying to get function from $uri" if (DEBUG);
+	
+	my $filter			= [ 'FUNCTION', ['URI', $uri], @_ ];
+	return $self->check_constraints( $bound, $filter, bridge => $bridge );
 }
 
 
@@ -1682,6 +2455,7 @@ A code reference is returned only if a trusted signature is found.
 sub net_filter_function {
 	my $self	= shift;
 	my $uri		= shift;
+	my %args	= @_;
 	warn "fetching $uri\n" if ($debug);
 	
 	my $bridge	= $self->new_bridge();
@@ -1705,9 +2479,9 @@ sub net_filter_function {
 		my $impl	= $bridge->uri_value( $obj );
 	};
 	
-	my $resp	= URI::Fetch->fetch( $impl ) or die URI::Fetch->errstr;
+	my $resp	= $self->{useragent}->get( $impl );
 	unless ($resp->is_success) {
-		warn "No content available from $uri";
+		warn "No content available from $uri: " . $resp->status_line;
 		return;
 	}
 	my $content	= $resp->content;
@@ -1721,10 +2495,10 @@ sub net_filter_function {
 					: File::Spec->catfile($ENV{HOME}, '.gnupg', 'pubring.gpg');
 		$gpg->gpgopts("--lock-multiple --keyring " . $keyring);
 		
-		my $sigresp	= URI::Fetch->fetch( "${impl}.asc" );
-		if (not $sigresp) {
-			throw RDF::Query::Error::ExecutionError -text => "Required signature not found: ${impl}.asc\n";
-		} elsif ($sigresp->is_success) {
+		my $sigresp	= $self->{useragent}->get( "${impl}.asc" );
+#		if (not $sigresp) {
+#			throw RDF::Query::Error::ExecutionError -text => "Required signature not found: ${impl}.asc\n";
+		if ($sigresp->is_success) {
 			my $sig		= $sigresp->content;
 			my $ok	= $self->_is_trusted( $gpg, $content, $sig, $self->{options}{trusted_keys} );
 			unless ($ok) {
@@ -1736,12 +2510,13 @@ sub net_filter_function {
 		}
 	}
 
-	my ($rt, $cx)	= $self->new_javascript_engine();
+	my ($rt, $cx)	= $self->new_javascript_engine(%args);
 	my $r		= $cx->eval( $content );
 	
 #	die "Requested function URL does not match the function's URI" unless ($meta->{uri} eq $url);
 	return sub {
 		my $query	= shift;
+		my $bridge	= shift;
 		warn "Calling javascript function $func with: " . Dumper(\@_) if ($debug);
 		my $value	= $cx->call( $func, @_ );
 		warn "--> $value\n" if ($debug);
@@ -1786,17 +2561,21 @@ functions.
 
 sub new_javascript_engine {
 	my $self	= shift;
+	my %args	= @_;
+	my $bridge	= $args{bridge};
+	
 	my $rt		= JavaScript::Runtime->new();
 	my $cx		= $rt->create_context();
-	my $bridge	= $self->bridge;
 	my $meta	= $bridge->meta;
 	$cx->bind_function( 'warn' => sub { warn @_ if ($debug || $js_debug) } );
 	$cx->bind_function( '_warn' => sub { warn @_ } );
 	$cx->bind_function( 'makeTerm' => sub {
 		my $term	= shift;
+		my $lang	= shift;
+		my $dt		= shift;
 #		warn 'makeTerm: ' . Dumper($term);
 		if (not blessed($term)) {
-			my $node	= $bridge->new_literal( $term );
+			my $node	= $bridge->new_literal( $term, $lang, $dt );
 			return $node;
 		} else {
 			return $term;
@@ -1804,7 +2583,7 @@ sub new_javascript_engine {
 	} );
 	
 	my $toString	= sub {
-		my $string	= $bridge->as_string( @_ ) . '';
+		my $string	= $bridge->literal_value( @_ ) . '';
 		return $string;
 	};
 	
@@ -1960,15 +2739,41 @@ General-purpose sorting function for both numbers and strings.
 
 =cut
 
-sub ncmp ($$) {
-	my ($a, $b)	= @_;
-#	for ($a, $b) {
-#		throw RDF::Query::Error::FilterEvaluationError ( -text => 'Cannot sort undefined values' ) unless defined($_);
-#	}
+sub ncmp ($$;$) {
+	my ($a, $b, $bridge)	= @_;
+	for ($a, $b) {
+		throw RDF::Query::Error::FilterEvaluationError ( -text => 'Cannot sort undefined values' ) unless defined($_);
+	}
+	my @node_type	= map {
+		my $node	= $_;
+		my $type;
+		if (blessed($node) and not $node->isa('DateTime')) {
+			if ($bridge->is_blank( $node )) {
+				$type	= 'BLANK' ;
+			} elsif ($bridge->is_resource( $node )) {
+				$type	= 'URI';
+			} elsif ($bridge->is_literal( $node )) {
+				$type	= 'LITERAL';
+			} else {
+				$type	= undef;
+			}
+		} elsif (ref($node) and reftype($node) eq 'ARRAY' and $node->[0] =~ /^[A-Z]+$/) {
+			$type	= 'LITERAL';
+		} else {
+			$type	= 'LITERAL';
+		}
+		$type;
+	} ($a, $b);
+	
+	if ($node_type[0] ne $node_type[1]) {
+		throw RDF::Query::Error::FilterEvaluationError ( -text => 'Cannot compare values of different types' );
+	}
 	
 	my $get_value	= sub {
 		my $node	= shift;
-		if (ref($node) and reftype($node) eq 'ARRAY') {
+		if (blessed($node) and not $node->isa('DateTime')) {
+			return $bridge->literal_value( $node );
+		} elsif (ref($node) and reftype($node) eq 'ARRAY') {
 			return $node->[0];
 		} else {
 			return $node;
@@ -1977,20 +2782,68 @@ sub ncmp ($$) {
 	
 	my $get_type	= sub {
 		my $node	= shift;
-		if (ref($node) and reftype($node) eq 'ARRAY') {
+		if (blessed($node) and not $node->isa('DateTime')) {
+			return $bridge->literal_datatype( $node );
+		} elsif (ref($node) and reftype($node) eq 'ARRAY') {
 			return $node->[2];
 		} else {
-			return;
+			return undef;
 		}
 	};
 	
+	my $get_lang	= sub {
+		my $node	= shift;
+		if (blessed($node) and not $node->isa('DateTime')) {
+			return $bridge->literal_value_language( $node );
+		} elsif (ref($node) and reftype($node) eq 'ARRAY') {
+			return $node->[1];
+		} else {
+			return undef;
+		}
+	};
+	
+	my @values	= map { $get_value->( $_ ) } ($a, $b);
+	my @types	= map { $get_type->( $_ ) } ($a, $b);
+	my @langs	= map { $get_lang->( $_ ) } ($a, $b);
+	my @numeric	= map { is_numeric_type($_) } @types;
+#	warn Dumper(\@values, \@types, \@langs, \@numeric);	# XXX
+	
+	no warnings 'numeric';
 	no warnings 'uninitialized';
-	my $numeric	= sub { my $val = $get_value->($_[0]); return (blessed($val)) ? $val->isa('DateTime') : (is_numeric_type($get_type->($_[0])) or looks_like_number($val)); };
-	my $num_cmp	= ($numeric->($a) and $numeric->($b));
-	my $cmp		= ($num_cmp)
-				? ($get_value->($a) <=> $get_value->($b))
-				: ($get_value->($a) cmp $get_value->($b));
-	return $cmp;
+	my $num_cmp		= ($numeric[0] and $numeric[1]);
+	my $lang_cmp	= ($langs[0] or $langs[1]);
+	
+	if ($num_cmp) {
+#		warn "num cmp";
+		for (@values) {
+			unless (looks_like_number($_)) {
+				throw RDF::Query::Error::FilterEvaluationError ( -text => "Not a numeric literal: '$_'" );
+			}
+		}
+		return ($values[0] <=> $values[1]);
+	} elsif ($lang_cmp) {
+#		warn "lang cmp";
+		return (lc($langs[0]) cmp lc($langs[1])) if (lc($langs[0]) ne lc($langs[1]));
+		my $av	= $values[0];
+		my $bv	= $values[1];
+		return ($values[0] cmp $values[1]);
+	} else {
+		if (RDF::Query->_isa_known_datatype($types[0]) xor RDF::Query->_isa_known_datatype($types[1])) {
+			if ($types[0] eq $types[1] and $values[0] eq $values[1]) {
+				return 0;
+			} else {
+				throw RDF::Query::Error::FilterEvaluationError ( -text => 'Cannot compare values of unknown types' );
+			}
+		}
+		if (defined($types[0]) or defined($types[1])) {
+			no warnings 'uninitialized';
+			if ($types[0] ne $types[1]) {
+				throw RDF::Query::Error::FilterEvaluationError ( -text => 'Cannot compare values of unknown types' );
+			}
+		}
+#		warn "plain cmp";
+		return ($values[0] cmp $values[1]);
+	}
 }
 
 =begin private
@@ -2006,7 +2859,7 @@ This includes XSD numeric, double and integer types.
 
 sub is_numeric_type {
 	my $type	= shift || '';
-	return $type =~ m<^http://www.w3.org/2001/XMLSchema#(numeric|double|integer)>;
+	return ($type =~ m<^http://www.w3.org/2001/XMLSchema#(integer|decimal|float|double|numeric|non(Positive|Negative)Integer|(positive|negative)Integer|long|int|short|byte|unsigned(Long|Int|Short|Byte))>) ? 1 : 0;
 }
 
 =begin private
@@ -2040,17 +2893,17 @@ sub sort_rows {
 		_debug( 'sort_rows column map: ' . Dumper(\%colmap) ) if (DEBUG);
 	}
 	
+	Carp::confess unless ($nodes);	# XXXassert
+	
 	if ($unique) {
 		my %seen;
 		my $old	= $nodes;
-		$nodes	= sub {
-			while (my $row = $old->()) {
-				no warnings 'uninitialized';
-				my $key	= join($;, map {$bridge->as_string( $_ )} map { $row->{$_} } @variables);
-				next if $seen{ $key }++;
-				return $row;
-			}
-		};
+		$nodes	= sgrep {
+			my $row	= $_;
+			no warnings 'uninitialized';
+			my $key	= join($;, map {$bridge->as_string( $_ )} map { $row->{$_} } @variables);
+			return (not $seen{ $key }++);
+		} $nodes;
 	}
 	
 	if ($orderby) {
@@ -2064,7 +2917,7 @@ sub sort_rows {
 		
 		my $col				= $data;
 		my $colmap_value	= $colmap{$col};
-		_debug( "ordering by $col" );
+		_debug( "ordering by $col" ) if (DEBUG);
 		
 		my @nodes;
 		while (my $node = $nodes->()) {
@@ -2079,33 +2932,31 @@ sub sort_rows {
 					my %data	= %$node;
 #					my %data	= map { $_ => $node->[ $colmap{$_} ] } (keys %colmap);
 #					warn "data: " . Dumper(\%data, $data);
-					my $result	= $self->check_constraints( \%data, $data );
-					my $value	= $self->get_value( $result );
+					my $result	= $self->check_constraints( \%data, $data, bridge => $bridge );
+					my $value	= $self->get_value( $result, bridge => $bridge );
 					[ $node, $value ]
 				} @nodes;
 		
-		@nodes	= sort { ncmp($a->[1], $b->[1]) } @nodes;
-						
+		@nodes	= sort {
+					my $val	= eval { ncmp($a->[1],$b->[1]) } || 0;
+				} @nodes;
 		@nodes	= reverse @nodes if ($dir eq 'DESC');
 		
 		@nodes	= map { $_->[0] } @nodes;
-		$nodes	= sub {
-			my $row	= shift(@nodes);
-			return $row;
-		};
+
+
+		my $type	= $nodes->type;
+		my $names	= [$nodes->binding_names];
+		my $args	= $nodes->_args;
+		$nodes		= RDF::Query::Stream->new( sub { shift(@nodes) }, $type, $names, %$args );
 	}
 	
 	if ($offset) {
 		$nodes->() while ($offset--);
 	}
 	
-	if ($limit) {
-		my $old	= $nodes;
-		$nodes	= sub {
-			return undef unless ($limit);
-			$limit--;
-			return $old->();
-		};
+	if (defined($limit)) {
+		$nodes	= sgrep { if ($limit > 0) { $limit--; 1 } else { 0 } } $nodes;
 	}
 	
 	return $nodes;
@@ -2127,7 +2978,40 @@ sub parse_url {
 	my $named	= shift;
 	my $bridge	= $self->bridge;
 	
-	$bridge->add_uri( $url, $named );
+	if ($named) {
+		my $class	= ref($self->bridge) || $self->loadable_bridge_class;
+		my $bridge	= $class->new();
+		$bridge->add_uri( $url, $named );
+		$self->{ named_models }{ $url }	= [$bridge, $bridge->new_resource($url)];
+	} else {
+		$bridge->add_uri( $url );
+	}
+}
+
+=begin private
+
+=item C<parse_string ( $string, $name )>
+
+Parse the RDF in $string into the RDF store.
+If $name is TRUE, associate all parsed triples with a named graph.
+
+=end private
+
+=cut
+sub parse_string {
+	my $self	= shift;
+	my $string	= shift;
+	my $name	= shift;
+	my $bridge	= $self->bridge;
+	
+	if ($name) {
+		my $class	= ref($self->bridge) || $self->loadable_bridge_class;
+		my $bridge	= $class->new();
+		$bridge->add_string( $string, $name, $name );
+		$self->{ named_models }{ $name }	= [$bridge, $bridge->new_resource($name)];
+	} else {
+		$bridge->add_string( $string );
+	}
 }
 
 =begin private
@@ -2177,6 +3061,21 @@ sub parsed {
 		$self->{parsed}	= shift;
 	}
 	return $self->{parsed};
+}
+
+=item C<bridge ()>
+
+Returns the model bridge of the default graph.
+
+=cut
+
+sub bridge {
+	Carp::confess if ($::NO_BRIDGE);
+	my $self	= shift;
+	if (@_) {
+		$self->{bridge}	= shift;
+	}
+	return $self->{bridge};
 }
 
 =item C<error ()>
@@ -2299,6 +3198,13 @@ sub AUTOLOAD {
 			my $class       = ref($self);
 			return $self->{ $method };
 		};
+		
+		### PROFILING ###
+		if (PROF) {
+			wrap $AUTOLOAD,
+				pre		=> sub { _PROFILE(1,$AUTOLOAD) },
+				post	=> sub { _PROFILE(0,$AUTOLOAD) };
+		}
 		goto &$method;
 	} else {
 		croak qq[Can't locate object method "$method" via package $class];
@@ -2306,452 +3212,14 @@ sub AUTOLOAD {
 }
 
 
-our %functions;
-
-### XSD CASTING FUNCTIONS
-
-$functions{"http://www.w3.org/2001/XMLSchema#integer"}	= sub {
-	my $query	= shift;
-	my $node	= shift;
-	my $bridge	= $query->bridge;
-	if ($bridge->is_literal($node)) {
-		my $value	= $bridge->literal_value( $node );
-		return int($value);
-	} elsif (looks_like_number($node)) {
-		return int($node);
-	} else {
-		return 0;
-	}
-};
-
-$functions{"http://www.w3.org/2001/XMLSchema#boolean"}	= sub {
-	my $query	= shift;
-	my $node	= shift;
-	return 1 if ($node eq 'true');
-	return 0 if ($node eq 'false');
-	throw RDF::Query::Error::FilterEvaluationError ( -text => "'$node' is not a boolean type (true or false)" );
-};
-
-$functions{"sop:boolean"}	= sub {
-	my $query	= shift;
-	my $node	= shift;
-	return 0 if not defined($node);
-	
-	if (ref($node)) {
-		my $bridge	= $query->bridge;
-		if ($bridge->is_literal($node)) {
-			my $value	= $bridge->literal_value( $node );
-			my $type	= $bridge->literal_datatype( $node );
-			if ($type) {
-				if ($type eq 'http://www.w3.org/2001/XMLSchema#boolean') {
-#					warn "boolean-typed: $value";
-					return 0 if ($value eq 'false');
-					return 1 if ($value eq 'true');
-					throw RDF::Query::Error::FilterEvaluationError ( -text => "'$value' is not a boolean type (true or false)" );
-				} elsif ($type eq 'http://www.w3.org/2001/XMLSchema#string') {
-#					warn "string-typed: $value";
-					return 0 if (length($value) == 0);
-					return 1;
-				} elsif (is_numeric_type( $type )) {
-#					warn "numeric-typed: $value";
-					return ($value == 0) ? 0 : 1;
-				} else {
-#					warn "unknown-typed: $value";
-					throw RDF::Query::Error::TypeError ( -text => "'$value' cannot be coerced into a boolean value" );
-				}
-			} else {
-				no warnings 'numeric';
-#				warn "not-typed: $value";
-				return 0 if (length($value) == 0);
-				if (looks_like_number($value) and $value == 0) {
-					return 0;
-				} else {
-					return 1;
-				}
-			}
-		}
-		throw RDF::Query::Error::TypeError;
-	} else {
-		return $node ? 1 : 0;
-	}
-};
-
-$functions{"sop:numeric"}	= sub {
-	my $query	= shift;
-	my $node	= shift;
-	my $bridge	= $query->bridge;
-	if ($bridge->is_literal($node)) {
-		my $value	= $bridge->literal_value( $node );
-		my $type	= $bridge->literal_datatype( $node );
-		if ($type and $type eq 'http://www.w3.org/2001/XMLSchema#integer') {
-			return int($value)
-		}
-		return +$value;
-	} elsif (looks_like_number($node)) {
-		return $node;
-	} else {
-		return 0;
-	}
-};
-
-$functions{"sop:str"}	= sub {
-	my $query	= shift;
-	my $node	= shift;
-	my $bridge	= $query->bridge;
-	if ($bridge->is_literal($node)) {
-		my $value	= $bridge->literal_value( $node );
-		my $type	= $bridge->literal_datatype( $node );
-		return $value;
-	} elsif ($bridge->is_resource($node)) {
-		return $bridge->uri_value($node);
-	} elsif (not defined reftype($node)) {
-		return $node;
-	} else {
-		return '';
-	}
-};
-
-$functions{"sop:lang"}	= sub {
-	my $query	= shift;
-	my $node	= shift;
-	my $bridge	= $query->bridge;
-	if ($bridge->is_literal($node)) {
-		my $lang	= $bridge->literal_value_language( $node );
-		return $lang;
-	}
-	return '';
-};
-
-$functions{"sop:datatype"}	= sub {
-	my $query	= shift;
-	my $node	= shift;
-	my $bridge	= $query->bridge;
-	if ($bridge->is_literal($node)) {
-		my $type	= $bridge->literal_datatype( $node );
-		return $type;
-	}
-	return '';
-};
-
-$functions{"sop:date"}	= 
-$functions{"http://www.w3.org/2001/XMLSchema#dateTime"}	= sub {
-	my $query	= shift;
-	my $node	= shift;
-	my $f		= $query->{dateparser};
-	my $date	= $functions{'sop:str'}->( $query, $node );
-	my $dt		= eval { $f->parse_datetime( $date ) };
-	if ($@) {
-		warn $@;
-	}
-	return $dt;
-};
-
-
-# sop:logical-or
-$functions{"sop:logical-or"}	= sub {
-	my $query	= shift;
-	my $nodea	= shift;
-	my $nodeb	= shift;
-	my $cast	= 'sop:boolean';
-	return ($functions{$cast}->( $query, $nodea ) || $functions{$cast}->( $query, $nodeb ));
-};
-
-# sop:logical-and
-$functions{"sop:logical-and"}	= sub {
-	my $query	= shift;
-	my $nodea	= shift;
-	my $nodeb	= shift;
-	my $cast	= 'sop:boolean';
-	return ($functions{$cast}->( $query, $nodea ) && $functions{$cast}->( $query, $nodeb ));
-};
-
-# sop:isBound
-$functions{"sop:isBound"}	= sub {
-	my $query	= shift;
-	my $node	= shift;
-	return ref($node) ? 1 : 0;
-};
-
-# sop:isURI
-$functions{"sop:isURI"}	= sub {
-	my $query	= shift;
-	my $node	= shift;
-	my $bridge	= $query->bridge;
-	return $bridge->is_resource( $node );
-};
-
-# sop:isBlank
-$functions{"sop:isBlank"}	= sub {
-	my $query	= shift;
-	my $node	= shift;
-	my $bridge	= $query->bridge;
-	return $bridge->is_blank( $node );
-};
-
-# sop:isLiteral
-$functions{"sop:isLiteral"}	= sub {
-	my $query	= shift;
-	my $node	= shift;
-	my $bridge	= $query->bridge;
-	return $bridge->is_literal( $node );
-};
-
-
-$functions{"sparql:lang"}	= sub {
-	my $query	= shift;
-	my $node	= shift;
-	my $bridge	= $query->bridge;
-	my $lang	= $bridge->literal_value_language( $node ) || '';
-	return $lang;
-};
-
-$functions{"sparql:langmatches"}	= sub {
-	my $query	= shift;
-	my $node	= shift;
-	my $match	= shift;
-	my $bridge	= $query->bridge;
-	my $lang	= $query->get_value( $node );
-	return unless ($lang);
-	return (lc($lang) eq lc($match));
-};
-
-$functions{"sparql:datatype"}	= sub {
-	my $query	= shift;
-	my $node	= shift;
-	my $bridge	= $query->bridge;
-	return $bridge->literal_datatype( $node );
-};
-
-
-
-# op:dateTime-equal
-$functions{"op:dateTime-equal"}	= sub {
-	my $query	= shift;
-	my $nodea	= shift;
-	my $nodeb	= shift;
-	my $cast	= 'sop:date';
-	return ($functions{$cast}->( $query, $nodea ) == $functions{$cast}->( $query, $nodeb ));
-};
-
-# op:dateTime-less-than
-$functions{"op:dateTime-less-than"}	= sub {
-	my $query	= shift;
-	my $nodea	= shift;
-	my $nodeb	= shift;
-	my $cast	= 'sop:date';
-	return ($functions{$cast}->( $query, $nodea ) < $functions{$cast}->( $query, $nodeb ));
-};
-
-# op:dateTime-greater-than
-$functions{"op:dateTime-greater-than"}	= sub {
-	my $query	= shift;
-	my $nodea	= shift;
-	my $nodeb	= shift;
-	my $cast	= 'sop:date';
-	return ($functions{$cast}->($query, $nodea) > $functions{$cast}->($query, $nodeb));
-};
-
-# op:numeric-equal
-$functions{"op:numeric-equal"}	= sub {
-	my $query	= shift;
-	my $nodea	= shift;
-	my $nodeb	= shift;
-	my $cast	= 'sop:numeric';
-	return ($functions{$cast}->($query, $nodea) == $functions{$cast}->($query, $nodeb));
-};
-
-# op:numeric-less-than
-$functions{"op:numeric-less-than"}	= sub {
-	my $query	= shift;
-	my $nodea	= shift;
-	my $nodeb	= shift;
-	my $cast	= 'sop:numeric';
-	return ($functions{$cast}->($query, $nodea) < $functions{$cast}->($query, $nodeb));
-};
-
-# op:numeric-greater-than
-$functions{"op:numeric-greater-than"}	= sub {
-	my $query	= shift;
-	my $nodea	= shift;
-	my $nodeb	= shift;
-	my $cast	= 'sop:numeric';
-	return ($functions{$cast}->($query, $nodea) > $functions{$cast}->($query, $nodeb));
-};
-
-# op:numeric-multiply
-$functions{"op:numeric-multiply"}	= sub {
-	my $query	= shift;
-	my $nodea	= shift;
-	my $nodeb	= shift;
-	my $cast	= 'sop:numeric';
-	return ($functions{$cast}->($query, $nodea) * $functions{$cast}->($query, $nodeb));
-};
-
-# op:numeric-divide
-$functions{"op:numeric-divide"}	= sub {
-	my $query	= shift;
-	my $nodea	= shift;
-	my $nodeb	= shift;
-	my $cast	= 'sop:numeric';
-	return ($functions{$cast}->($query, $nodea) / $functions{$cast}->($query, $nodeb));
-};
-
-# op:numeric-add
-$functions{"op:numeric-add"}	= sub {
-	my $query	= shift;
-	my $nodea	= shift;
-	my $nodeb	= shift;
-	my $cast	= 'sop:numeric';
-	return ($functions{$cast}->($query, $nodea) + $functions{$cast}->($query, $nodeb));
-};
-
-# op:numeric-subtract
-$functions{"op:numeric-subtract"}	= sub {
-	my $query	= shift;
-	my $nodea	= shift;
-	my $nodeb	= shift;
-	my $cast	= 'sop:numeric';
-	return ($functions{$cast}->($query, $nodea) - $functions{$cast}->($query, $nodeb));
-};
-
-# fn:compare
-$functions{"http://www.w3.org/2005/04/xpath-functionscompare"}	= sub {
-	my $query	= shift;
-	my $nodea	= shift;
-	my $nodeb	= shift;
-	my $cast	= 'sop:str';
-	return ($functions{$cast}->($query, $nodea) cmp $functions{$cast}->($query, $nodeb));
-};
-
-# fn:not
-$functions{"http://www.w3.org/2005/04/xpath-functionsnot"}	= sub {
-	my $query	= shift;
-	my $nodea	= shift;
-	my $nodeb	= shift;
-	my $cast	= 'sop:str';
-	return (0 != ($functions{$cast}->($query, $nodea) cmp $functions{$cast}->($query, $nodeb)));
-};
-
-# fn:matches
-$functions{"http://www.w3.org/2005/04/xpath-functionsmatches"}	= sub {
-	my $query	= shift;
-	my $cast	= 'sop:str';
-	my $string	= $functions{$cast}->( $query, shift );
-	my $pattern	= $functions{$cast}->( $query, shift );
-	return undef if (index($pattern, '(?{') != -1);
-	return undef if (index($pattern, '(??{') != -1);
-	my $flags	= $functions{$cast}->( $query, shift );
-	if ($flags) {
-		$pattern	= "(?${flags}:${pattern})";
-		return $string =~ /$pattern/;
-	} else {
-		return ($string =~ /$pattern/) ? 1 : 0;
-	}
-};
-
-# sop:	http://www.w3.org/TR/rdf-sparql-query/
-# xs:	http://www.w3.org/2001/XMLSchema
-# fn:	http://www.w3.org/2005/04/xpath-functions
-# xdt:	http://www.w3.org/2005/04/xpath-datatypes
-# err:	http://www.w3.org/2004/07/xqt-errors
-
-
-
-################################################################################
-################################################################################
-sub ________CUSTOM_FUNCTIONS________ {}#########################################
-################################################################################
-
-$functions{"java:com.hp.hpl.jena.query.function.library.sha1sum"}	= sub {
-	my $query	= shift;
-	my $node	= shift;
-	require Digest::SHA1;
-	my $cast	= 'sop:str';
-	return Digest::SHA1::sha1_hex($functions{$cast}->($query, $node));
-};
-
-$functions{"java:com.hp.hpl.jena.query.function.library.now"}	= sub {
-	my $query	= shift;
-	my $dt		= DateTime->new();
-	return $dt;
-};
-
-$functions{"java:com.hp.hpl.jena.query.function.library.langeq"}	= sub {
-	my $query	= shift;
-	my $cast	= 'sop:str';
-	
-	require I18N::LangTags;
-	my $node	= shift;
-	my $lang	= $functions{$cast}->( $query, shift );
-	my $litlang	= $query->bridge->literal_value_language( $node );
-	
-	return I18N::LangTags::is_dialect_of( $litlang, $lang );
-};
-
-$functions{"java:com.hp.hpl.jena.query.function.library.listMember"}	= sub {
-	my $query	= shift;
-	my $bridge	= $query->bridge;
-	
-	my $list	= shift;
-	my $value	= shift;
-	if ($bridge->is_resource( $list ) and $bridge->uri_value( $list ) eq 'http://www.w3.org/1999/02/22-rdf-syntax-ns#nil') {
-		return 0;
-	} else {
-		my $first	= $bridge->new_resource( 'http://www.w3.org/1999/02/22-rdf-syntax-ns#first' );
-		my $rest	= $bridge->new_resource( 'http://www.w3.org/1999/02/22-rdf-syntax-ns#rest' );
-		my $stream	= $bridge->get_statements( $list, $first, undef );
-		while (my $stmt = $stream->()) {
-			my $member	= $bridge->object( $stmt );
-			return 1 if ($bridge->equals( $value, $member ));
-		}
-		
-		my $stmt	= $bridge->get_statements( $list, $rest, undef )->();
-		my $tail	= $bridge->object( $stmt );
-		if ($tail) {
-			return $functions{"java:com.hp.hpl.jena.query.function.library.listMember"}->( $query, $tail, $value );
-		} else {
-			return 0;
-		}
-	}
-};
-
-$functions{"java:com.ldodds.sparql.Distance"}	= sub {
-	my $query	= shift;
-	my ($lat1, $lon1, $lat2, $lon2);
-	
-	require Geo::Distance;
-	my $cast	= 'sop:str';
-	if (2 == @_) {
-		my $point1	= $functions{$cast}->( $query, shift );
-		my $point2	= $functions{$cast}->( $query, shift );
-		($lat1, $lon1)	= split(/ /, $point1);
-		($lat2, $lon2)	= split(/ /, $point2);
-	} else {
-		$lat1	= $functions{$cast}->( $query, shift );
-		$lon1	= $functions{$cast}->( $query, shift );
-		$lat2	= $functions{$cast}->( $query, shift );
-		$lon2	= $functions{$cast}->( $query, shift );
-	}
-	
-	my $geo		= new Geo::Distance;
-	my $dist	= $geo->distance(
-					'kilometer',
-					$lon1,
-					$lat1,
-					$lon2,
-					$lat2,
-				);
-	return $dist;
-};
-
-$functions{"http://kasei.us/2007/09/functions/warn"}	= sub {
-	my $query	= shift;
-	my $cast	= 'sop:str';
-	my $value	= $functions{$cast}->( $query, shift );
-	no warnings 'uninitialized';
-	warn "FILTER VALUE: $value\n";
-	return $value;
-};
+sub _PROFILE {
+	my $enter	= shift;
+	my $name	= shift;
+	my $time	= gettimeofday();
+#	my ($package, $filename, $line, $sub)	= caller(2);
+	my $char	= ($enter) ? '>' : '<';
+	print {$PROF} "${char} $name $time\n";
+}
 
 
 

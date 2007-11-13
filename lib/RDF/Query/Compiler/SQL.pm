@@ -370,50 +370,50 @@ sub patterns2sql {
 	
 	my $triple	= shift(@$triples);
 	my @posmap	= qw(subject predicate object);
-	if (ref($triple->[0])) {
+	Carp::confess "unblessed atom: " . Dumper($triple) unless (blessed($triple));
+	
+	if ($triple->isa('RDF::Query::Algebra::Triple')) {
 #		$add_from->('(');
-		my ($s,$p,$o)	= @$triple;
+		my ($s,$p,$o)	= map { $triple->$_() } @posmap;
 		my $table	= "s${$level}";
 		my $stable	= $self->{stable};
 		$add_from->( "${stable} ${table}" );
-		for my $idx (0 .. 2) {
-			my $node	= $triple->[ $idx ];
-			my $type	= $node->[0];
-			my $pos		= $posmap[ $idx ];
+		foreach my $method (@posmap) {
+			my $node	= $triple->$method();
+			my $pos		= $method;
 			my $col		= "${table}.${pos}";
-			if ($type eq 'VAR') {
-				my $name	= $node->[1];
+			if ($node->isa('RDF::Query::Node::Variable')) {
+				my $name	= $node->name;
 				if (exists $vars->{ $name }) {
 					my $existing_col	= $vars->{ $name };
 					$add_where->( "$col = ${existing_col}" );
 				} else {
 					$vars->{ $name }	= $col;
 				}
-			} elsif ($type eq 'URI') {
-				my $uri	= $node->[1];
+			} elsif ($node->isa('RDF::Query::Node::Resource')) {
+				my $uri	= $node->uri_value;
 				my $id	= $self->_mysql_node_hash( $node );
 				$id		=~ s/\D//;
 				$add_where->( "${col} = $id" );
-			} elsif ($type eq 'BLANK') {
-				my $id	= $node->[1];
+			} elsif ($node->isa('RDF::Query::Node::Blank')) {
+				my $id	= $node->blank_identifier;
 				my $b	= "b${$level}";
 				$add_from->( "Bnodes $b" );
 				
 				$add_where->( "${col} = ${b}.ID" );
 				$add_where->( "${b}.Name = '$id'" );
-			} elsif ($type eq 'LITERAL') {
-				my $literal	= $node->[1];
+			} elsif ($node->isa('RDF::Query::Node::Literal')) {
 				my $id	= $self->_mysql_node_hash( $node );
 				$id		=~ s/\D//;
 				$add_where->( "${col} = $id" );
 			} else {
-				throw RDF::Query::Error::CompilationError( -text => "Unknown node type: $type" );
+				throw RDF::Query::Error::CompilationError( -text => "Unknown node type: " . Dumper($node) );
 			}
 		}
 #		$add_from->(')');
 	} else {
 		my $op	= $triple->[0];
-		if ($op eq 'OPTIONAL') {
+		if ($triple->isa('RDF::Query::Algebra::Optional')) {
 			# XXX OPTIONAL compilation is totally broken. The queries don't work when
 			# XXX the OPTIONAL pattern contains variables used outside of the OPTIONAL
 			# XXX pattern.
@@ -461,12 +461,11 @@ sub patterns2sql {
 			
 #			warn Dumper(\@w);
 #			$add_where->( 'OPTIONAL(' . join(' AND ', @w) . ')' );
-		} elsif ($op eq 'GRAPH') {
-			my $graph	= $triple->[1];
-			my $pattern	= $triple->[2];
-			
-			if ($graph->[0] eq 'VAR') {
-				my $name	= $graph->[1];
+		} elsif ($triple->isa('RDF::Query::Algebra::NamedGraph')) {
+			my $graph	= $triple->graph;
+			my $pattern	= $triple->pattern;
+			if ($graph->isa('RDF::Query::Node::Variable')) {
+				my $name	= $graph->name;
 				my $context;
 				my $hook	= sub {
 								my $f	= shift;
@@ -482,7 +481,7 @@ sub patterns2sql {
 								}
 								return $f;
 							};
-				$self->patterns2sql( $pattern, $level, from_hook => $hook );
+				$self->patterns2sql( [ $pattern ], $level, from_hook => $hook );
 			} else {
 				my $hash	= $self->_mysql_node_hash( $graph );
 				my $hook	= sub {
@@ -494,12 +493,18 @@ sub patterns2sql {
 								}
 								return $f;
 							};
-				$self->patterns2sql( $pattern, $level, from_hook => $hook );
+				$self->patterns2sql( [ $pattern ], $level, from_hook => $hook );
 			}
-		} elsif ($op eq 'FILTER') {
+		} elsif ($triple->isa('RDF::Query::Algebra::OldFilter')) {
 			++$$level;
-			my $expr		= $triple->[1];
+			my $expr		= $triple->expr;
 			$self->expr2sql( $expr, $level, from_hook => $add_from, where_hook => $add_where );
+		} elsif ($triple->isa('RDF::Query::Algebra::BasicGraphPattern')) {
+			++$$level;
+			$self->patterns2sql( [ $triple->triples ], $level, %args );
+		} elsif ($triple->isa('RDF::Query::Algebra::GroupGraphPattern')) {
+			++$$level;
+			$self->patterns2sql( [ $triple->patterns ], $level, %args );
 		} else {
 			throw RDF::Query::Error::CompilationError( -text => "Unknown op '$op' in SQL compilation." );
 		}
@@ -587,7 +592,7 @@ sub expr2sql {
 		my $literal	= $args[0];
 		my $dt		= $args[2];
 		
-		my $hash	= $self->_mysql_node_hash( [ 'LITERAL', @args ] );
+		my $hash	= $self->_mysql_node_hash( RDF::Query::Node::Literal->new(@args) );
 		
 		if ($equality eq 'rdf') {
 			$literal	= $hash;
@@ -596,7 +601,7 @@ sub expr2sql {
 				my $uri		= $dt;
 				my $func	= $self->get_function( $self->qualify_uri( $uri ) );
 				if ($func) {
-					my ($v, $f, $w)	= $func->( $self, $parsed_vars, $level, [ 'LITERAL', $literal ] );
+					my ($v, $f, $w)	= $func->( $self, $parsed_vars, $level, RDF::Query::Node::Literal->new($literal) );
 					$literal	= $w->[0];
 				} else {
 					$literal	= qq("${literal}");
@@ -608,10 +613,10 @@ sub expr2sql {
 		
 		$add_where->( $literal );
 	} elsif ($op eq 'BLANK') {
-		my $hash		= $self->_mysql_node_hash( ['BLANK', $args[0]] );
+		my $hash		= $self->_mysql_node_hash( RDF::Query::Node::Blank->new($args[0]) );
 		$add_where->( $hash );
 	} elsif ($op eq 'URI') {
-		my $uri		= $self->_mysql_node_hash( ['URI', $args[0]] );
+		my $uri		= $self->_mysql_node_hash( RDF::Query::Node::Resource->new($args[0]) );
 		$add_where->( $uri );
 	} elsif ($op eq 'VAR') {
 		my $name	= $args[0];
@@ -785,19 +790,24 @@ sub _mysql_node_hash {
 	my $self	= shift;
 	my $node	= shift;
 	
-	my @node	= @$node;
-	my ($type, $value)	= splice(@node, 0, 2, ());
+#	my @node	= @$node;
+#	my ($type, $value)	= splice(@node, 0, 2, ());
 	
 	my $data;
-	if ($type eq 'URI') {
+	Carp::confess 'node a blessed node: ' . Dumper($node) unless blessed($node);
+	if ($node->isa('RDF::Query::Node::Resource')) {
+		my $value	= $node->uri_value;
 		if (ref($value)) {
 			$value	= $self->qualify_uri( $value );
 		}
 		$data	= 'R' . $value;
-	} elsif ($type eq 'BLANK') {
+	} elsif ($node->isa('RDF::Query::Node::Blank')) {
+		my $value	= $node->blank_identifier;
 		$data	= 'B' . $value;
-	} elsif ($type eq 'LITERAL') {
-		my ($lang, $dt)	= splice(@node, 0, 2, ());
+	} elsif ($node->isa('RDF::Query::Node::Literal')) {
+		my $value	= $node->literal_value;
+		my $lang	= $node->literal_value_language;
+		my $dt		= $node->literal_datatype;
 		no warnings 'uninitialized';
 		$data	= sprintf("L%s<%s>%s", $value, $lang, $dt);
 #		warn "($data)";

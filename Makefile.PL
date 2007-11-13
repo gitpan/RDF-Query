@@ -6,6 +6,8 @@ license				'perl';
 recommends			'LWP::Simple'				=> 0;
 recommends			'RDF::Redland'				=> 1;
 recommends			'JavaScript'				=> 0;
+recommends			'Getopt::Simple'			=> 0;
+recommends			'Geo::Distance'				=> 0.09;
 
 build_requires		'Test::JSON'				=> 0;
 build_requires		'Test::More'				=> 0.61;
@@ -26,6 +28,6 @@ WriteMakefile(
 					'Error'						=> 0,
 					'JSON'						=> 0,
 					'URI'						=> 0,
-					'URI::Fetch'				=> 0,
+					'List::MoreUtils'			=> 0,
 				}
 );

@@ -10,7 +10,7 @@ BEGIN { require "models.pl"; }
 my @files	= map { "data/$_" } qw(about.xrdf foaf.xrdf Flower-2.rdf);
 my (@data)	= test_models_and_classes( @files );
 
-my $tests	= 5;
+my $tests	= 6;
 use Test::More;
 plan tests => 1 + scalar(@data) * $tests;
 
@@ -45,12 +45,15 @@ foreach my $data (@data) {
 END
 			my $query	= RDF::Query->new( $sparql, undef, undef, 'sparql', net_filters => 1 );
 			my $stream	= $query->execute( $model );
+			my $count	= 0;
 			while (my $row = $stream->()) {
 				my ($image, $point, $pname, $lat, $lon)	= @{ $row };
 				my $url		= $bridge->uri_value( $image );
 				my $name	= $bridge->literal_value( $pname );
 				like( $name, qr/, (RI|MA|CT)$/, "$name ($url)" );
+				$count++;
 			}
+			is( $count, 3, '3 distance-based images found' );
 		}
 		
 		{

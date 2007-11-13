@@ -1,7 +1,7 @@
 # RDF::Query::Stream
 # -------------
-# $Revision: 199 $
-# $Date: 2007-04-18 22:45:33 -0400 (Wed, 18 Apr 2007) $
+# $Revision: 271 $
+# $Date: 2007-11-03 13:59:17 -0400 (Sat, 03 Nov 2007) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -22,11 +22,15 @@ use warnings;
 use JSON;
 use Data::Dumper;
 use Carp qw(carp);
-use Scalar::Util qw(weaken);
+use Scalar::Util qw(reftype weaken blessed);
 
-our ($debug);
+our ($debug, @ISA, @EXPORT_OK);
 BEGIN {
 	$debug		= $RDF::Query::debug;
+	
+	require Exporter;
+	@ISA		= qw(Exporter);
+	@EXPORT_OK	= qw(sgrep smap swatch);
 }
 
 =item C<new ( $closure, $type, $names, %args )>
@@ -39,7 +43,7 @@ called, and returning undef when the iterator is exhausted.
 
 sub new {
 	my $class		= shift;
-	my $stream		= shift || sub { undef };
+	my $stream		= shift;
 	my $type		= shift || 'bindings';
 	my $names		= shift || [];
 #	Carp::cluck(Dumper($names));
@@ -49,12 +53,23 @@ sub new {
 	my $row;
 	my $self;
 	
+	if (not defined($stream)) {
+		$stream	= sub { undef };
+	} elsif (ref($stream) and reftype($stream) eq 'ARRAY') {
+		my $array	= $stream;
+		$stream	= sub {
+			return shift(@$array);
+		}
+	}
+	
 	my $selfref;
 	$self	= bless(sub {
 		my $arg	= shift;
 		if ($arg) {
 			if ($arg =~ /is_(\w+)$/) {
 				return ($1 eq $type);
+			} elsif ($arg eq 'type') {
+				return $type;
 			} elsif ($arg =~ /^_(.*)$/ and exists $args{ $1 }) {
 				return $args{ $1 };
 			} elsif ($arg eq 'next_result' or $arg eq 'next') {
@@ -68,6 +83,7 @@ sub new {
 				unless (defined $row) {
 					$finished	= 1;
 				}
+				return $row;
 			} elsif ($arg eq 'current') {
 				unless ($open) {
 					$selfref->next_result;
@@ -123,9 +139,11 @@ sub new {
 			} elsif ($arg eq 'debug') {
 				local($RDF::Query::debug)	= 2;
 				RDF::Query::_debug_closure( $stream );
+			} elsif ($arg eq '_args') {
+				return \%args;
 			}
 		} else {
-			RDF::Query::_debug_closure( $stream );
+			return unless (reftype($stream) eq 'CODE');
 			my $data	= $stream->();
 			return $data;
 		}
@@ -135,6 +153,39 @@ sub new {
 	weaken($selfref);
 	return $self;
 }
+
+
+=item C<< concat ( $stream ) >>
+
+Returns a new stream resulting from the concatenation of the referant and the
+argument streams. The new stream uses the stream type, and optional binding
+names and C<<%args>> from the referant stream.
+
+=cut
+
+sub concat {
+	my $self	= shift;
+	my $stream	= shift;
+	my $class	= ref($self);
+	my @streams	= ($self, $stream);
+	my $next	= sub {
+		while (@streams) {
+			my $data	= $streams[0]->next;
+			unless (defined($data)) {
+				shift(@streams);
+				next;
+			}
+			return $data;
+		}
+		return;
+	};
+	my $type	= $self->type;
+	my $names	= [$self->binding_names];
+	my $args	= $self->_args;
+	my $s	= $class->new( $next, $type, $names, %$args );
+	return $s;
+}
+
 
 =item C<get_boolean>
 
@@ -457,6 +508,129 @@ sub DESTROY {
 	my $self	= shift;
 	$self->close;
 }
+
+
+
+=back
+
+=head1 FUNCTIONS
+
+=over 4
+
+=item C<sgrep { COND } $stream>
+
+=cut
+
+sub sgrep (&$) {
+	my $block	= shift;
+	my $stream	= shift;
+	my $class	= ref($stream);
+	
+	my $open	= 1;
+	my $next;
+	
+	$next	= sub {
+		return undef unless ($open);
+		my $data	= $stream->next;
+		unless ($data) {
+			$open	= 0;
+			return undef;
+		}
+		
+		local($_)	= $data;
+		my $bool	= $block->( $data );
+		if ($bool) {
+#			warn "[SGREP] TRUE with: " . $data->as_string;
+			if (@_ and $_[0]) {
+				$stream->close;
+				$open	= 0;
+			}
+			return $data;
+		} else {
+#			warn "[SGREP] FALSE with: " . $data->as_string;
+			goto &$next;
+		}
+	};
+	
+	Carp::confess "not a stream: " . Dumper($stream) unless (blessed($stream));
+	my $type	= $stream->type;
+	my $names	= [$stream->binding_names];
+	my $args	= $stream->_args;
+	my $s	= $class->new( $next, $type, $names, %$args );
+	return $s;
+}
+
+=item C<smap { EXPR } $stream>
+
+=cut
+
+sub smap (&$;$$$) {
+	my $block	= shift;
+	my $stream	= shift;
+	my $type	= shift || $stream->type;
+	my $names	= shift || [$stream->binding_names];
+	my $args	= shift || $stream->_args;
+	my $class	= ref($stream);
+	
+	my $open	= 1;
+	my $next	= sub {
+		return undef unless ($open);
+		if (@_ and $_[0]) {
+			$stream->close;
+			$open	= 0;
+		}
+		my $data	= $stream->next;
+		unless ($data) {
+			$open	= 0;
+			return undef;
+		}
+		
+		local($_)	= $data;
+		my ($item)	= $block->( $data );
+		return $item;
+	};
+	
+	my $s	= $class->new( $next, $type, $names, %$args );
+	return $s;
+}
+
+=item C<swatch { EXPR } $stream>
+
+=cut
+
+sub swatch (&$) {
+	my $block	= shift;
+	my $stream	= shift;
+	my $class	= ref($stream);
+	
+	my $open	= 1;
+	my $next	= sub {
+		return undef unless ($open);
+		if (@_ and $_[0]) {
+			$stream->close;
+			$open	= 0;
+		}
+		my $data	= $stream->next;
+		unless ($data) {
+			$open	= 0;
+			return undef;
+		}
+		
+		local($_)	= $data;
+		$block->( $data );
+		return $data;
+	};
+	
+	my $type	= $stream->type;
+	my $names	= [$stream->binding_names];
+	my $args	= $stream->_args;
+	my $s	= $class->new( $next, $type, $names, %$args );
+	return $s;
+}
+
+
+
+
 
 1;
 

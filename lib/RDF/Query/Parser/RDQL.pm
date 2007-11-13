@@ -1,7 +1,7 @@
 # RDF::Query::Parser::RDQL
 # -------------
-# $Revision: 175 $
-# $Date: 2006-09-23 17:04:15 -0400 (Sat, 23 Sep 2006) $
+# $Revision: 277 $
+# $Date: 2007-11-03 14:30:58 -0400 (Sat, 03 Nov 2007) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -29,7 +29,7 @@ BEGIN {
 	$::RD_TRACE	= undef;
 	$::RD_HINT	= undef;
 	$debug		= 1;
-	$VERSION	= do { my $REV = (qw$Revision: 175 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 277 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	$lang		= 'rdql';
 	$languri	= 'http://jena.hpl.hp.com/2003/07/query/RDQL';
 }
@@ -42,7 +42,7 @@ BEGIN {
 																		my $triples	= $item[5];
 																		my $filter	= ($item[6][0] || []);
 																		if (scalar(@$filter)) {
-																			push(@$triples, ['FILTER', $filter]);
+																			push(@$triples, RDF::Query::Parser->new_filter($filter));
 																		}
 																		
 																		$return = {
@@ -60,8 +60,8 @@ BEGIN {
 					|			/ASC|DESC/i '[' variable ']'					{ $return = [uc($item[1]), $item[3]] }
 	SourceClause:				('SOURCE' | 'FROM') Source(s)					{ $return = $item[2] }
 	Source:						URI												{ $return = $item[1] }
-	variable:					'?' identifier									{ $return = ['VAR',$item[2]] }
-	triplepattern:				'(' VarUri VarUri VarUriConst ')'				{ $return = [ @item[2,3,4] ] }
+	variable:					'?' identifier									{ $return = RDF::Query::Parser->new_variable($item[2]) }
+	triplepattern:				'(' VarUri VarUri VarUriConst ')'				{ $return = RDF::Query::Parser->new_triple(@item[2,3,4]) }
 	constraints:				'AND' Expression OptExpression(s?)				{
 																					if (scalar(@{ $item[3] })) {
 																						$return = [ $item[3][0][0], $item[2], map { $_->[1] } @{ $item[3] } ];
@@ -182,10 +182,10 @@ BEGIN {
 	namespace:					identifier 'FOR' qURI							{ $return = {@item[1,3]} }
 	OptComma:					',' | ''
 	identifier:					/(([a-zA-Z0-9_.-])+)/							{ $return = $1 }
-	URI:						(qURI | QName)									{ $return = ['URI',$item[1]] }
+	URI:						(qURI | QName)									{ $return = RDF::Query::Parser->new_uri( $item[1] ) }
 	qURI:						'<' /[A-Za-z0-9_.!~*'()%;\/?:@&=+,#\$-]+/ '>'	{ $return = $item[2] }
 	QName:						identifier ':' /([^ \t<>()]+)/					{ $return = [@item[1,3]] }
-	CONST:						(Text | Number)									{ $return = ['LITERAL',$item[1]] }
+	CONST:						(Text | Number)									{ $return = RDF::Query::Parser->new_literal($item[1]) }
 	Number:						/([0-9]+(\.[0-9]+)?)/							{ $return = $item[1] }
 	Text:						dQText | sQText | Pattern						{ $return = $item[1] }
 	sQText:						"'" /([^']+)/ '"'								{ $return = $item[2] }

@@ -6,9 +6,72 @@
 @prefix asc:     <http://aaronland.info/ns/changefile/> .
                                      
 <>
-        dc:identifier           "$Id: Changes.ttl 235 2007-09-13 17:31:06Z samofool $" ;
+        dc:identifier           "$Id: Changes.ttl 290 2007-11-13 04:31:04Z samofool $" ;
         dc:description          "Changes for RDF::Query" ;
         dcterms:references      <http://kasei.us/code/rdf-query/#project> .
+
+<http://kasei.us/code/files/RDF-Query-1.500.tar.gz>
+        dcterms:isVersionOf <http://kasei.us/code/rdf-query/#project> ;
+        dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.044.tar.gz> ;
+
+        doap:Version    [
+                        doap:revision     "1.500" ;
+                        doap:created      "2007-11-13" ;
+                        ];
+        asc:changes     [
+                        asc:addition      "Added new RDF::Query::Algebra:: classes that are used to represent query ASTs." ;
+                        asc:addition      "Added new RDF::Query::Node:: classes that are used to represent RDF Nodes and Variables." ;
+                        asc:addition      "Added RDF::Query::query_more_triple() and RDF::Query::query_more_bgp() for triple and bgp matching." ;
+                        asc:addition      "Added sgrep, smap, swatch and concat methods to RDF::Query::Stream class." ;
+                        asc:addition      "Added join_streams() to perform netsted-loop natural joins on two Stream objects." ;
+                        asc:addition      "Added call_function() method to abstract the generation of ['FUNCTION',...] blocks." ;
+                        asc:addition      "Added rudimentary profiling code (Devel::DProf seems to crash on RDF::Query)" ;
+                        asc:addition      "Added initial code for supporting property functions (using time:inside as an example)." ;
+                        asc:update        "URIs are now properly qualified with a BASE when present." ;
+                        asc:update        "Base URI passed to constructor is now used if no BASE clause exists in the query." ;
+                        asc:update        "Fixed BASE qualification when an IRI contains Unicode characters (Emulating IRI support with the URI module)." ;
+                        asc:update        "NAMED graph data is now seperated from the default model into new (temporary) models." ;
+                        asc:update        "NAMED graphs now work with RDF::Core." ;
+                        asc:update        "Major refactoring to RDF::Query::query_more() to enhance extensibility." ;
+                        asc:update        "Improved support of GGP pattern matching." ;
+                        asc:update        "Refactored query_more() variants and sort_rows() to use new stream methods sgrep, smap, and concat." ;
+                        asc:update        "Continued to fix bugs to more closely align with DAWG tests." ;
+                        asc:update        "Updated DAWG tests to run with the RDF::Core backend." ;
+                        asc:update        "Any DAWG tests with mf:requires are now automatically marked TODO." ;
+                        asc:update        "DAWG tests graph equality is now punted to user verification." ;
+                        asc:update        "Fixed bNode merging code in DAWG tests." ;
+                        asc:update        "query_more() variants and sort_rows() now all return RDF::Query::Stream objects." ;
+                        asc:update        "query_more() (and everything it calls) now expects bridge object as a method argument (to ensure NAMED graph querying works)." ;
+                        asc:update        "Parsers now generate ASTs using the Algebra and Node classes." ;
+                        asc:update        "FILTER operator != is now negative for unknown datatypes." ;
+                        asc:update        "Fixed exception handling in check_constraints()." ;
+                        asc:update        "Fixed type-promotion in arithmetic operations and added recognized xsd numeric types." ;
+                        asc:update        "API Chnage: extension functions now take a bridge object as their second argument (after the query object)." ;
+                        asc:update        "Fixed equals() method in RDF::Core bridge to properly use the RDF::Core API." ;
+                        asc:update        "Javascript function makeTerm now accepts language and datatype parameters." ;
+                        asc:update        "toString() javascript funtion now returns just the literal value (not including language or datatype)." ;
+                        asc:update        "sop:str now will stringify blank nodes properly." ;
+                        asc:update        "sparql:langmatches now properly differentiates between no language tag and an empty language tag." ;
+                        asc:update        "Fixed bugs in SPARQL tokenizer for some Unicode strings (with combining accents)." ;
+                        asc:update        "RDF::Query::Parser::new_literal() now canonicalizes language tags (to lowercase)." ;
+                        asc:update        "Fixed GGP verification in RDF::Query::Parser::SPARQL::fixup()." ;
+                        asc:update        "Merged GGPAtom changes from tSPARQL to SPARQL grammar." ;
+                        asc:update        "Fixed bug in RDF::Query::Model::RDFCore::equals() when comparing two blank nodes." ;
+                        asc:update        "Changed RDF::Query::Model::RDFCore::as_string to return strings where node type is identifiable (like Redland, URIs as [...], literal \"...\", bnodes (...))." ;
+                        asc:update        "Model methods literal_value, literal_datatype and literal_value_langauge now return undef if argument isn't a literal." ;
+                        asc:update        "Model methods uri_value and blank_identifier now return undef unless argument is of correct type." ;
+                        asc:update        "Model add_string methods now normalize Unicode input." ;
+                        asc:update        "Blank node prefix is now scoped to bridge, not lexically in RDF::Query::Model::RDFCore." ;
+                        asc:update        "RDF::Query::Model::Redland::new_literal now forces argument to a string (XS code breaks on non-PVOK scalars)." ;
+                        asc:update        "RDF::Query::Model::Redland::add_uri now uses LWP instead of relying on Redland to fetch content." ;
+                        asc:update        "Redland model class now recognizes DateTime objects as literals." ;
+                        asc:update        "Updated add_uri() method in RDF::Core bridge to support named graphs (only one name per model for now)." ;
+                        asc:update        "RDF::Query::Stream constructor now accepts an ARRAY reference." ;
+                        asc:update        "Stopped using the peephole optimizers. Will replace with an algebra-based optimizer in the future." ;
+                        asc:update        "Removed code for MULTI patterns. Will replace with algebra-based optimization in the future." ;
+                        asc:update        "Removed multi_get code." ;
+                        ] .
+
 
 <http://kasei.us/code/files/RDF-Query-1.044.tar.gz>
         dcterms:isVersionOf <http://kasei.us/code/rdf-query/#project> ;
@@ -16,7 +79,7 @@
 
         doap:Version    [
                         doap:revision     "1.044" ;
-                        doap:created      "2007-XX-XX" ;
+                        doap:created      "2007-09-13" ;
                         ];
         asc:changes     [
                         asc:addition      "DAWG tests now emit EARL reports." ;

@@ -1,23 +1,21 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use URI::file;
-use Test::More tests => 12;
+use Test::More;
 
-use Data::Dumper;
+use lib qw(. t);
+require "models.pl";
+
+my @files	= map { "data/$_" } qw(about.xrdf foaf.xrdf);
+my @models	= test_models( @files );
+my $tests	= 1 + (scalar(@models) * 11);
+plan tests => $tests;
 
 use_ok( 'RDF::Query' );
+foreach my $model (@models) {
+	print "\n#################################\n";
+	print "### Using model: $model\n\n";
 
-SKIP: {
-	eval "use RDF::Query::Model::Redland;";
-	skip "Failed to load RDF::Redland", 11 if $@;
-	
-	my @uris	= map { URI::file->new_abs( "data/$_" ) } qw(about.xrdf foaf.xrdf);
-	my @data	= map { RDF::Redland::URI->new( "$_" ) } @uris;
-	my $storage	= new RDF::Redland::Storage("hashes", "test", "new='yes',hash-type='memory'");
-	my $model	= new RDF::Redland::Model($storage, "");
-	my $parser	= new RDF::Redland::Parser("rdfxml");
-	$parser->parse_into_model($_, $_, $model) for (@data);
 	
 	{
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
@@ -33,8 +31,9 @@ SKIP: {
 			}
 END
 		my ($person, $homepage)	= $query->get( $model );
-		ok( $query->bridge->isa_resource( $person ), 'Resource with regex match' );
-		is( $query->bridge->uri_value( $person ), 'http://kasei.us/about/foaf.xrdf#greg', 'Person uri' );
+		my $bridge	= $query->bridge;
+		ok( $bridge->isa_resource( $person ), 'Resource with regex match' );
+		is( $bridge->uri_value( $person ), 'http://kasei.us/about/foaf.xrdf#greg', 'Person uri' );
 	}
 	
 	{
@@ -51,6 +50,7 @@ END
 			}
 END
 		my ($person, $homepage)	= $query->get( $model );
+		my $bridge	= $query->bridge;
 		is( $person, undef, 'no result with regex match' );
 	}
 	
@@ -72,9 +72,10 @@ END
 					geo FOR <http://www.w3.org/2003/01/geo/wgs84_pos#>
 END
 		my ($point, $lat, $lon)	= $query->get( $model );
-		ok( $query->bridge->isa_node( $point ), 'Point isa Node' );
-		cmp_ok( abs( $query->bridge->as_string( $lat ) - 52.97277 ), '<', 0.001, 'latitude' );
-		cmp_ok( abs( $query->bridge->as_string( $lon ) + 9.430733 ), '<', 0.001, 'longitude' );
+		my $bridge	= $query->bridge;
+		ok( $bridge->isa_node( $point ), 'Point isa Node' );
+		cmp_ok( abs( $bridge->literal_value( $lat ) - 52.97277 ), '<', 0.001, 'latitude' );
+		cmp_ok( abs( $bridge->literal_value( $lon ) + 9.430733 ), '<', 0.001, 'longitude' );
 	}
 	
 	{
@@ -95,9 +96,10 @@ END
 					geo FOR <http://www.w3.org/2003/01/geo/wgs84_pos#>
 END
 		my ($point, $lat, $lon)	= $query->get( $model );
-		ok( $query->bridge->isa_node( $point ), 'Point isa Node' );
-		cmp_ok( abs( $query->bridge->as_string( $lat ) - 52.97277 ), '<', 0.001, 'latitude' );
-		cmp_ok( abs( $query->bridge->as_string( $lon ) + 9.430733 ), '<', 0.001, 'longitude' );
+		my $bridge	= $query->bridge;
+		ok( $bridge->isa_node( $point ), 'Point isa Node' );
+		cmp_ok( abs( $bridge->literal_value( $lat ) - 52.97277 ), '<', 0.001, 'latitude' );
+		cmp_ok( abs( $bridge->literal_value( $lon ) + 9.430733 ), '<', 0.001, 'longitude' );
 	}
 	
 	{
@@ -117,8 +119,9 @@ END
 					geo FOR <http://www.w3.org/2003/01/geo/wgs84_pos#>
 END
 		my ($image, $point, $lat)	= $query->get( $model );
-		ok( $query->bridge->isa_resource( $image ), 'Image isa Resource' );
-		is( $query->bridge->uri_value( $image ), 'http://kasei.us/pictures/2004/20040909-Ireland/images/DSC_5705.jpg', 'Image url' );
+		my $bridge	= $query->bridge;
+		ok( $bridge->isa_resource( $image ), 'Image isa Resource' );
+		is( $bridge->uri_value( $image ), 'http://kasei.us/pictures/2004/20040909-Ireland/images/DSC_5705.jpg', 'Image url' );
 	}
 }
 

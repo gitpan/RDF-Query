@@ -99,6 +99,7 @@ END
 		}
 
 		{
+			print "# dateTime type promotion and equality\n";
 			my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 				PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 				ASK {

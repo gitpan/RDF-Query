@@ -83,12 +83,12 @@ sub optimize_triplepattern {
 	
 	my(@cost, @non_orderable);
 	foreach my $part (@{ $pattern }) {
-		if (reftype($part->[0])) {	# XXX if reftype(), then it's a node.
+		my $type	= $part->[0];
+		if (reftype($type) or $type eq 'TRIPLE') {	# XXX if reftype(), then it's a node.
 			my $cost	= $self->statement_cost( $part );
 			push(@cost, [ $cost, $part ]);
 		} else {					# XXX if not reftype(), then it's an aggregate (OPTIONAL, UNION, etc.)
 			# recurse
-			my $type	= $part->[0];
 			if ($type eq 'FILTER') {
 				push(@non_orderable, $part);
 			} elsif ($type eq 'GRAPH') {
@@ -134,6 +134,7 @@ sub statement_cost {
 	my $self		= shift;
 	my $statement	= shift;
 	my @nodes		= @{ $statement };
+	shift(@nodes) if ($nodes[0] eq 'TRIPLE');
 	
 	my $bridge		= $self->model;
 	

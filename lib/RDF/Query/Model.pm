@@ -46,7 +46,20 @@ sub parsed {
 }
 
 
+=item C<< literal_as_array ( $literal ) >>
 
+Returns a literal in ARRAY (model-neutral) form.
+
+=cut
+
+sub literal_as_array {
+	my $self	= shift;
+	my $literal	= shift;
+	my $value	= $self->literal_value( $literal );
+	my $lang	= $self->literal_value_language( $literal );
+	my $dt		= $self->literal_datatype( $literal );
+	return [ 'LITERAL', $value, $lang, ($dt) ? [ 'URI', $dt ] : undef ];
+}
 
 
 # sub new;

@@ -39,7 +39,18 @@
 	</bio:condition>
 </foaf:Person>
 
+<time:Interval rdf:ID="year2000">
+	<time:begins>2000-01-01</time:begins>
+	<time:ends>2001-01-01</time:ends>
+</time:Interval>
 
+<time:Interval rdf:ID="yearTo2000">
+	<time:ends>2000-01-01</time:ends>
+</time:Interval>
+
+<time:Interval rdf:ID="yearFrom2003">
+	<time:begins>2003-01-01</time:begins>
+</time:Interval>
 
 <!-- from http://iandavis.com/blog/2005/10/refactoring-bio-with-einstein-part-2-conditions -->
 <!--

@@ -26,7 +26,6 @@ function gcdistance( lat1, lon1, lat2, lon2 ) {
 	lat2	= deg2rad( makeTerm(lat2).toString() );
 	lon1	= deg2rad( makeTerm(lon1).toString() );
 	lon2	= deg2rad( makeTerm(lon2).toString() );
-	
 	var londiff	= Math.abs(lon1 - lon2);
 	var s1		= square(Math.sin((lat2 - lat1) / 2));
 	var s2		= square(Math.sin( londiff / 2 ));
@@ -41,6 +40,6 @@ function gcdistance( lat1, lon1, lat2, lon2 ) {
 	var adist	= 2 * Math.asin( sq );
 	var r		= 6372.795;
 	var dist	= r * adist;
-	
-	return dist;
+	var literal	= makeTerm(dist, null, "http://www.w3.org/2001/XMLSchema#float");
+	return literal;
 }

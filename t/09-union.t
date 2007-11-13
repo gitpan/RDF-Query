@@ -1,20 +1,20 @@
-#!/usr/bin/perl
 use strict;
 use warnings;
-use URI::file;
-use Test::More tests => 75;
-use_ok( 'RDF::Query' );
+use Test::More;
 
-SKIP: {
-	eval "use RDF::Query::Model::Redland;";
-	skip "Failed to load RDF::Redland", 74 if $@;
-	
-	my @uris	= map { URI::file->new_abs( "data/$_" ) } qw(about.xrdf foaf.xrdf Flower-2.rdf);
-	my @data	= map { RDF::Redland::URI->new( "$_" ) } @uris;
-	my $storage	= new RDF::Redland::Storage("hashes", "test", "new='yes',hash-type='memory'");
-	my $model	= new RDF::Redland::Model($storage, "");
-	my $parser	= new RDF::Redland::Parser("rdfxml");
-	$parser->parse_into_model($_, $_, $model) for (@data);
+use lib qw(. t);
+require "models.pl";
+
+my @files	= map { "data/$_" } qw(about.xrdf foaf.xrdf);
+my @models	= test_models( @files );
+my $tests	= 1 + (scalar(@models) * 26);
+plan tests => $tests;
+
+use_ok( 'RDF::Query' );
+foreach my $model (@models) {
+	print "\n#################################\n";
+	print "### Using model: $model\n\n";
+
 	
 	{
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
@@ -32,7 +32,7 @@ END
 		while ($stream and not $stream->finished) {
 			my $row		= $stream->current;
 			my ($thing, $name)	= @{ $row };
-			like( $query->bridge->as_string( $thing ), qr/kasei|xmlns|[(]/, 'union person|thing' );
+			like( $query->bridge->as_string( $thing ), qr/kasei|xmlns|[(]|_:/, 'union person|thing' );
 			ok( $query->bridge->isa_node( $thing ), 'node: ' . $query->bridge->as_string( $thing ) );
 			ok( $query->bridge->isa_literal( $name ), 'name: ' . $query->bridge->as_string( $name ) );
 		} continue { $stream->next }
@@ -54,7 +54,7 @@ END
 		while ($stream and not $stream->finished) {
 			my $row		= $stream->current;
 			my ($thing, $name)	= @{ $row };
-			like( $query->bridge->as_string( $thing ), qr/kasei|xmlns|[(]/, 'union person|thing' );
+			like( $query->bridge->as_string( $thing ), qr/kasei|xmlns|[(]|_:/, 'union person|thing' );
 			ok( $query->bridge->isa_node( $thing ), 'node: ' . $query->bridge->as_string( $thing ) );
 			ok( $query->bridge->isa_literal( $name ), 'name: ' . $query->bridge->as_string( $name ) );
 		} continue { $stream->next }

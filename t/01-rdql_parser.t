@@ -20,7 +20,14 @@ isa_ok( $parser, 'RDF::Query::Parser::RDQL' );
 			dcterms FOR <http://purl.org/dc/terms/>,
 			geo FOR <http://www.w3.org/2003/01/geo/wgs84_pos#>
 END
-	my $correct	= {'variables' => [['VAR','page']],'namespaces' => {'dcterms' => 'http://purl.org/dc/terms/','rdf' => 'http://www.w3.org/1999/02/22-rdf-syntax-ns#','foaf' => 'http://xmlns.com/foaf/0.1/','geo' => 'http://www.w3.org/2003/01/geo/wgs84_pos#'},'sources' => undef,'triples' => [[['VAR','person'],['URI',['foaf','name']],['LITERAL','Gregory Todd Williams']],[['VAR','person'],['URI',['foaf','homepage']],['VAR','page']]]};
+	my $correct	= {
+					'variables' => [['VAR','page']],
+					'namespaces' => {'dcterms' => 'http://purl.org/dc/terms/','rdf' => 'http://www.w3.org/1999/02/22-rdf-syntax-ns#','foaf' => 'http://xmlns.com/foaf/0.1/','geo' => 'http://www.w3.org/2003/01/geo/wgs84_pos#'},
+					'sources' => undef,
+					'triples' => [
+									['TRIPLE',['VAR','person'],['URI',['foaf','name']],['LITERAL','Gregory Todd Williams']],
+									['TRIPLE',['VAR','person'],['URI',['foaf','homepage']],['VAR','page']]]
+				};
 	my $parsed	= $parser->parse( $rdql );
 	is_deeply( $parsed, $correct, 'SELECT, WHERE, USING' );
 }
@@ -45,8 +52,8 @@ END
 END
 	my $correct	= {
 		'triples'		=> [
-							[['VAR','point'],['URI',['geo','lat']],['VAR','lat']],
-							[['VAR','image'],['VAR','pred'],['VAR','point']],
+							['TRIPLE',['VAR','point'],['URI',['geo','lat']],['VAR','lat']],
+							['TRIPLE',['VAR','image'],['VAR','pred'],['VAR','point']],
 							['FILTER', ['&&',['||',['==',['VAR','pred'],['URI','http://purl.org/dc/terms/spatial']],['==',['VAR','pred'],['URI','http://xmlns.com/foaf/0.1/based_near']]],['>',['VAR','lat'],['LITERAL','52.988674']],['<',['VAR','lat'],['LITERAL','53.036526']]]]
 						],
 		'sources'		=> undef,
@@ -75,8 +82,8 @@ END
 END
 	my $correct	= {
 					'triples'		=> [
-										[['VAR','person'],['URI',['foaf','name']],['LITERAL','Gregory Todd Williams']],
-										[['VAR','person'],['URI',['foaf','homepage']],['VAR','homepage']],
+										['TRIPLE',['VAR','person'],['URI',['foaf','name']],['LITERAL','Gregory Todd Williams']],
+										['TRIPLE',['VAR','person'],['URI',['foaf','homepage']],['VAR','homepage']],
 										['FILTER', ['~~',['VAR','homepage'],['LITERAL','kasei']]],
 									],
 					'namespaces'	=> {'foaf' => 'http://xmlns.com/foaf/0.1/','rdf' => 'http://www.w3.org/1999/02/22-rdf-syntax-ns#','geo' => 'http://www.w3.org/2003/01/geo/wgs84_pos#','dcterms' => 'http://purl.org/dc/terms/'},

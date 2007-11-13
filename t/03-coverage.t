@@ -78,6 +78,7 @@ END
 	}
 
 	{
+		print "# geo:Point with geo:lat\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 			PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
@@ -354,6 +355,7 @@ END
 	}
 
 	{
+		print "# \n";
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 			PREFIX	: <http://xmlns.com/foaf/0.1/>
 			SELECT	?name
@@ -374,7 +376,7 @@ END
 	}
 
 	{
-		print "# SPARQL query; Stream accessors\n" if ($verbose);
+		print "# SPARQL query; Stream accessors-1\n" if ($verbose);
 		my $query	= new RDF::Query ( <<"END", undef, 'http://www.w3.org/TR/rdf-sparql-query/', undef );
 			PREFIX	: <http://xmlns.com/foaf/0.1/>
 			SELECT	?person
@@ -384,14 +386,15 @@ END
 		my $value	= $stream->binding_value_by_name('person');
 		is( $value, $stream->binding_value( 0 ), 'binding_value' );
 		ok( $query->bridge->isa_node( $value ), 'binding_value_by_name' );
-		is_deeply( ['person'], [$stream->binding_names], 'binding_names' );
+		my @names	= $stream->binding_names;
+		is_deeply( ['person'], \@names, 'binding_names' );
 		my @values	= $stream->binding_values;
 		ok( $query->bridge->isa_node( $values[0] ), 'binding_value_by_name' );
 		
 	}
 
 	{
-		print "# SPARQL query; Stream accessors\n" if ($verbose);
+		print "# SPARQL query; Stream accessors-2\n" if ($verbose);
 		my $query	= new RDF::Query ( 'ASK	{ ?s ?p ?o }', undef, undef, 'sparql' );
 		my $stream	= $query->execute( $model );
 		my $bridge	= $query->bridge;

@@ -15,6 +15,11 @@ package RDF::Query::Parser;
 use strict;
 use warnings;
 
+use RDF::Query::Node::Resource;
+use RDF::Query::Node::Literal;
+use RDF::Query::Node::Blank;
+use RDF::Query::Node::Variable;
+use RDF::Query::Algebra;
 use RDF::Query::Error qw(:try);
 
 use Data::Dumper;
@@ -47,13 +52,7 @@ sub new_literal {
 	my $literal	= shift;
 	my $lang	= shift;
 	my $dt		= shift;
-	if ($lang) {
-		return [ 'LITERAL', $literal, $lang, undef ];
-	} elsif ($dt) {
-		return [ 'LITERAL', $literal, undef, $dt ];
-	} else {
-		return [ 'LITERAL', $literal ];
-	}
+	return RDF::Query::Node::Literal->new( $literal, $lang, $dt );
 }
 
 =item C<new_variable ( $name )>
@@ -64,14 +63,14 @@ Returns a new variable structure.
 
 sub new_variable {
 	my $self	= shift;
+	my $name;
 	if (@_) {
-		my $name	= shift;
-		return [ 'VAR', $name ];
+		$name	= shift;
 	} else {
 		my $count	= $self->{__PRIVATE_VARIABLE_COUNT}++;
-		my $name	= '_____rdfquery_private_' . $count;
-		return [ 'VAR', $name ];
+		$name	= '_____rdfquery_private_' . $count;
 	}
+	return RDF::Query::Node::Variable->new( $name );
 }
 
 =item C<new_blank ( $name )>
@@ -91,7 +90,7 @@ sub new_blank {
 		}
 		$id	= 'a' . $self->{blank_ids}++;
 	}
-	return ['BLANK', $id ];
+	return RDF::Query::Node::Blank->new( $id );
 }
 
 =item C<new_uri ( $uri )>
@@ -103,7 +102,7 @@ Returns a new variable structure.
 sub new_uri {
 	my $self	= shift;
 	my $uri		= shift;
-	return [ 'URI', $uri ];
+	return RDF::Query::Node::Resource->new( $uri );
 }
 
 =item C<new_qname ( $prefix, $localPart )>
@@ -128,7 +127,7 @@ Returns a new UNION structure.
 sub new_union {
 	my $self		= shift;
 	my @patterns	= @_;
-	return [ 'UNION', @patterns ];
+	return RDF::Query::Algebra::Union->new( @patterns );
 }
 
 =item C<new_optional ( $patterns )>
@@ -139,8 +138,9 @@ Returns a new OPTIONAL structure.
 
 sub new_optional {
 	my $self		= shift;
-	my $triples		= shift;
-	return [ 'OPTIONAL', $triples ];
+	my $ggp			= shift;
+	my $opt			= shift;
+	return RDF::Query::Algebra::Optional->new( $ggp, $opt );
 }
 
 =item C<new_named_graph ( $graph, $triples )>
@@ -153,7 +153,7 @@ sub new_named_graph {
 	my $self		= shift;
 	my $graph		= shift;
 	my $triples		= shift;
-	return [ 'GRAPH', $graph, $triples ];
+	return RDF::Query::Algebra::NamedGraph->new( $graph, $triples );
 }
 
 =item C<new_triple ( $s, $p, $o )>
@@ -165,7 +165,7 @@ Returns a new triple structure.
 sub new_triple {
 	my $self		= shift;
 	my ($s,$p,$o)	= @_;
-	return [ $s, $p, $o ];
+	return RDF::Query::Algebra::Triple->new( $s, $p, $o );
 }
 
 =item C<new_unary_expression ( $operator, $operand )>
@@ -178,7 +178,7 @@ sub new_unary_expression {
 	my $self	= shift;
 	my $op		= shift;
 	my $operand	= shift;
-	return [ $op, $operand ];
+	return RDF::Query::Algebra::Expr->new( $op, $operand );
 }
 
 =item C<new_binary_expression ( $operator, @operands )>
@@ -191,7 +191,7 @@ sub new_binary_expression {
 	my $self		= shift;
 	my $op			= shift;
 	my @operands	= @_[0,1];
-	return [ $op, @operands ];
+	return RDF::Query::Algebra::Expr->new( $op, @operands );
 }
 
 =item C<new_logical_expression ( $operator, @operands )>
@@ -204,7 +204,7 @@ sub new_logical_expression {
 	my $self		= shift;
 	my $op			= shift;
 	my @operands	= @_;
-	return [ $op, @operands ];
+	return RDF::Query::Algebra::Expr->new( $op, @operands );
 }
 
 =item C<new_function_expression ( $function, @operands )>
@@ -217,8 +217,21 @@ sub new_function_expression {
 	my $self		= shift;
 	my $function	= shift;
 	my @operands	= @_;
-	return [ 'FUNCTION', $function, @operands ];
+	return RDF::Query::Algebra::Function->new( $function, @operands );
 }
+
+=item C<new_filter ( $filter_expr )>
+
+Returns a new filter structure.
+
+=cut
+
+sub new_filter {
+	my $self	= shift;
+	my $expr	= shift;
+	return RDF::Query::Algebra::OldFilter->new( $expr );
+}
+
 
 ######################################################################
 

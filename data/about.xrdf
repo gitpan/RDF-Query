@@ -19,7 +19,7 @@
 
 	<foaf:Image rdf:about="http://kasei.us/pictures/2004/20040909-Ireland/images/DSC_5705.jpg">
 			<dcterms:spatial>
-				<geo:Point rdf:nodeID="r1101876275r7">
+				<geo:Point rdf:ID="r1101876275r7">
                         <geo:lat>52.972770</geo:lat>
                         <foaf:name>Cliffs of Moher, Ireland</foaf:name>
                         <geo:long>-9.430733</geo:long>

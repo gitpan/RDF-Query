@@ -38,6 +38,75 @@
 			make install<br />
 		</div>
 	<h2 id="changelog">Version History</h2>
+		<h3 id="v1_50">Version 1.500 (2007-11-13)</h3>
+			<ul>
+				<li>Query Engine
+					<ul>
+						<li>URIs are now properly qualified with a BASE when present.</li>
+						<li>Base URI passed to constructor is now used if no BASE clause exists in the query.</li>
+						<li>Fixed BASE qualification when an IRI contains Unicode characters (Emulating IRI support with the URI module).</li>
+						<li>NAMED graph data is now seperated from the default model into new (temporary) models.</li>
+						<li>NAMED graphs now work with RDF::Core.</li>
+						<li>Added new RDF::Query::Algebra:: classes that are used to represent query ASTs.</li>
+						<li>Added new RDF::Query::Node:: classes that are used to represent RDF Nodes and Variables.</li>
+						<li>Major refactoring to RDF::Query::query_more() to enhance extensibility.</li>
+						<li>Added RDF::Query::query_more_triple() and RDF::Query::query_more_bgp() for triple and bgp matching.</li>
+						<li>Improved support of GGP pattern matching.</li>
+						<li>Added sgrep, smap, swatch and concat methods to RDF::Query::Stream class.</li>
+						<li>Refactored query_more() variants and sort_rows() to use new stream methods sgrep, smap, and concat.</li>
+						<li>Continued to fix bugs to more closely align with DAWG tests.</li>
+						<li>Updated DAWG tests to run with the RDF::Core backend.</li>
+						<li>Any DAWG tests with mf:requires are now automatically marked TODO.</li>
+						<li>DAWG tests graph equality is now punted to user verification.</li>
+						<li>Fixed bNode merging code in DAWG tests.</li>
+						<li>query_more() variants and sort_rows() now all return RDF::Query::Stream objects.</li>
+						<li>query_more() (and everything it calls) now expects bridge object as a method argument (to ensure NAMED graph querying works).</li>
+						<li>Added join_streams() to perform netsted-loop natural joins on two Stream objects.</li>
+					</ul></li>
+				<li>Filters
+					<ul>
+						<li>Added call_function() method to abstract the generation of ['FUNCTION',...] blocks.</li>
+						<li>FILTER operator != is now negative for unknown datatypes.</li>
+						<li>Fixed exception handling in check_constraints().</li>
+						<li>Fixed type-promotion in arithmetic operations and added recognized xsd numeric types.</li>
+						<li>API Chnage: extension functions now take a bridge object as their second argument (after the query object).</li>
+						<li>Fixed equals() method in RDF::Core bridge to properly use the RDF::Core API.</li>
+						<li>Javascript function makeTerm now accepts language and datatype parameters.</li>
+						<li>toString() javascript funtion now returns just the literal value (not including language or datatype).</li>
+						<li>sop:str now will stringify blank nodes properly.</li>
+						<li>sparql:langmatches now properly differentiates between no language tag and an empty language tag.</li>
+					</ul></li>
+				<li>Parsers
+					<ul>
+						<li>Parsers now generate ASTs using the Algebra and Node classes.</li>
+						<li>Fixed bugs in SPARQL tokenizer for some Unicode strings (with combining accents).</li>
+						<li>RDF::Query::Parser::new_literal() now canonicalizes language tags (to lowercase).</li>
+						<li>Fixed GGP verification in RDF::Query::Parser::SPARQL::fixup().</li>
+						<li>Merged GGPAtom changes from tSPARQL to SPARQL grammar.</li>
+					</ul></li>
+				<li>Backends
+					<ul>
+						<li>Fixed bug in RDF::Query::Model::RDFCore::equals() when comparing two blank nodes.</li>
+						<li>Changed RDF::Query::Model::RDFCore::as_string to return strings where node type is identifiable (like Redland, URIs as [...], literal \"...\", bnodes (...)).</li>
+						<li>Model methods literal_value, literal_datatype and literal_value_langauge now return undef if argument isn't a literal.</li>
+						<li>Model methods uri_value and blank_identifier now return undef unless argument is of correct type.</li>
+						<li>Model add_string methods now normalize Unicode input.</li>
+						<li>Blank node prefix is now scoped to bridge, not lexically in RDF::Query::Model::RDFCore.</li>
+						<li>RDF::Query::Model::Redland::new_literal now forces argument to a string (XS code breaks on non-PVOK scalars).</li>
+						<li>RDF::Query::Model::Redland::add_uri now uses LWP instead of relying on Redland to fetch content.</li>
+						<li>Redland model class now recognizes DateTime objects as literals.</li>
+						<li>Updated add_uri() method in RDF::Core bridge to support named graphs (only one name per model for now).</li>
+					</ul></li>
+				<li>Miscellaneous
+					<ul>
+						<li>Added rudimentary profiling code (Devel::DProf seems to crash on RDF::Query)</li>
+						<li>Added initial code for supporting property functions (using time:inside as an example).</li>
+						<li>Removed multi_get code.</li>
+						<li>Removed code for MULTI patterns. Will replace with algebra-based optimization in the future.</li>
+						<li>RDF::Query::Stream constructor now accepts an ARRAY reference.</li>
+						<li>Stopped using the peephole optimizers. Will replace with an algebra-based optimizer in the future.</li>
+					</ul></li>
+			</ul>
 		<h3 id="v1_042">Version 1.044 (2007-09-13)</h3>
 			<ul>
 				<li>DAWG tests now emit EARL reports.</li>
@@ -92,9 +161,11 @@
 				<li>Fixed test suite to work properly on systems without Redland.</li>
 				<li>Disabled loading of tSPARQL parser for release.</li>
 				<li>Removed function prototype definitions in Model base class (was causing loading problems when models are missing).</li>
+			</ul>
 		<h3 id="v1_042">Version 1.043 (2007-06-14)</h3>
 			<ul>
 				<li>Fixed broken MANIFEST causing MakeMaker code to break.</li>
+			</ul>
 		<h3 id="v1_042">Version 1.042 (2007-06-13)</h3>
 			<ul>
 				<li>Added support for Javascript URL-based extension functions.</li>
@@ -114,6 +185,7 @@
 				<li>GPG fingerprint handling is now whitespace insensitive.</li>
 				<li>Removed (currently) unused multiget tests.</li>
 				<li>Redland bridge uri_value returns undef if not called with a node.</li>			</ul>
+			</ul>
 		<h3 id="v1_041">Version 1.041 (2006-11-26)</h3>
 			<ul>
 				<li>Removed unwanted '+' signs on stringified bigints when running under perl 5.6.x.</li>
@@ -396,5 +468,5 @@
 	<h2>Copyright</h2>
 		<p>Copyright &copy; 2005&#8211;2006 Gregory Williams. All rights reserved. This program is free software; you can redistribute it and/or modify it under the same terms as Perl itself.</p>
 	
-	$Id: README.html 237 2007-09-13 17:51:30Z samofool $
+	$Id: README.html 290 2007-11-13 04:31:04Z samofool $
 </body></html>

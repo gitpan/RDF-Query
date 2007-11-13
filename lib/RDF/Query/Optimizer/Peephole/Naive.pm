@@ -76,25 +76,33 @@ the triple patterns in C<$pattern> and returns the computed cost of the pattern.
 sub optimize_triplepattern {
 	my $self	= shift;
 	my $pattern	= shift;
-	
+
 	my(@cost, @non_orderable);
 	foreach my $part (@{ $pattern }) {
-		if (reftype($part->[0])) {	# XXX if reftype(), then it's a node.
+		Carp::confess unless (reftype($part) eq 'ARRAY');
+		my $type	= $part->[0];
+		if (reftype($type) or $type eq 'TRIPLE') {	# XXX if reftype(), then it's a node.
 			my $cost	= $self->statement_cost( $part );
 			push(@cost, [ $cost, $part ]);
 		} else {					# XXX if not reftype(), then it's an aggregate (OPTIONAL, UNION, etc.)
 			# recurse
-			my $type	= $part->[0];
 			if ($type eq 'FILTER') {
 				push(@non_orderable, $part);
 			} elsif ($type eq 'GRAPH') {
 				my $cost	= $self->optimize_triplepattern( $part->[2] );
 				push(@cost, [ $cost, $part ]);
+			} elsif ($type eq 'GGP') {
+				my $cost	= $self->optimize_triplepattern( $part->[1] );
+				push(@cost, [ $cost, $part ]);
+			} elsif ($type eq 'BGP') {
+				my $cost	= $self->optimize_triplepattern( [ @{ $part }[ 1 .. $#{ $part } ] ]);
+				push(@cost, [ $cost, $part ]);
 			} elsif ($type eq 'TIME') {
 				my $cost	= $self->optimize_triplepattern( $part->[2] );
 				push(@cost, [ $cost, $part ]);
 			} elsif ($type eq 'OPTIONAL') {
-				my $cost	= max( 1, $self->optimize_triplepattern( $part->[1] ) );
+				my $cost	= $self->optimize_triplepattern( [$part->[1]] );
+				$cost		*= max( 1, $self->optimize_triplepattern( [$part->[2]] ) );
 				push(@cost, [ $cost, $part ]);
 			} elsif ($type eq 'UNION') {
 				my $cost	= reduce { $a + $b }
@@ -124,10 +132,11 @@ sub statement_cost {
 	my $self		= shift;
 	my $statement	= shift;
 	my @nodes		= @{ $statement };
+	shift(@nodes) if ($nodes[0] eq 'TRIPLE');
 	
 	my $cost		= 0;
 	foreach my $node (@nodes) {
-		if (not blessed($node) and reftype($node) eq 'ARRAY') {
+		if (not blessed($node) and ref($node) and reftype($node) eq 'ARRAY') {
 			my $type	= $node->[0];
 			if ($type eq 'VAR') {
 				$cost	+= $self->variable_cost;
