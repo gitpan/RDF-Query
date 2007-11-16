@@ -111,6 +111,17 @@ sub sse {
 	}
 }
 
+=item C<< as_sparql >>
+
+Returns the SPARQL string for this node.
+
+=cut
+
+sub as_sparql {
+	my $self	= shift;
+	return $self->sse;
+}
+
 1;
 
 __END__

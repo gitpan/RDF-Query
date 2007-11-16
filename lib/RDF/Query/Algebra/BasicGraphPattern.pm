@@ -74,6 +74,23 @@ sub sse {
 	);
 }
 
+=item C<< as_sparql >>
+
+Returns the SPARQL string for this alegbra expression.
+
+=cut
+
+sub as_sparql {
+	my $self	= shift;
+	my $indent	= shift || '';
+	my @triples;
+	foreach my $t ($self->triples) {
+		push(@triples, $t->as_sparql( $indent ));
+	}
+	my $string	= join(" .\n${indent}", @triples);
+	return $string;
+}
+
 =item C<< type >>
 
 Returns the type of this algebra expression.

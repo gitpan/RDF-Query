@@ -1,12 +1,27 @@
 # RDF::Query::Stream
 # -------------
-# $Revision: 271 $
-# $Date: 2007-11-03 13:59:17 -0400 (Sat, 03 Nov 2007) $
+# $Revision: 293 $
+# $Date: 2007-11-15 14:55:24 -0500 (Thu, 15 Nov 2007) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
 
 RDF::Query::Stream - Stream (iterator) class for query results.
+
+=head1 VERSION
+
+This document describes RDF::SPARQLResults version 1.000.
+
+
+=head1 SYNOPSIS
+
+    use RDF::SPARQLResults;
+    my $query	= RDF::Query->new( '...query...' );
+    my $stream	= $query->execute();
+    while (my $row = $stream->next) {
+    	my @vars	= @$row;
+    	# do something with @vars
+    }
 
 =head1 METHODS
 
@@ -22,136 +37,329 @@ use warnings;
 use JSON;
 use Data::Dumper;
 use Carp qw(carp);
-use Scalar::Util qw(reftype weaken blessed);
+use Scalar::Util qw(blessed reftype);
 
-our ($debug, @ISA, @EXPORT_OK);
+our ($REVISION, $VERSION, $debug, @ISA, @EXPORT_OK);
+use constant DEBUG	=> 0;
 BEGIN {
-	$debug		= $RDF::Query::debug;
+	$debug		= DEBUG;
+	$REVISION	= do { my $REV = (qw$Revision: 293 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= '1.000';
 	
 	require Exporter;
 	@ISA		= qw(Exporter);
 	@EXPORT_OK	= qw(sgrep smap swatch);
 }
 
-=item C<new ( $closure, $type, $names, %args )>
 
-Returns a new stream (interator) object. C<$closure> must be a CODE
-reference that acts as an iterator, returning successive items when
-called, and returning undef when the iterator is exhausted.
+use overload 'bool' => sub { $_[0] };
+use overload '&{}' => sub {
+	my $self	= shift;
+	return sub {
+		return $self->next;
+	};
+};
+
+
+=item C<new ( \@results, $type, \@names, %args )>
+
+=item C<new ( \&results, $type, \@names, %args )>
+
+Returns a new SPARQL Result interator object. Results must be either
+an reference to an array containing results or a CODE reference that
+acts as an iterator, returning successive items when called, and
+returning undef when the iterator is exhausted.
+
+$type should be one of: bindings, boolean, graph.
 
 =cut
 
 sub new {
 	my $class		= shift;
-	my $stream		= shift;
+	my $stream		= shift || sub { undef };
 	my $type		= shift || 'bindings';
 	my $names		= shift || [];
-#	Carp::cluck(Dumper($names));
 	my %args		= @_;
-	my $open		= 0;
-	my $finished	= 0;
-	my $row;
-	my $self;
 	
-	if (not defined($stream)) {
-		$stream	= sub { undef };
-	} elsif (ref($stream) and reftype($stream) eq 'ARRAY') {
+	if (ref($stream) and reftype($stream) eq 'ARRAY') {
 		my $array	= $stream;
 		$stream	= sub {
 			return shift(@$array);
 		}
 	}
 	
-	my $selfref;
-	$self	= bless(sub {
-		my $arg	= shift;
-		if ($arg) {
-			if ($arg =~ /is_(\w+)$/) {
-				return ($1 eq $type);
-			} elsif ($arg eq 'type') {
-				return $type;
-			} elsif ($arg =~ /^_(.*)$/ and exists $args{ $1 }) {
-				return $args{ $1 };
-			} elsif ($arg eq 'next_result' or $arg eq 'next') {
-				$open	= 1;
-				$row	= $selfref->();
-				if ($args{named}) {
-					if ($args{bridge}->supports('named_graph') and my $bridge = $args{bridge}) {
-						$args{context}	= $bridge->get_context( $stream, %args );
-					}
-				}
-				unless (defined $row) {
-					$finished	= 1;
-				}
-				return $row;
-			} elsif ($arg eq 'current') {
-				unless ($open) {
-					$selfref->next_result;
-				}
-				return $row;
-			} elsif ($arg eq 'binding_names') {
-				return @{ $names };
-			} elsif ($arg eq 'binding_name') {
-				my $val	= shift;
-				return $names->[ $val ]
-			} elsif ($arg eq 'binding_value_by_name') {
-				my $name	= shift;
-				foreach my $i (0 .. $#{ $names }) {
-					if ($names->[$i] eq $name) {
-						return $selfref->binding_value( $i );
-					}
-				}
-				warn "No variable named '$name' is present in query results.\n";
-			} elsif ($arg eq 'binding_value') {
-				unless ($open) {
-					$selfref->next_result;
-				}
-				my $val	= shift;
-				return $row->[ $val ];
-			} elsif ($arg eq 'binding_values') {
-				unless ($open) {
-					$selfref->next_result;
-				}
-				return @{ $row };
-			} elsif ($arg eq 'bindings_count') {
-				unless ($open) {
-					$selfref->next_result;
-				}
-				
-				return scalar( @{ $names } )if (scalar(@$names));
-				return 0 unless ref($row);
-				return scalar( @{ $row } );
-			} elsif ($arg eq 'open') {
-				return $open;
-			} elsif ($arg eq 'finished' or $arg eq 'end') {
-				unless ($open) {
-					$selfref->next_result;
-				}
-				return $finished;
-			} elsif ($arg eq 'context') {
-				my $bridge	= $args{bridge};
-				my $context	= $bridge->get_context( $stream, %args );
-				return $context;
-			} elsif ($arg eq 'close') {
-				$open	= 0;
-				undef $stream;
-				return undef;
-			} elsif ($arg eq 'debug') {
-				local($RDF::Query::debug)	= 2;
-				RDF::Query::_debug_closure( $stream );
-			} elsif ($arg eq '_args') {
-				return \%args;
-			}
-		} else {
-			return unless (reftype($stream) eq 'CODE');
-			my $data	= $stream->();
-			return $data;
-		}
-	}, $class);
+	my $open		= 0;
+	my $finished	= 0;
+	my $row;
 	
-	$selfref	= $self;
-	weaken($selfref);
+	my $data	= {
+		_open		=> 0,
+		_finished	=> 0,
+		_type		=> $type,
+		_names		=> $names,
+		_stream		=> $stream,
+		_args		=> \%args,
+		_row		=> undef,
+	};
+	
+	my $self	= bless($data, $class);
 	return $self;
+}
+
+=item C<type>
+
+Returns the underlying result type (boolean, graph, bindings).
+
+=cut
+
+sub type {
+	my $self			= shift;
+	return $self->{_type};
+}
+
+=item C<is_boolean>
+
+Returns true if the underlying result is a boolean value.
+
+=cut
+
+sub is_boolean {
+	my $self			= shift;
+	return ($self->{_type} eq 'boolean') ? 1 : 0;
+}
+
+=item C<is_bindings>
+
+Returns true if the underlying result is a set of variable bindings.
+
+=cut
+
+sub is_bindings {
+	my $self			= shift;
+	return ($self->{_type} eq 'bindings') ? 1 : 0;
+}
+
+=item C<is_graph>
+
+Returns true if the underlying result is an RDF graph.
+
+=cut
+
+sub is_graph {
+	my $self			= shift;
+	return ($self->{_type} eq 'graph') ? 1 : 0;
+}
+
+=item C<to_string ( $format )>
+
+Returns a string representation of the stream data in the specified
+C<$format>. If C<$format> is missing, defaults to XML serialization.
+Other options are:
+
+  http://www.w3.org/2001/sw/DataAccess/json-sparql/
+
+=cut
+
+sub to_string {
+	my $self	= shift;
+	my $format	= shift || 'http://www.w3.org/2001/sw/DataAccess/rf1/result2';
+	if (ref($format) and $format->isa('RDF::Redland::URI')) {
+		$format	= $format->as_string;
+	}
+	
+	if ($format eq 'http://www.w3.org/2001/sw/DataAccess/json-sparql/') {
+		return $self->as_json;
+	} else {
+		return $self->as_xml;
+	}
+}
+
+=item C<< next >>
+
+=item C<< next_result >>
+
+Returns the next item in the stream.
+
+=cut
+
+sub next { $_[0]->next_result }
+sub next_result {
+	my $self	= shift;
+	return if ($self->{_finished});
+	
+	my $stream	= $self->{_stream};
+	my $value	= $stream->();
+	unless (defined($value)) {
+		$self->{_finished}	= 1;
+	}
+
+	my $args	= $self->_args;
+	if ($args->{named}) {
+		if ($self->_bridge->supports('named_graph')) {
+			my $bridge	= $self->_bridge;
+			$args->{context}	= $bridge->get_context( $self->{_stream}, %$args );
+		}
+	}
+	
+	$self->{_open}++;
+	$self->{_row}	= $value;
+	return $value;
+}
+
+
+=item C<< current >>
+
+Returns the current item in the stream.
+
+=cut
+
+sub current {
+	my $self	= shift;
+	if ($self->open) {
+		return $self->_row;
+	} else {
+		return $self->next;
+	}
+}
+
+=item C<< binding_value_by_name ( $name ) >>
+
+Returns the binding of the named variable in the current result.
+
+=cut
+
+sub binding_value_by_name {
+	my $self	= shift;
+	my $name	= shift;
+	my $names	= $self->{_names};
+	foreach my $i (0 .. $#{ $names }) {
+		if ($names->[$i] eq $name) {
+			return $self->binding_value( $i );
+		}
+	}
+	warn "No variable named '$name' is present in query results.\n";
+}
+
+=item C<< binding_value ( $i ) >>
+
+Returns the binding of the $i-th variable in the current result.
+
+=cut
+
+sub binding_value {
+	my $self	= shift;
+	my $val		= shift;
+	my $row		= ($self->open) ? $self->current : $self->next;
+	return $row->[ $val ];
+}
+
+
+=item C<binding_values>
+
+Returns a list of the binding values from the current result.
+
+=cut
+
+sub binding_values {
+	my $self	= shift;
+	my $row		= ($self->open) ? $self->current : $self->next;
+	return @$row;
+}
+
+
+=item C<binding_names>
+
+Returns a list of the binding names.
+
+=cut
+
+sub binding_names {
+	my $self	= shift;
+	my $names	= $self->{_names};
+	return @$names;
+}
+
+=item C<binding_name ( $i )>
+
+Returns the name of the $i-th result column.
+
+=cut
+
+sub binding_name {
+	my $self	= shift;
+	my $names	= $self->{_names};
+	my $val		= shift;
+	return $names->[ $val ];
+}
+
+
+=item C<bindings_count>
+
+Returns the number of variable bindings in the current result.
+
+=cut
+
+sub bindings_count {
+	my $self	= shift;
+	my $names	= $self->{_names};
+	my $row		= ($self->open) ? $self->current : $self->next;
+	return scalar( @$names )if (scalar(@$names));
+	return 0 unless ref($row);
+	return scalar( @$row );
+}
+
+=item C<< end >>
+
+=item C<< finished >>
+
+Returns true if the end of the stream has been reached, false otherwise.
+
+=cut
+
+sub end { $_[0]->finished }
+sub finished {
+	my $self	= shift;
+	return $self->{_finished};
+}
+
+=item C<< open >>
+
+Returns true if the first element of the stream has been retrieved, false otherwise.
+
+=cut
+
+sub open {
+	my $self	= shift;
+	return $self->{_open};
+}
+
+=item C<< close >>
+
+Closes the stream. Future attempts to retrieve data from the stream will act as
+if the stream had been exhausted.
+
+=cut
+
+sub close {
+	my $self			= shift;
+	$self->{_finished}	= 1;
+	undef( $self->{ _stream } );
+	return;
+}
+
+=item C<< context >>
+
+Returns the context node of the current result (if applicable).
+
+=cut
+
+sub context {
+	my $self	= shift;
+	my $args	= $self->_args;
+	my $bridge	= $args->{bridge};
+	my $stream	= $self->{_stream};
+	my $context	= $bridge->get_context( $stream, %$args );
+	return $context;
 }
 
 
@@ -195,7 +403,7 @@ Returns the boolean value of the first item in the stream.
 
 sub get_boolean {
 	my $self	= shift;
-	my $data	= $self->();
+	my $data	= $self->next_result;
 	return +$data;
 }
 
@@ -207,35 +415,12 @@ Returns an array containing all the items in the stream.
 
 sub get_all {
 	my $self	= shift;
+	
 	my @data;
-	while (my $data = $self->()) {
+	while (my $data = $self->next) {
 		push(@data, $data);
 	}
 	return @data;
-}
-
-=item C<to_string ( $format )>
-
-Returns a string representation of the stream data in the specified
-C<$format>. If C<$format> is missing, defaults to XML serialization.
-Other options are:
-
-  http://www.w3.org/2001/sw/DataAccess/json-sparql/
-
-=cut
-
-sub to_string {
-	my $self	= shift;
-	my $format	= shift || 'http://www.w3.org/2001/sw/DataAccess/rf1/result2';
-	if (ref($format) and $format->isa('RDF::Redland::URI')) {
-		$format	= $format->as_string;
-	}
-	
-	if ($format eq 'http://www.w3.org/2001/sw/DataAccess/json-sparql/') {
-		return $self->as_json;
-	} else {
-		return $self->as_xml;
-	}
 }
 
 =item C<as_xml ( $max_size )>
@@ -489,25 +674,50 @@ sub format_node_json ($$$) {
 	}
 }
 
-sub AUTOLOAD {
+=begin private
+
+=item C<< debug >>
+
+Prints debugging information about the stream.
+
+=end private
+
+=cut
+
+sub debug {
 	my $self	= shift;
-	my $class	= ref($self) || return undef;
-	our $AUTOLOAD;
-	return if ($AUTOLOAD =~ /:DESTROY$/);
-	my $method		= $AUTOLOAD;
-	$method			=~ s/^.*://;
-	if (UNIVERSAL::isa( $self, 'CODE' )) {
-		return $self->( $method, @_ );
-	} else {
-		carp "Not a CODE reference";
-		return undef;
-	}
+	my $stream	= $self->{_stream};
+	local($RDF::Query::debug)	= 2;
+	RDF::Query::_debug_closure( $stream );
 }
 
-sub DESTROY {
+sub _args {
 	my $self	= shift;
-	$self->close;
+	return $self->{_args};
 }
+
+sub _row {
+	my $self	= shift;
+	return $self->{_row};
+}
+
+sub _bridge {
+	my $self	= shift;
+	return $self->_args->{bridge};
+}
+
+sub _names {
+	my $self	= shift;
+	return $self->{_names};
+}
+
+sub _stream {
+	my $self	= shift;
+	return $self->{_stream};
+}
+
+
+
 
 
 
@@ -628,39 +838,29 @@ sub swatch (&$) {
 	return $s;
 }
 
-
-
-
-
 1;
 
 __END__
 
 =back
 
-=head1 REVISION HISTORY
+=head1 DEPENDENCIES
 
- $Log$
- Revision 1.4  2005/07/27 00:30:29  greg
- - Added binding_value_by_name() method.
+L<JSON|JSON>
 
- Revision 1.3  2005/06/02 19:31:22  greg
- - Bridge object is now passed to the Stream constructor.
- - bindings_count() now returns the right number even if there is no data.
- - XML Result format now works with RDF::Core models.
- - Added XML Results support for graph queries (DESCRIBE, CONSTRUCT).
-
- Revision 1.2  2005/06/01 22:34:18  greg
- - Added Boolean XML Results format.
-
- Revision 1.1  2005/06/01 22:10:46  greg
- - Moved Stream class to lib/RDF/Query/Stream.pm.
- - Fixed tests that broke with previous fix to CONSTRUCT queries.
- - Fixed tests that broke with previous change to ASK query results.
+L<Scalar::Util|Scalar::Util>
 
 
 =head1 AUTHOR
 
- Gregory Williams <gwilliams@cpan.org>
+Gregory Todd Williams  C<< <greg@evilfunhouse.com> >>
 
-=cut
+
+=head1 LICENCE AND COPYRIGHT
+
+Copyright (c) 2007, Gregory Todd Williams C<< <gwilliams@cpan.org> >>. All rights reserved.
+
+This module is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself. See L<perlartistic>.
+
+

@@ -10,7 +10,7 @@ RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF
 
 =head1 VERSION
 
-This document describes RDF::Query version 1.500, released 13 November 2007.
+This document describes RDF::Query version 1.501, released 15 November 2007.
 
 =head1 SYNOPSIS
 
@@ -83,7 +83,7 @@ BEGIN {
 	$debug		= DEBUG;
 	$js_debug	= 0;
 	$REVISION	= do { my $REV = (qw$Revision: 286 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
-	$VERSION	= '1.500';
+	$VERSION	= '1.501';
 	$ENV{RDFQUERY_NO_RDFBASE}	= 1;	# XXX Not ready for release
 	$DEFAULT_PARSER		= 'sparql';
 	
@@ -351,13 +351,10 @@ sub describe {
 	my $bridge	= $self->bridge;
 	my @nodes;
 	my %seen;
-	while ($stream and not $stream->finished) {
-		my $row	= $stream->current;
+	while (my $row = $stream->next) {
 		foreach my $node (@$row) {
 			push(@nodes, $node) unless ($seen{ $bridge->as_string( $node ) }++);
 		}
-	} continue {
-		$stream->next;
 	}
 	
 	my @streams;
@@ -370,9 +367,8 @@ sub describe {
 	
 	my $ret	= sub {
 		while (@streams) {
-			my $val	= $streams[0]->current;
+			my $val	= $streams[0]->next;
 			if (defined $val) {
-				$streams[0]->next;
 				return $val;
 			} else {
 				shift(@streams);
@@ -408,10 +404,9 @@ sub construct {
 		$variable_map{ $parsed->{'variables'}[ $var_count ][1] }	= $var_count;
 	}
 	
-	while ($stream and not $stream->finished) {
-		my $row	= $stream->current;
+	while (my $row = $stream->next) {
 		my @triples;	# XXX move @triples out of the while block, and only push one stream below (just before the continue{})
-		foreach my $triple (@{ $parsed->{'construct_triples'} }) {
+		TRIPLE: foreach my $triple (@{ $parsed->{'construct_triples'} }) {
 			my (undef, @triple)	= @{ $triple };
 			for my $i (0 .. 2) {
 				if (blessed($triple[$i]) and $triple[$i]->isa('RDF::Query::Node')) {
@@ -427,23 +422,28 @@ sub construct {
 					}
 				}
 			}
+			
+			foreach (@triple) {
+				if (not blessed($_)) {
+					next TRIPLE;
+				}
+			}
+			
 			my $st	= $bridge->new_statement( @triple );
 			push(@triples, $st);
 		}
 		push(@streams, RDF::Query::Stream->new( sub { shift(@triples) } ));
-	} continue {
-		$stream->next;
 	}
 	
 	
 	my $ret	= sub {
 		while (@streams) {
-			if ($streams[0]->open and $streams[0]->finished) {
-				shift(@streams);
+			my $val	= $streams[0]->next;
+			if (defined $val) {
+				return $val;
 			} else {
-				$streams[0]->next;
-				my $val	= $streams[0]->current;
-				return $val if (defined $val);
+				shift(@streams);
+				return undef if (not @streams);
 			}
 		}
 		return undef;
@@ -464,7 +464,9 @@ Takes a stream of matching statements and returns a boolean query result stream.
 sub ask {
 	my $self	= shift;
 	my $stream	= shift;
-	return RDF::Query::Stream->new( $stream, 'boolean', undef, bridge => $self->bridge );
+	my $value	= $stream->next;
+	my $bool	= ($value) ? 1 : 0;
+	return RDF::Query::Stream->new( [ $bool ], 'boolean', undef, bridge => $self->bridge );
 }
 
 ######################################################################

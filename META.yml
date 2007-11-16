@@ -24,6 +24,7 @@ recommends:
   RDF::Redland: 1
   JavaScript: 0
   Getopt::Simple: 0
+  Digest::SHA1: 0
   Geo::Distance: 0.09
 requires:
   DateTime::Format::W3CDTF: 0

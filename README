@@ -28,6 +28,13 @@ INSTALLATION
 
 VERSION HISTORY
 
+  Version 1.501 (2007-11-15)
+
+     * Fixed CONSTRUCT+OPTIONAL bug.
+     * Added as_sparql methods to Algebra and Node classes to serialize patterns in SPARQL syntax.
+     * Added deparse script.
+     * Fixed jena:sha1sum tests when Digest::SHA1 isn't available.
+
   Version 1.500 (2007-11-13)
 
      * Query Engine:

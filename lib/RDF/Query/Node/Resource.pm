@@ -77,6 +77,21 @@ sub sse {
 	}
 }
 
+=item C<< as_sparql >>
+
+Returns the SPARQL string for this node.
+
+=cut
+
+sub as_sparql {
+	my $self	= shift;
+	if ($self->uri_value eq 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type') {
+		return 'a';
+	} else {
+		return $self->sse;
+	}
+}
+
 1;
 
 __END__

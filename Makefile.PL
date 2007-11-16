@@ -7,6 +7,7 @@ recommends			'LWP::Simple'				=> 0;
 recommends			'RDF::Redland'				=> 1;
 recommends			'JavaScript'				=> 0;
 recommends			'Getopt::Simple'			=> 0;
+recommends			'Digest::SHA1'				=> 0;
 recommends			'Geo::Distance'				=> 0.09;
 
 build_requires		'Test::JSON'				=> 0;

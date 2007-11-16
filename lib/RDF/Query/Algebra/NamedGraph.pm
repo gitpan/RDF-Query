@@ -91,6 +91,23 @@ sub sse {
 	);
 }
 
+=item C<< as_sparql >>
+
+Returns the SPARQL string for this alegbra expression.
+
+=cut
+
+sub as_sparql {
+	my $self	= shift;
+	my $indent	= shift || '';
+	my $string	= sprintf(
+		"GRAPH %s %s",
+		$self->interval->as_sparql( $indent ),
+		$self->pattern->as_sparql( $indent ),
+	);
+	return $string;
+}
+
 =item C<< type >>
 
 Returns the type of this algebra expression.

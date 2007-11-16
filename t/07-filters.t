@@ -205,7 +205,12 @@ END
 		is( $count, 3, "3 object depictions found" );
 	}
 
-	{
+	SKIP: {
+		eval "require Digest::SHA1";
+		if ($@) {
+			skip "Digest::SHA1 required for jena:sha1sum tests", 2;
+		}
+		
 		my $sparql	= <<"END";
 			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 			PREFIX	jena: <java:com.hp.hpl.jena.query.function.library.>

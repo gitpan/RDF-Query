@@ -23,7 +23,7 @@ use RDF::Query::Stream;
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 266 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 295 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 	eval "use LWP::Simple ();";
 	our $LWP_SUPPORT	= ($@) ? 0 : 1;
 }
@@ -283,6 +283,8 @@ sub as_string {
 	} elsif ($self->isa_blank( $node )) {
 		my $id	= $self->blank_identifier( $node );
 		return qq[($id)];
+	} elsif (blessed($node) and $node->isa('RDF::Core::Statement')) {
+		return $node->getLabel;
 	} else {
 		return;
 	}

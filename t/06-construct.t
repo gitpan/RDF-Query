@@ -8,7 +8,7 @@ require "models.pl";
 
 my @files	= map { "data/$_" } qw(about.xrdf foaf.xrdf Flower-2.rdf);
 my @models	= test_models( @files );
-my $tests	= 1 + (scalar(@models) * 14);
+my $tests	= 1 + (scalar(@models) * 20);
 plan tests => $tests;
 
 use_ok( 'RDF::Query' );
@@ -47,6 +47,23 @@ END
 			my $p	= $bridge->predicate( $stmt );
 			my $s	= $bridge->as_string( $p );
 			like( $s, qr#foaf/0.1/(name|made)#, "predicate looks good: $s" );
+		}
+	}
+	
+	{
+		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
+			PREFIX	dc: <http://purl.org/dc/elements/1.1/>
+			CONSTRUCT	{ ?p a foaf:Person ; foaf:aimChatID ?a }
+			WHERE		{ ?p a foaf:Person . OPTIONAL { ?p foaf:aimChatID ?a } }
+END
+		my $stream	= $query->execute( $model );
+		my $bridge	= $query->bridge;
+		isa_ok( $stream, 'RDF::Query::Stream', 'stream' );
+		while (my $stmt = $stream->next) {
+			my $p	= $bridge->predicate( $stmt );
+			my $s	= $bridge->as_string( $p );
+			like( $s, qr!(foaf/0.1/aimChatID)|(rdf-syntax-ns#type)!, "predicate looks good: $s" );
 		}
 	}
 }

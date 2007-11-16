@@ -386,6 +386,7 @@ END
 		my $value	= $stream->binding_value_by_name('person');
 		is( $value, $stream->binding_value( 0 ), 'binding_value' );
 		ok( $query->bridge->isa_node( $value ), 'binding_value_by_name' );
+		
 		my @names	= $stream->binding_names;
 		is_deeply( ['person'], \@names, 'binding_names' );
 		my @values	= $stream->binding_values;

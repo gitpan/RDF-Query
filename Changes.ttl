@@ -10,6 +10,22 @@
         dc:description          "Changes for RDF::Query" ;
         dcterms:references      <http://kasei.us/code/rdf-query/#project> .
 
+<http://kasei.us/code/files/RDF-Query-1.501.tar.gz>
+        dcterms:isVersionOf <http://kasei.us/code/rdf-query/#project> ;
+        dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.500.tar.gz> ;
+
+        doap:Version    [
+                        doap:revision     "1.501" ;
+                        doap:created      "2007-11-15" ;
+                        ];
+        asc:changes     [
+                        asc:addition      "Added as_sparql methods to Algebra and Node classes to serialize patterns in SPARQL syntax." ;
+                        asc:addition      "Added deparse script." ;
+                        asc:update        "Fixed CONSTRUCT+OPTIONAL bug." ;
+                        asc:update        "Fixed jena:sha1sum tests when Digest::SHA1 isn't available." ;
+                        ] .
+
+
 <http://kasei.us/code/files/RDF-Query-1.500.tar.gz>
         dcterms:isVersionOf <http://kasei.us/code/rdf-query/#project> ;
         dcterms:replaces    <http://kasei.us/code/files/RDF-Query-1.044.tar.gz> ;
