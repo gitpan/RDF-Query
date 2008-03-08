@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
+no warnings 'redefine';
 use Test::More;
 
 use lib qw(. t);
@@ -27,10 +28,10 @@ foreach my $model (@models) {
 					}
 END
 		my $stream	= $query->execute( $model );
-		isa_ok( $stream, 'RDF::Query::Stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator' );
 		my $row		= $stream->current;
-		isa_ok( $row, "ARRAY" );
-		my ($p,$n)	= @{ $row || [] };
+		isa_ok( $row, "HASH" );
+		my ($p,$n)	= @{ $row }{qw(person nick)};
 		ok( $query->bridge->isa_node( $p ), 'isa_node' );
 		is( $n, undef, 'missing nick' );
 	}
@@ -45,11 +46,11 @@ END
 					}
 END
 		my $stream	= $query->execute( $model );
-		isa_ok( $stream, 'RDF::Query::Stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator' );
 		while ($stream and not $stream->finished) {
 			my $row		= $stream->current;
-			isa_ok( $row, "ARRAY" );
-			my ($p,$n)	= @{ $row };
+			isa_ok( $row, "HASH" );
+			my ($p,$n)	= @{ $row }{qw(person nick)};
 			ok( $query->bridge->isa_node( $p ), 'isa_node' );
 			ok( $query->bridge->isa_literal( $n ), 'isa_literal(nick)' );
 			like( ($n and $query->bridge->as_string( $n )), qr/kasei|The Samo Fool/, ($n and $query->bridge->as_string( $n )) );
@@ -69,18 +70,17 @@ END
 					}
 END
 		my $stream	= $query->execute( $model );
-		isa_ok( $stream, 'RDF::Query::Stream' );
-		while ($stream and not $stream->finished) {
-			my $row		= $stream->current;
-			isa_ok( $row, "ARRAY" );
-			my ($p,$n,$h)	= @{ $row };
+		isa_ok( $stream, 'RDF::Trine::Iterator' );
+		while (my $row = $stream->next) {
+			isa_ok( $row, "HASH" );
+			my ($p,$n,$h)	= @{ $row }{qw(person nick page)};
 			ok( $query->bridge->isa_node( $p ), 'isa_node' );
 			ok( $query->bridge->isa_literal( $n ), 'isa_literal(nick)' );
 			ok( $query->bridge->isa_resource( $h ), 'isa_resource(homepage)' );
 			is( $query->bridge->uri_value( $h ), 'http://kasei.us/' );
 			like( ($n and $query->bridge->as_string( $n )), qr/kasei|The Samo Fool/, ($n and $query->bridge->as_string( $n )) );
 			last;
-		} continue { $stream->next }
+		}
 	}
 	
 	{
@@ -96,10 +96,10 @@ END
 					}
 END
 		my $stream	= $query->execute( $model );
-		isa_ok( $stream, 'RDF::Query::Stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator' );
 		my $row		= $stream->current;
-		isa_ok( $row, "ARRAY" );
-		my ($p,$h)	= @{ $row || [] };
+		isa_ok( $row, "HASH" );
+		my ($p,$h)	= @{ $row }{qw(person h)};
 		ok( $query->bridge->isa_node( $p ), 'isa_node(person)' );
 		ok( $query->bridge->isa_node( $h ), 'isa_node(homepage)' );
 	}
@@ -118,10 +118,10 @@ END
 					}
 END
 		my $stream	= $query->execute( $model );
-		isa_ok( $stream, 'RDF::Query::Stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator' );
 		my $row		= $stream->current;
-		isa_ok( $row, "ARRAY" );
-		my ($p,$h,$t)	= @{ $row || [] };
+		isa_ok( $row, "HASH" );
+		my ($p,$h,$t)	= @{ $row }{qw(person h title)};
 		ok( $query->bridge->isa_node( $p ), 'isa_node' );
 		is( $h, undef, 'no homepage' );
 		is( $t, undef, 'no homepage title' );
@@ -138,7 +138,7 @@ END
 					}
 END
 		my $stream	= $query->execute( $model );
-		isa_ok( $stream, 'RDF::Query::Stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator' );
 		my $row		= $stream->current;
 		ok( not($row), 'no results: successful BOUND() filter' );
 	}
@@ -155,11 +155,11 @@ END
 					}
 END
 		my $stream	= $query->execute( $model );
-		isa_ok( $stream, 'RDF::Query::Stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator' );
 		my $count	= 0;
 		while ($stream and not $stream->finished) {
 			my $row		= $stream->current;
-			my $school	= $row->[0];
+			my $school	= $row->{school};
 			my $str		= $query->bridge->as_string( $school );
 			like( $str, qr<(smmusd|wheatonma)>, "exected school: $str" );
 		} continue { $stream->next; $count++ }

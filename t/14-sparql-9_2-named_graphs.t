@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
+no warnings 'redefine';
 use URI::file;
 
 use lib qw(. t);
@@ -54,7 +55,7 @@ END
 				}
 END
 			my $stream	= $query->execute( $model );
-			my $row		= $stream->();
+			my $row		= $stream->next;
 			is( $row, undef, 'no results' );
 		}
 		
@@ -69,7 +70,7 @@ END
 				}
 END
 			my $stream	= $query->execute( $model );
-			my $row		= $stream->();
+			my $row		= $stream->next;
 			is( $row, undef, 'no results' );
 		}
 		
@@ -87,10 +88,10 @@ END
 			
 			my $count	= 0;
 			my $stream	= $query->execute( $model );
-			while (my $row = $stream->()) {
-				isa_ok( $row, 'ARRAY' );
+			while (my $row = $stream->next) {
+				isa_ok( $row, 'HASH' );
 				
-				my $mbox	= $row->[0];
+				my $mbox	= $row->{mbox};
 				ok( $mbox, 'got mbox' );
 				
 				my $uri	= $query->bridge->uri_value( $mbox );
@@ -143,9 +144,9 @@ END
 			
 			while (my $row = $stream->current) {
 				$stream->next;
-				isa_ok( $row, 'ARRAY' );
+				isa_ok( $row, 'HASH' );
 				
-				my ($graph, $name)	= @{ $row };
+				my ($graph, $name)	= @{ $row }{qw(g name)};
 				my $uri	= $query->bridge->uri_value( $graph );
 				
 				ok( exists $expected{ $uri }, "Known GRAPH: $uri" );
@@ -183,10 +184,10 @@ END
 			
 			my $count	= 0;
 			my $stream	= $query->execute( $model );
-			while (my $row = $stream->()) {
-				isa_ok( $row, 'ARRAY' );
+			while (my $row = $stream->next) {
+				isa_ok( $row, 'HASH' );
 				
-				my ($graph, $name, $topic)	= @{ $row };
+				my ($graph, $name, $topic)	= @{ $row }{qw(g name topic)};
 				my $uri	= $query->bridge->uri_value( $graph );
 				
 				ok( exists $expected{ $uri }, "Known GRAPH: $uri" );
@@ -225,7 +226,7 @@ END
 END
 		my $stream	= $query->execute();
 		my $bridge	= $query->bridge;
-		isa_ok( $stream, 'RDF::Query::Stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator' );
 		my $count	= 0;
 		while (my $data = $stream->next) {
 			$count++;
@@ -251,7 +252,7 @@ END
 END
 		my $stream	= $query->execute();
 		my $bridge	= $query->bridge;
-		isa_ok( $stream, 'RDF::Query::Stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator' );
 		my $count	= 0;
 		while (my $data = $stream->next) {
 			$count++;
@@ -277,11 +278,11 @@ END
 END
 		my $stream	= $query->execute( $model );
 		my $bridge	= $query->bridge;
-		isa_ok( $stream, 'RDF::Query::Stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator' );
 		my $count	= 0;
 		while ($stream and not $stream->finished) {
 			my $row		= $stream->current;
-			my ($p,$g,$i)	= @{ $row };
+			my ($p,$g,$i)	= @{ $row }{qw(p g img)};
 			ok( $bridge->is_resource( $g ), 'graph-3: context is resource' );
 			ok( $bridge->is_resource( $p ), 'graph-3: person is resource' );
 			is( $bridge->uri_value( $p ), 'http://kasei.us/about/foaf.xrdf#greg', 'graph-3: correct person uri' );

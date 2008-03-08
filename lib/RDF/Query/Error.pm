@@ -31,6 +31,7 @@ package RDF::Query::Error;
 
 use strict;
 use warnings;
+no warnings 'redefine';
 use Carp qw(carp croak confess);
 
 use base qw(Error);
@@ -62,9 +63,13 @@ package RDF::Query::Error::ModelError;
 
 use base qw(RDF::Query::Error);
 
-package RDF::Query::Error::QueryPatternError;
+package RDF::Query::Error::QuerySyntaxError;
 
 use base qw(RDF::Query::Error);
+
+package RDF::Query::Error::QueryPatternError;
+
+use base qw(RDF::Query::Error::QuerySyntaxError);
 
 package RDF::Query::Error::SimpleQueryPatternError;
 

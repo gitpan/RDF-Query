@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
+no warnings 'redefine';
 use Test::More;
 
 use lib qw(. t);
@@ -8,7 +9,7 @@ require "models.pl";
 
 my @files	= map { "data/$_" } qw(about.xrdf foaf.xrdf Flower-2.rdf);
 my @models	= test_models( @files );
-my $tests	= 1 + (scalar(@models) * 20);
+my $tests	= 1 + (scalar(@models) * 23);
 plan tests => $tests;
 
 use_ok( 'RDF::Query' );
@@ -25,12 +26,15 @@ foreach my $model (@models) {
 END
 		my $stream	= $query->execute( $model );
 		my $bridge	= $query->bridge;
-		isa_ok( $stream, 'RDF::Query::Stream', 'stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator', 'stream' );
+		my $count	= 0;
 		while (my $stmt = $stream->next()) {
 			my $p	= $bridge->predicate( $stmt );
 			my $s	= $bridge->as_string( $p );
 			ok( $s, "person with firstName: $s" );
+			$count++;
 		}
+		is( $count, 4, 'expected foaf:firstName in construct count' );
 	}
 	
 	{
@@ -42,12 +46,15 @@ END
 END
 		my $stream	= $query->execute( $model );
 		my $bridge	= $query->bridge;
-		isa_ok( $stream, 'RDF::Query::Stream', 'stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator', 'stream' );
+		my $count	= 0;
 		while (my $stmt = $stream->()) {
 			my $p	= $bridge->predicate( $stmt );
 			my $s	= $bridge->as_string( $p );
 			like( $s, qr#foaf/0.1/(name|made)#, "predicate looks good: $s" );
+			$count++;
 		}
+		is( $count, 8, 'expected dc:creator in construct count' );
 	}
 	
 	{
@@ -59,11 +66,14 @@ END
 END
 		my $stream	= $query->execute( $model );
 		my $bridge	= $query->bridge;
-		isa_ok( $stream, 'RDF::Query::Stream', 'stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator', 'stream' );
+		my $count	= 0;
 		while (my $stmt = $stream->next) {
 			my $p	= $bridge->predicate( $stmt );
 			my $s	= $bridge->as_string( $p );
 			like( $s, qr!(foaf/0.1/aimChatID)|(rdf-syntax-ns#type)!, "predicate looks good: $s" );
+			$count++;
 		}
+		is( $count, 5, 'expected optional foaf:aimChatID in construct count' );
 	}
 }

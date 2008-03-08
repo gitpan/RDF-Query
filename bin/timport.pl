@@ -2,6 +2,7 @@
 
 use strict;
 use warnings;
+no warnings 'redefine';
 use lib qw(lib);
 
 use File::Spec;
@@ -24,7 +25,7 @@ my $base_uri	= RDF::Redland::URI->new('http://kasei.us/e/ns/base/');
 
 my $query;
 if (1) {
-	$query		= RDF::Query->new( <<"END", undef, undef, 'tsparql' );
+	$query		= RDF::Query->new( <<"END", undef, undef, 'sparqlp' );
 	PREFIX t: <http://www.w3.org/2006/09/time#>
 	PREFIX foaf: <http://xmlns.com/foaf/0.1/>
 	SELECT ?name WHERE {
@@ -34,7 +35,7 @@ if (1) {
 	}
 END
 } else {
-# 	$query		= RDF::Query->new( <<"END", undef, undef, 'tsparql' );
+# 	$query		= RDF::Query->new( <<"END", undef, undef, 'sparqlp' );
 # 	PREFIX t: <http://www.w3.org/2006/09/time#>
 # 	PREFIX foaf: <http://xmlns.com/foaf/0.1/>
 # 	SELECT ?name WHERE {

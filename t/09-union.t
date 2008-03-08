@@ -1,5 +1,6 @@
 use strict;
 use warnings;
+no warnings 'redefine';
 use Test::More;
 
 use lib qw(. t);
@@ -22,20 +23,19 @@ foreach my $model (@models) {
 			PREFIX	rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 			SELECT ?thing ?name
 			WHERE	{
-						{ ?thing rdf:type foaf:Person; foaf:name ?name }
+						{ ?thing a foaf:Person; foaf:name ?name }
 						UNION
-						{ ?thing rdf:type rdfs:Class; rdfs:label ?name }
+						{ ?thing a rdfs:Class; rdfs:label ?name }
 					}
 END
 		my $stream	= $query->execute( $model );
-		isa_ok( $stream, 'RDF::Query::Stream' );
-		while ($stream and not $stream->finished) {
-			my $row		= $stream->current;
-			my ($thing, $name)	= @{ $row };
+		isa_ok( $stream, 'RDF::Trine::Iterator' );
+		while (my $row = $stream->next) {
+			my ($thing, $name)	= @{ $row }{qw(thing name)};
 			like( $query->bridge->as_string( $thing ), qr/kasei|xmlns|[(]|_:/, 'union person|thing' );
 			ok( $query->bridge->isa_node( $thing ), 'node: ' . $query->bridge->as_string( $thing ) );
 			ok( $query->bridge->isa_literal( $name ), 'name: ' . $query->bridge->as_string( $name ) );
-		} continue { $stream->next }
+		}
 	}
 	
 	{
@@ -44,19 +44,18 @@ END
 			PREFIX	rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 			SELECT	DISTINCT ?thing ?name
 			WHERE	{
-						{ ?thing rdf:type foaf:Person; foaf:name ?name }
+						{ ?thing a foaf:Person; foaf:name ?name }
 						UNION
-						{ ?thing rdf:type rdfs:Class; rdfs:label ?name }
+						{ ?thing a rdfs:Class; rdfs:label ?name }
 					}
 END
 		my $stream	= $query->execute( $model );
-		isa_ok( $stream, 'RDF::Query::Stream' );
-		while ($stream and not $stream->finished) {
-			my $row		= $stream->current;
-			my ($thing, $name)	= @{ $row };
+		isa_ok( $stream, 'RDF::Trine::Iterator' );
+		while (my $row = $stream->next) {
+			my ($thing, $name)	= @{ $row }{qw(thing name)};
 			like( $query->bridge->as_string( $thing ), qr/kasei|xmlns|[(]|_:/, 'union person|thing' );
 			ok( $query->bridge->isa_node( $thing ), 'node: ' . $query->bridge->as_string( $thing ) );
 			ok( $query->bridge->isa_literal( $name ), 'name: ' . $query->bridge->as_string( $name ) );
-		} continue { $stream->next }
+		}
 	}
 }

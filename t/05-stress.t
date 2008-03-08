@@ -1,9 +1,9 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
+no warnings 'redefine';
 use Test::More;
 
-use Data::Dumper;
 use RDF::Query;
 
 if ($ENV{RDFQUERY_BIGTEST}) {

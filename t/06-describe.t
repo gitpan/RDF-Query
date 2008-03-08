@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
+no warnings 'redefine';
 use Test::More;
 
 use lib qw(. t);
@@ -26,7 +27,7 @@ END
 		my $stream	= $query->execute( $model );
 		my $bridge	= $query->bridge;
 		ok( $stream->is_graph, "Stream is graph result" );
-		isa_ok( $stream, 'RDF::Query::Stream', 'stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator', 'stream' );
 		my $count	= 0;
 		while (my $stmt = $stream->()) {
 			my $p	= $bridge->predicate( $stmt );
@@ -48,7 +49,7 @@ END
 		my $stream	= $query->execute( $model );
 		my $bridge	= $query->bridge;
 		ok( $stream->is_graph, "Stream is graph result" );
-		isa_ok( $stream, 'RDF::Query::Stream', 'stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator', 'stream' );
 		my $count	= 0;
 		while (my $stmt = $stream->()) {
 			my $p	= $bridge->predicate( $stmt );

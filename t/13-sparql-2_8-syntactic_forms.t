@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
+no warnings 'redefine';
 use URI::file;
 
 use lib qw(. t);
@@ -28,6 +29,7 @@ foreach my $model (@models) {
 	# - Collections: (1 ?x 3)
 	{
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
+			PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 			SELECT	?x
 			WHERE	{
 						?a1 rdf:first "1"; rdf:rest ?a2 .
@@ -90,7 +92,7 @@ END
 			PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
 			SELECT	?name
 			WHERE	{
-						[ rdf:type geo:Point; geo:lat "52.972770"; foaf:name ?name ]
+						[ a geo:Point; geo:lat "52.972770"; foaf:name ?name ]
 					}
 END
 		my ($name)	= $query->get( $model );

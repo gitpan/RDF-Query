@@ -2,6 +2,7 @@
 
 use strict;
 use warnings;
+no warnings 'redefine';
 
 use RDF::Query;
 use File::Spec;
@@ -81,36 +82,55 @@ sub test_models_and_classes {
 		}
 	}
 	
-	if (not $ENV{RDFQUERY_NO_RDFBASE}) {
-		eval "use RDF::Query::Model::RDFBase;";
+	if (not $ENV{RDFQUERY_NO_RDFTRINE}) {
+		eval "use RDF::Query::Model::RDFTrine;";
 		if (not $@) {
-			require RDF::Query::Model::RDFBase;
-			my $s		= new RDF::Base::Storage::DBI;
-			my $model	= new RDF::Base::Model ( storage => $s );
-			my $parser	= RDF::Base::Parser->new( name => 'rdfxml' );
-			my @data	= @uris;
-			foreach my $uri (@data) {
-				$parser->parse_into_model($uri, $uri, $model);
-			}
+			require RDF::Query::Model::RDFTrine;
 			
-			my $bridge	= RDF::Query::Model::RDFBase->new( $model );
-			my $data	= {
-							bridge		=> $bridge,
-							modelobj	=> $model,
-							class		=> 'RDF::Query::Model::RDFBase',
-							model		=> 'RDF::Base::Model',
-							statement	=> 'RDF::Base::Statement',
-							node		=> 'RDF::Base::Node',
-							resource	=> 'RDF::Base::Node::Resource',
-							literal		=> 'RDF::Base::Node::Literal',
-							blank		=> 'RDF::Base::Node::Blank',
-						};
-			push(@models, $data);
+			my $dsn		= $ENV{DBI_DSN} || 'DBI:mysql:database=test';
+			my $user	= $ENV{DBI_USER} || 'test';
+			my $pass	= $ENV{DBI_PASS} || 'test';
+			
+			my $model	= eval {
+				my $store	= RDF::Trine::Store::DBI->temporary_store($dsn, $user, $pass);
+				my $model	= RDF::Trine::Model->new( $store );
+			};
+			if (not $@) {
+				{
+					eval "use RDF::Redland";
+					if ($@) {
+						warn "RDF::Redland is currently needed to parse RDF/XML for RDF::Trine::Store";
+						return @models;
+					}
+					my @data	= map { RDF::Redland::URI->new( "$_" ) } @uris;
+					my $storage	= RDF::Redland::Storage->new("mysql", $model->_store->model_name, { host => 'localhost', database=> 'test', user => 'test', password => 'test' });
+					my $model	= RDF::Redland::Model->new($storage, "");
+					my $parser	= RDF::Redland::Parser->new("rdfxml");
+					$parser->parse_into_model($_, $_, $model) for (@data);
+				}
+				
+				my $bridge	= RDF::Query::Model::RDFTrine->new( $model );
+				my $data	= {
+								bridge		=> $bridge,
+								modelobj	=> $model,
+								class		=> 'RDF::Query::Model::RDFTrine',
+								model		=> 'RDF::Trine::Store::DBI',
+								statement	=> 'RDF::Trine::Statement',
+								node		=> 'RDF::Trine::Node',
+								resource	=> 'RDF::Trine::Node::Resource',
+								literal		=> 'RDF::Trine::Node::Literal',
+								blank		=> 'RDF::Trine::Node::Blank',
+							};
+				push(@models, $data);
+			} else {
+				warn "Couldn't connect to mysql: $dsn, $user, $pass" if ($RDF::Query::debug);
+			}
 		} else {
-			warn "RDF::Base not loaded: $@\n" if ($RDF::Query::debug);
+			warn "RDF::Trine::Store::DBI not loaded: $@\n" if ($RDF::Query::debug);
 		}
 	}
 	
+	############################################################################
 	if (0) {
 		require RDF::Query::Model::RDFCore;
 		require RDF::Core::Storage::Mysql;
@@ -124,6 +144,20 @@ sub test_models_and_classes {
 			push(@models, $data);
 		}
 	}
+	if (0) {
+		require RDF::Query::Model::RDFCore;
+		require RDF::Core::Storage::Mysql;
+		my $dbh		= Kasei::Common::dbh();
+		my $storage	= new RDF::Core::Storage::Mysql ( dbh => $dbh, Model => 'db1' );
+		my $model	= new RDF::Core::Model (Storage => $storage);
+		if ($storage and $model) {
+			my $data	= {
+							bridge	=> $model,
+						};
+			push(@models, $data);
+		}
+	}
+	############################################################################
 	
 	return @models;
 }

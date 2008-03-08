@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
+no warnings 'redefine';
 use Test::More;
 
 use lib qw(. t);
@@ -32,10 +33,10 @@ foreach my $model (@models) {
 END
 			my $stream	= $query->execute( $model );
 			my $bridge	= $query->bridge;
-			isa_ok( $stream, 'RDF::Query::Stream' );
+			isa_ok( $stream, 'RDF::Trine::Iterator' );
 			my ($count, $last);
 			while (my $row = $stream->()) {
-				my ($p, $node)	= @{ $row };
+				my ($p, $node)	= @{ $row }{qw(p name)};
 				my $name	= $bridge->literal_value( $node );
 				$seen{ $name }++;
 				if (defined($last)) {
@@ -63,10 +64,10 @@ END
 END
 			my $stream	= $query->execute( $model );
 			my $bridge	= $query->bridge;
-			isa_ok( $stream, 'RDF::Query::Stream' );
+			isa_ok( $stream, 'RDF::Trine::Iterator' );
 			my ($count, $last);
-			while (my $row = $stream->()) {
-				my ($p, $node)	= @{ $row };
+			while (my $row = $stream->next) {
+				my ($p, $node)	= @{ $row }{qw(p name)};
 				my $name	= $bridge->literal_value( $node );
 				is( exists($seen{ $name }), '', "not seen before with offset: $name" );
 				if (defined($last)) {
@@ -92,10 +93,10 @@ END
 END
 		my $stream	= $query->execute( $model );
 		my $bridge	= $query->bridge;
-		isa_ok( $stream, 'RDF::Query::Stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator' );
 		my ($count);
-		while (my $row = $stream->()) {
-			my ($p, $node)	= @{ $row };
+		while (my $row = $stream->next) {
+			my ($p, $node)	= @{ $row }{qw(p name)};
 			my $name	= $bridge->literal_value( $node );
 			ok( $name, "First: $name (" . $bridge->as_string( $p ) . ")" );
 		} continue { ++$count };
@@ -115,10 +116,10 @@ END
 END
 		my $stream	= $query->execute( $model );
 		my $bridge	= $query->bridge;
-		isa_ok( $stream, 'RDF::Query::Stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator' );
 		my ($count);
-		while (my $row = $stream->()) {
-			my ($p, $node)	= @{ $row };
+		while (my $row = $stream->next) {
+			my ($p, $node)	= @{ $row }{qw(p name)};
 			my $name	= $bridge->literal_value( $node );
 			ok( $name, "Got person with nick: $name (" . $bridge->as_string( $p ) . ")" );
 		} continue { ++$count };
@@ -141,10 +142,10 @@ END
 END
 		my $stream	= $query->execute( $model );
 		my $bridge	= $query->bridge;
-		isa_ok( $stream, 'RDF::Query::Stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator' );
 		my ($count);
-		while (my $row = $stream->()) {
-			my ($n, $c)	= @{ $row };
+		while (my $row = $stream->next) {
+			my ($n, $c)	= @{ $row }{qw(name camera)};
 			my $name	= $bridge->literal_value( $n );
 			ok( $name, "Got image creator: $name" );
 		} continue { ++$count };
@@ -159,22 +160,23 @@ END
 			PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
 			PREFIX	exif: <http://www.kanzaki.com/ns/exif#>
 			PREFIX	dc: <http://purl.org/dc/elements/1.1/>
+			PREFIX	xsd: <http://www.w3.org/2001/XMLSchema#>
 			SELECT	DISTINCT ?img ?long
 			WHERE	{
 						?img a foaf:Image .
 						?img dcterms:spatial ?point .
 						?point geo:long ?long .
 					}
-			ORDER BY ASC(?long * -1)
+			ORDER BY ASC(xsd:float(?long * -1))
 END
 		my $stream	= $query->execute( $model );
 		my $bridge	= $query->bridge;
-		isa_ok( $stream, 'RDF::Query::Stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator' );
 		my $count	= 0;
 		
 		my $min;
-		while (my $row = $stream->()) {
-			my ($i, $l)	= @{ $row };
+		while (my $row = $stream->next) {
+			my ($i, $l)	= @{ $row }{qw(img long)};
 			my $image	= $bridge->uri_value($i);
 			my $long	= $bridge->literal_value($l);
 			if (defined($min)) {
@@ -198,22 +200,23 @@ END
 			PREFIX	geo: <http://www.w3.org/2003/01/geo/wgs84_pos#>
 			PREFIX	exif: <http://www.kanzaki.com/ns/exif#>
 			PREFIX	dc: <http://purl.org/dc/elements/1.1/>
+			PREFIX	xsd: <http://www.w3.org/2001/XMLSchema#>
 			SELECT	DISTINCT ?img ?long
 			WHERE	{
 						?img a foaf:Image .
 						?img dcterms:spatial ?point .
 						?point geo:long ?long .
 					}
-			ORDER BY DESC(?long * -1)
+			ORDER BY DESC(xsd:float(?long * -1))
 END
 		my $stream	= $query->execute( $model );
 		my $bridge	= $query->bridge;
-		isa_ok( $stream, 'RDF::Query::Stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator' );
 		my $count	= 0;
 		
 		my $max;
-		while (my $row = $stream->()) {
-			my ($i, $l)	= @{ $row };
+		while (my $row = $stream->next) {
+			my ($i, $l)	= @{ $row }{qw(img long)};
 			my $image	= $bridge->uri_value($i);
 			my $long	= $bridge->literal_value($l);
 			if (defined($max)) {

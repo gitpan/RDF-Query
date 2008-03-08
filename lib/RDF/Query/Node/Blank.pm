@@ -14,9 +14,11 @@ package RDF::Query::Node::Blank;
 
 use strict;
 use warnings;
-use base qw(RDF::Query::Node);
+no warnings 'redefine';
+use base qw(RDF::Query::Node RDF::Trine::Node::Blank);
 
 use Data::Dumper;
+use Scalar::Util qw(blessed);
 use Carp qw(carp croak confess);
 
 ######################################################################
@@ -29,57 +31,35 @@ BEGIN {
 
 ######################################################################
 
+use overload	'<=>'	=> \&_cmp,
+				'cmp'	=> \&_cmp,
+				'<'		=> sub { _cmp(@_[0,1]) == -1 },
+				'>'		=> sub { _cmp(@_[0,1]) == 1 },
+				'!='	=> sub { _cmp(@_[0,1]) != 0 },
+				'=='	=> sub { _cmp(@_[0,1]) == 0 },
+				'+'		=> sub { $_[0] },
+				'""'	=> sub { $_[0]->sse },
+			;
+
+sub _cmp {
+	my $nodea	= shift;
+	my $nodeb	= shift;
+	warn "blank comparison: " . Dumper($nodea, $nodeb) if ($debug);
+	return 1 unless blessed($nodeb);
+	return -1 if ($nodeb->isa('RDF::Query::Node::Literal'));
+	return -1 if ($nodeb->isa('RDF::Query::Node::Resource'));
+	return 1 unless ($nodeb->isa('RDF::Query::Node::Blank'));
+	my $cmp	= $nodea->blank_identifier cmp $nodeb->blank_identifier;
+	warn "-> $cmp\n" if ($debug);
+	return $cmp;
+}
+
 =head1 METHODS
 
 =over 4
 
 =cut
 
-=item C<new ( $name )>
-
-Returns a new Blank structure.
-
-=cut
-
-sub new {
-	my $class	= shift;
-	my $name	= shift;
-	return bless( [ 'BLANK', $name ], $class );
-}
-
-=item C<< blank_identifier >>
-
-Returns the identifier of the blank node.
-
-=cut
-
-sub blank_identifier {
-	my $self	= shift;
-	return $self->[1];
-}
-
-=item C<< sse >>
-
-Returns the SSE string for this blank node.
-
-=cut
-
-sub sse {
-	my $self	= shift;
-	my $id		= $self->blank_identifier;
-	return qq(_:${id});
-}
-
-=item C<< as_sparql >>
-
-Returns the SPARQL string for this node.
-
-=cut
-
-sub as_sparql {
-	my $self	= shift;
-	return $self->sse;
-}
 
 1;
 

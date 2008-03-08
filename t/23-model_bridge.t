@@ -1,11 +1,10 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
+no warnings 'redefine';
 use Test::More;
 use Test::Exception;
 use Scalar::Util qw(refaddr);
-
-use Data::Dumper;
 
 use lib qw(. t);
 BEGIN { require "models.pl"; }
@@ -31,7 +30,7 @@ foreach my $data (@models) {
 	
 	print "\n#################################\n";
 	print "### Using model: $model\n";
-
+	
 	dies_ok { $class->new( 'foo' ) } 'non-model constructor arg dies';
 	
 	SKIP: {
@@ -50,7 +49,7 @@ foreach my $data (@models) {
 	{
 		my $uri		= 'http://example.com';
 		my $node	= $bridge->new_resource( $uri );
-		isa_ok( $node, $data->{resource} );
+		isa_ok( $node, 'RDF::Trine::Node::Resource' );
 		is( $bridge->uri_value( $node ), $uri, 'resource value check' );
 		ok( $bridge->is_node( $node ), 'resource node check' );
 		ok( $bridge->is_resource( $node ), 'resource resource check' );
@@ -63,7 +62,7 @@ foreach my $data (@models) {
 	{
 		my $name	= 'baz';
 		my $node	= $bridge->new_blank( $name );
-		isa_ok( $node, $data->{blank} );
+		isa_ok( $node, 'RDF::Trine::Node::Blank' );
 		is( $bridge->blank_identifier( $node ), $name, 'blank identifier check' );
 		ok( $bridge->is_node( $node ), 'blank check' );
 		ok( not($bridge->is_resource( $node )), 'blank resource check' );
@@ -74,7 +73,7 @@ foreach my $data (@models) {
 	{
 		my $node	= $bridge->new_blank();
 		my $node2	= $bridge->new_blank();
-		isa_ok( $node, $data->{blank} );
+		isa_ok( $node, 'RDF::Trine::Node::Blank' );
 		cmp_ok( $bridge->blank_identifier( $node ), 'ne', $bridge->blank_identifier( $node2 ), 'generated blank identifier check' );
 		ok( $bridge->is_node( $node ), 'blank check' );
 		ok( not($bridge->is_resource( $node )), 'blank resource check' );
@@ -87,7 +86,7 @@ foreach my $data (@models) {
 	{	# simple
 		my $value	= 'quux';
 		my $node	= $bridge->new_literal( $value );
-		isa_ok( $node, $data->{literal} );
+		isa_ok( $node, 'RDF::Trine::Node::Literal' );
 		is( $bridge->literal_value( $node ), $value, 'literal value check' );
 		ok( $bridge->is_node( $node ), 'literal check' );
 		ok( not($bridge->is_resource( $node )), 'literal resource check' );
@@ -99,7 +98,7 @@ foreach my $data (@models) {
 		use utf8;
 		my $value	= '火星';
 		my $node	= $bridge->new_literal( $value, 'ja' );
-		isa_ok( $node, $data->{literal} );
+		isa_ok( $node, 'RDF::Trine::Node::Literal' );
 		is( $bridge->literal_value( $node ), $value, 'literal value check' );
 		is( $bridge->literal_value_language( $node ), 'ja', 'literal value language check' );
 		ok( $bridge->is_node( $node ), 'literal check' );
@@ -112,7 +111,7 @@ foreach my $data (@models) {
 		my $value	= '123';
 		my $dt		= 'http://www.w3.org/2001/XMLSchema#int';
 		my $node	= $bridge->new_literal( $value, undef, $dt );
-		isa_ok( $node, $data->{literal} );
+		isa_ok( $node, 'RDF::Trine::Node::Literal' );
 		is( $bridge->literal_value( $node ), $value, 'literal value check' );
 		is( $bridge->literal_datatype( $node ), $dt, 'literal datatype check' );
 		ok( $bridge->is_node( $node ), 'literal check' );
@@ -138,7 +137,7 @@ foreach my $data (@models) {
 		my $obj		= $bridge->new_literal( 'greg' );
 		my $st		= $bridge->new_statement( $subj, $pred, $obj );
 		
-		isa_ok( $st, $data->{statement} );
+		isa_ok( $st, 'RDF::Trine::Statement' );
 		ok( $bridge->is_blank( $bridge->subject( $st ) ), 'subject accessor' );
 		ok( $bridge->is_resource( $bridge->predicate( $st ) ), 'predicate accessor' );
 		ok( $bridge->is_literal( $bridge->object( $st ) ), 'object accessor' );

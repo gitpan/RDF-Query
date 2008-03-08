@@ -14,6 +14,7 @@ package RDF::Query::Parser;
 
 use strict;
 use warnings;
+no warnings 'redefine';
 
 use RDF::Query::Node::Resource;
 use RDF::Query::Node::Literal;
@@ -23,6 +24,7 @@ use RDF::Query::Algebra;
 use RDF::Query::Error qw(:try);
 
 use Data::Dumper;
+use Scalar::Util qw(blessed);
 use Carp qw(carp croak confess);
 
 ######################################################################
@@ -178,7 +180,7 @@ sub new_unary_expression {
 	my $self	= shift;
 	my $op		= shift;
 	my $operand	= shift;
-	return RDF::Query::Algebra::Expr->new( $op, $operand );
+	return RDF::Query::Algebra::Expr::Unary->new( $op, $operand );
 }
 
 =item C<new_binary_expression ( $operator, @operands )>
@@ -191,7 +193,20 @@ sub new_binary_expression {
 	my $self		= shift;
 	my $op			= shift;
 	my @operands	= @_[0,1];
-	return RDF::Query::Algebra::Expr->new( $op, @operands );
+	return RDF::Query::Algebra::Expr::Binary->new( $op, @operands );
+}
+
+=item C<new_nary_expression ( $operator, @operands )>
+
+Returns a new n-ary expression structure.
+
+=cut
+
+sub new_nary_expression {
+	my $self		= shift;
+	my $op			= shift;
+	my @operands	= @_;
+	return RDF::Query::Algebra::Expr::Binary->new( $op, @operands );
 }
 
 =item C<new_logical_expression ( $operator, @operands )>
@@ -204,6 +219,7 @@ sub new_logical_expression {
 	my $self		= shift;
 	my $op			= shift;
 	my @operands	= @_;
+	die $op;
 	return RDF::Query::Algebra::Expr->new( $op, @operands );
 }
 
@@ -217,10 +233,13 @@ sub new_function_expression {
 	my $self		= shift;
 	my $function	= shift;
 	my @operands	= @_;
-	return RDF::Query::Algebra::Function->new( $function, @operands );
+	unless (blessed($function)) {
+		$function	= RDF::Query::Node::Resource->new( $function );
+	}
+	return RDF::Query::Algebra::Expr::Function->new( $function, @operands );
 }
 
-=item C<new_filter ( $filter_expr )>
+=item C<new_filter ( $filter_expr, $pattern )>
 
 Returns a new filter structure.
 
@@ -229,7 +248,8 @@ Returns a new filter structure.
 sub new_filter {
 	my $self	= shift;
 	my $expr	= shift;
-	return RDF::Query::Algebra::OldFilter->new( $expr );
+	my $pattern	= shift;
+	return RDF::Query::Algebra::Filter->new( $expr, $pattern );
 }
 
 

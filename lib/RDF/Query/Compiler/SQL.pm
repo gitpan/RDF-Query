@@ -14,6 +14,7 @@ package RDF::Query::Compiler::SQL;
 
 use strict;
 use warnings;
+no warnings 'redefine';
 
 use RDF::Query::Error qw(:try);
 
@@ -21,6 +22,7 @@ use List::Util qw(first);
 use Data::Dumper;
 use Math::BigInt;
 use Digest::MD5 ('md5');
+#use Digest::Perl::MD5 (); #('md5');
 use Carp qw(carp croak confess);
 use Scalar::Util qw(blessed reftype);
 
@@ -28,21 +30,22 @@ use RDF::Query::Error qw(:try);
 
 ######################################################################
 
+my (@NODE_TYPE_TABLES, %NODE_TYPE_TABLES);
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
 	$debug		= 0;
 	$VERSION	= do { my $REV = (qw$Revision: 121 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	@NODE_TYPE_TABLES	= (
+							['Resources', 'ljr', 'URI'],
+							['Literals', 'ljl', qw(Value Language Datatype)],
+							['Bnodes', 'ljb', qw(Name)]
+						);
+	%NODE_TYPE_TABLES	= map { $_->[0] => [ @{ $_ }[1 .. $#{ $_ }] ] } @NODE_TYPE_TABLES;
 }
 
 ######################################################################
 
 use constant INDENT		=> "\t";
-my @NODE_TYPE_TABLES	= (
-						['Resources', 'ljr', 'URI'],
-						['Literals', 'ljl', qw(Value Language Datatype)],
-						['Bnodes', 'ljb', qw(Name)]
-					);
-my %NODE_TYPE_TABLES	= map { $_->[0] => [ @{ $_ }[1 .. $#{ $_ }] ] } @NODE_TYPE_TABLES;
 
 =head1 METHODS
 
@@ -119,7 +122,7 @@ sub emit_select {
 	my $parsed	= $self->{parsed};
 	
 	my $level		= \do { my $a = 0 };
-	my @vars		= map { $_->[1] } @{ $parsed->{variables} };
+	my @vars		= map { $_->name } @{ $parsed->{variables} };
 	my %select_vars	= map { $_ => 1 } @vars;
 	
 	$self->patterns2sql( $parsed->{'triples'}, $level );
@@ -194,14 +197,22 @@ sub order_by_clause {
 	my $sql		= '';
 	if ($options->{orderby}) {
 		my $data	= $options->{orderby}[0];
-		my $dir		= $data->[0];
-		if ($data->[1][0] eq 'VAR') {
-			my $var		= $data->[1][1];
+		my ($dir, @operands)	= @$data;
+		
+		if (scalar(@operands) > 1) {
+			throw RDF::Query::Error::CompilationError( -text => "Can't sort by more than one column yet." );
+		}
+		
+		my $sort	= $operands[0];
+		if (blessed($sort) and $sort->type eq 'VAR') {
+			my $var		= $sort->name;
+			my @cols	= $self->variable_columns( $var );
 			$sql	.= "ORDER BY\n"
-					. INDENT . "${var}_Value $dir, ${var}_URI $dir, ${var}_Name $dir";
-		} elsif ($data->[1][0] eq 'FUNCTION') {
-			my $uri		= $self->qualify_uri( $data->[1][1] );
-			my $col	= $self->expr2sql( $data->[1], $level );
+					. INDENT . join(', ', map { "$_ $dir" } @cols );
+		} elsif (blessed($sort) and $sort->type eq 'FUNCTION') {
+			my $uri		= $self->qualify_uri( $sort->uri );
+			my $col		= $self->expr2sql( $sort, $level );
+			my @sort;
 			foreach my $var (keys %$vars) {
 				my ($l_sort_col, $r_sort_col, $b_sort_col)	= @{ $variable_value_cols{ $var } };
 				my $varcol	= $vars->{ $var };
@@ -210,11 +221,15 @@ sub order_by_clause {
 					$l		=~ s/$varcol/${l_sort_col}/;
 					$r		=~ s/$varcol/${r_sort_col}/;
 					$b		=~ s/$varcol/${b_sort_col}/;
-					$sql	.= "ORDER BY\n"
-							. INDENT . "$l $dir, $r $dir, $b $dir";
+					push(@sort, "$l $dir, $r $dir, $b $dir");
 					last;
 				}
 			}
+			unless (@sort) {
+				push(@sort, "${col} $dir");
+			}
+			$sql	.= "ORDER BY\n"
+					. INDENT . join(', ', @sort);
 		} else {
 			throw RDF::Query::Error::CompilationError( -text => "Can't sort by $$data[1][0] yet." );
 		}
@@ -223,6 +238,18 @@ sub order_by_clause {
 	return $sql;
 }
 
+=item C<< variable_columns ( $var ) >>
+
+Given a variable name, returns the set of column aliases that store the values
+for the column (values for Literals, URIs, and Blank Nodes).
+
+=cut
+
+sub variable_columns {
+	my $self	= shift;
+	my $var		= shift;
+	return map { "${var}_$_" } (qw(Value URI Name));
+}
 
 =item C<< add_variable_values_joins >>
 
@@ -234,7 +261,7 @@ contain the node values (for literals, resources, and blank nodes).
 sub add_variable_values_joins {
 	my $self	= shift;
 	my $parsed	= $self->{parsed};
-	my @vars	= map { $_->[1] } @{ $parsed->{variables} };
+	my @vars	= map { $_->name } @{ $parsed->{variables} };
 	my %select_vars	= map { $_ => 1 } @vars;
 	my %variable_value_cols;
 	
@@ -331,7 +358,7 @@ sub patterns2sql {
 	
 	my $parsed		= $self->{parsed};
 	my $parsed_vars	= $parsed->{variables};
-	my %queryvars	= map { $_->[1] => 1 } @$parsed_vars;
+	my %queryvars	= map { $_->name => 1 } @$parsed_vars;
 	
 #	my (@from, @where);
 	
@@ -360,21 +387,15 @@ sub patterns2sql {
 	};
 	
 	
-# 	[
-# 		[['VAR','person'],['URI',['foaf','name']],['VAR','name']],
-# 		['OPTIONAL', [
-# 			[['VAR','person'],['URI',['foaf','mbox']],['VAR','mbox']],
-# 			[['VAR','person'],['URI',['foaf','nick']],['VAR','nick']]
-# 		]]
-# 	]	
-	
 	my $triple	= shift(@$triples);
-	my @posmap	= qw(subject predicate object);
 	Carp::confess "unblessed atom: " . Dumper($triple) unless (blessed($triple));
 	
-	if ($triple->isa('RDF::Query::Algebra::Triple')) {
+	if ($triple->isa('RDF::Query::Algebra::Triple') or $triple->isa('RDF::Query::Algebra::Quad')) {
+		my $quad	= $triple->isa('RDF::Query::Algebra::Quad');
+		my @posmap	= ($quad)
+					? qw(subject predicate object context)
+					: qw(subject predicate object);
 #		$add_from->('(');
-		my ($s,$p,$o)	= map { $triple->$_() } @posmap;
 		my $table	= "s${$level}";
 		my $stable	= $self->{stable};
 		$add_from->( "${stable} ${table}" );
@@ -412,93 +433,50 @@ sub patterns2sql {
 		}
 #		$add_from->(')');
 	} else {
-		my $op	= $triple->[0];
 		if ($triple->isa('RDF::Query::Algebra::Optional')) {
-			# XXX OPTIONAL compilation is totally broken. The queries don't work when
-			# XXX the OPTIONAL pattern contains variables used outside of the OPTIONAL
-			# XXX pattern.
 			throw RDF::Query::Error::CompilationError( -text => "SQL compilation of OPTIONAL blocks is currently broken" );
-			
-			my $pattern	= $triple->[1];
-			++$$level;
-			my @w;
-			my $where_hook	= sub {
-							my $w	= shift;
-							push(@w, $w);
-							return;
-						};
-			
-			my @f;
-			my $from_hook	= sub {
-							my $f	= shift;
-							push(@f, $f);
-							return;
-						};
-			
-			
-			$self->patterns2sql( $pattern, $level, where_hook => $where_hook, from_hook => $from_hook );
-			
-			my $from;
-			foreach my $i (0 .. $#f) {
-				my $f	= $f[ $i ];
-				if ($f !~ m/^[()]$/) {
-					$from	= $f;
-					splice(@f, $i, 1, ());
-					last;
-				}
-			}
-			
-			for (my $i = $#f; $i > 0; $i--) {
-				if ($f[ $i - 1 ] eq '(' and $f[ $i ] eq ')') {
-					splice(@f, $i - 1, 2, ());
-				}
-			}
-			
-			$add_from->( $_ ) for (@f);
-			my $where	= join(' AND ', @w);	#shift(@w);
-#			$add_where->( $_ ) for (@w);
-			$add_from->( "LEFT JOIN ${from} ON ($where)" );
-			
-#			warn Dumper(\@w);
-#			$add_where->( 'OPTIONAL(' . join(' AND ', @w) . ')' );
 		} elsif ($triple->isa('RDF::Query::Algebra::NamedGraph')) {
-			my $graph	= $triple->graph;
-			my $pattern	= $triple->pattern;
-			if ($graph->isa('RDF::Query::Node::Variable')) {
-				my $name	= $graph->name;
-				my $context;
-				my $hook	= sub {
-								my $f	= shift;
-								if ($f =~ /^Statements/i) {
-									my $alias	= (split(/ /, $f))[1];
-									if (defined($context)) {
-										$context	=~ s/\D//;
-										$add_where->( "${alias}.Context = ${context}" );
-									} else {
-										$context	= "${alias}.Context";
-										$vars->{ $name }	= $context;
-									}
-								}
-								return $f;
-							};
-				$self->patterns2sql( [ $pattern ], $level, from_hook => $hook );
-			} else {
-				my $hash	= $self->_mysql_node_hash( $graph );
-				my $hook	= sub {
-								my $f	= shift;
-								if ($f =~ /^Statements/i) {
-									my $alias	= (split(/ /, $f))[1];
-									$hash	=~ s/\D//;
-									$add_where->( "${alias}.Context = ${hash}" );
-								}
-								return $f;
-							};
-				$self->patterns2sql( [ $pattern ], $level, from_hook => $hook );
-			}
-		} elsif ($triple->isa('RDF::Query::Algebra::OldFilter')) {
+			$self->patterns2sql( [ $triple->pattern ], $level, %args );
+# 			my $graph	= $triple->graph;
+# 			my $pattern	= $triple->pattern;
+# 			if ($graph->isa('RDF::Query::Node::Variable')) {
+# 				my $name	= $graph->name;
+# 				my $context;
+# 				my $hook	= sub {
+# 								my $f	= shift;
+# 								if ($f =~ /^Statements/i) {
+# 									my $alias	= (split(/ /, $f))[1];
+# 									if (defined($context)) {
+# 										$context	=~ s/\D//;
+# 										$add_where->( "${alias}.Context = ${context}" );
+# 									} else {
+# 										$context	= "${alias}.Context";
+# 										$vars->{ $name }	= $context;
+# 									}
+# 								}
+# 								return $f;
+# 							};
+# 				$self->patterns2sql( [ $pattern ], $level, from_hook => $hook );
+# 			} else {
+# 				my $hash	= $self->_mysql_node_hash( $graph );
+# 				my $hook	= sub {
+# 								my $f	= shift;
+# 								if ($f =~ /^Statements/i) {
+# 									my $alias	= (split(/ /, $f))[1];
+# 									$hash	=~ s/\D//;
+# 									$add_where->( "${alias}.Context = ${hash}" );
+# 								}
+# 								return $f;
+# 							};
+# 				$self->patterns2sql( [ $pattern ], $level, from_hook => $hook );
+# 			}
+		} elsif ($triple->isa('RDF::Query::Algebra::Filter')) {
 			++$$level;
 			my $expr		= $triple->expr;
+			my $pattern	= $triple->pattern;
 			$self->expr2sql( $expr, $level, from_hook => $add_from, where_hook => $add_where );
+			++$$level;
+			$self->patterns2sql( [ $pattern ], $level, %args );
 		} elsif ($triple->isa('RDF::Query::Algebra::BasicGraphPattern')) {
 			++$$level;
 			$self->patterns2sql( [ $triple->triples ], $level, %args );
@@ -506,6 +484,7 @@ sub patterns2sql {
 			++$$level;
 			$self->patterns2sql( [ $triple->patterns ], $level, %args );
 		} else {
+			my $op	= $triple->[0];
 			throw RDF::Query::Error::CompilationError( -text => "Unknown op '$op' in SQL compilation." );
 		}
 	}
@@ -564,164 +543,53 @@ sub expr2sql {
 	
 	my $parsed		= $self->{parsed};
 	my $parsed_vars	= $parsed->{variables};
-	my %queryvars	= map { $_->[1] => 1 } @$parsed_vars;
+	my %queryvars	= map { $_->name => 1 } @$parsed_vars;
 	
 	Carp::confess unless ref($expr);
-	my ($op, @args)	= @{ $expr };
 	
-	if ($op eq '!') {
-		try {
-			if ($args[0][0] eq 'FUNCTION') {
-				if ($args[0][1][0] eq 'URI' and $args[0][1][1] eq 'sop:isBound') {
-					($op, @args)	= (
-										'FUNCTION',
-										( [ 'URI', 'rdfquery:isNotBound' ], $args[0][2] )
-									);
-				}
-			}
-		} otherwise {};
-	}
-	
-	
-	if ($op eq '~~') {
-		$op	= 'FUNCTION';
-		unshift(@args, '~~');
-	}
-	
-	if ($op eq 'LITERAL') {
-		my $literal	= $args[0];
-		my $dt		= $args[2];
-		
-		my $hash	= $self->_mysql_node_hash( RDF::Query::Node::Literal->new(@args) );
-		
-		if ($equality eq 'rdf') {
-			$literal	= $hash;
-		} else {
-			if (defined($dt)) {
-				my $uri		= $dt;
-				my $func	= $self->get_function( $self->qualify_uri( $uri ) );
-				if ($func) {
-					my ($v, $f, $w)	= $func->( $self, $parsed_vars, $level, RDF::Query::Node::Literal->new($literal) );
-					$literal	= $w->[0];
-				} else {
-					$literal	= qq("${literal}");
-				}
-			} else {
-				$literal	= qq('${literal}');
-			}
-		}
-		
-		$add_where->( $literal );
-	} elsif ($op eq 'BLANK') {
-		my $hash		= $self->_mysql_node_hash( RDF::Query::Node::Blank->new($args[0]) );
-		$add_where->( $hash );
-	} elsif ($op eq 'URI') {
-		my $uri		= $self->_mysql_node_hash( RDF::Query::Node::Resource->new($args[0]) );
-		$add_where->( $uri );
-	} elsif ($op eq 'VAR') {
-		my $name	= $args[0];
-		my $col		= $vars->{ $name };
-		$add_where->( qq(${col}) );
-	} elsif ($op =~ m#^(=|==|!=|[<>]=?|[*]|/|[-+])$#) {
-		
-		$op	= '<>' if ($op eq '!=');
-		$op	= '=' if ($op eq '==');
-		
-		my ($a, $b)	= @args;
-		my $a_type	= $a->[0];
-		my $b_type	= $b->[0];
-		
-		try {
-			if ($op eq '=') {
-				if ($a_type eq 'VAR' and $b_type eq 'VAR') {
-					# comparing equality on two type-unknown variables.
-					# could need rdf-term equality, so punt to the
-					# catch block below.
-					throw RDF::Query::Error::ComparisonError;
-				}
-			}
+	my $blessed	= blessed($expr);
+	if ($blessed and $expr->isa('RDF::Query::Node')) {
+		if ($expr->isa('RDF::Query::Node::Literal')) {
+			my $literal	= $expr->literal_value;
+			my $dt		= $expr->literal_datatype;
 			
-			foreach my $data ([$a_type, 'LHS'], [$b_type, 'RHS']) {
-				my ($type, $side)	= @$data;
-				unless ($type =~ m/^(VAR|LITERAL|FUNCTION)$/) {
-					if ($op =~ m/^!?=$/) {
-						# throw to the catch block below.
-						throw RDF::Query::Error::ComparisonError( -text => "Using comparison operator '${op}' on unknown node type requires RDF-Term semantics." );
+			my $hash	= $self->_mysql_node_hash( $expr );
+			
+			if ($equality eq 'rdf') {
+				$literal	= $hash;
+			} else {
+				if (defined($dt)) {
+					my $uri		= $dt;
+					my $func	= $self->get_function( $self->qualify_uri( $uri ) );
+					if ($func) {
+						my ($v, $f, $w)	= $func->( $self, $parsed_vars, $level, RDF::Query::Node::Literal->new($literal) );
+						$literal	= $w->[0];
 					} else {
-						# throw error out of the compiler.
-						throw RDF::Query::Error::CompilationError( -text => "Cannot use the comparison operator '${op}' on a ${side} ${type} node." );
+						$literal	= qq("${literal}");
 					}
-				}
-			}
-			
-			if ($a->[0] eq 'VAR') {
-				++$$level; my $var_name_a	= $self->expr2sql( $a, $level, equality => $equality );
-				my $sql_a	= "(SELECT value FROM Literals WHERE ${var_name_a} = ID LIMIT 1)";
-				if ($b->[0] eq 'VAR') {
-					# ?var cmp ?var
-					++$$level; my $var_name_b	= $self->expr2sql( $b, $level, equality => $equality );
-					my $sql_b	= "(SELECT value FROM Literals WHERE ${var_name_b} = ID LIMIT 1)";
-					$add_where->( "${sql_a} ${op} ${sql_b}" );
 				} else {
-					# ?var cmp NODE
-					++$$level; my $sql_b	= $self->expr2sql( $b, $level, equality => $equality );
-					$add_where->( "${sql_a} ${op} ${sql_b}" );
-				}
-			} else {
-				++$$level; my $sql_a	= $self->expr2sql( $a, $level, equality => $equality );
-				if ($b->[0] eq 'VAR') {
-					# ?var cmp NODE
-					++$$level; my $var_name	= $self->expr2sql( $b, $level, equality => $equality );
-					my $sql_b	= "(SELECT value FROM Literals WHERE ${var_name} = ID LIMIT 1)";
-					$add_where->( "${sql_a} ${op} ${sql_b}" );
-				} else {
-					# NODE cmp NODE
-					++$$level; my $sql_b	= $self->expr2sql( $b, $level, equality => $equality );
-					$add_where->( "${sql_a} ${op} ${sql_b}" );
+					$literal	= qq('${literal}');
 				}
 			}
-		} catch RDF::Query::Error::ComparisonError with {
-			# we can't compare these terms using the XPath semantics (for literals),
-			# so fall back on RDF-Term semantics.
-			my $err	= shift;
 			
-			my @w;
-			my $where_hook	= sub {
-							my $w	= shift;
-							push(@w, $w);
-							return;
-						};
-			
-			foreach my $expr (@args) {
-				$self->expr2sql( $expr, $level, %args, %args, equality => 'rdf', where_hook => $where_hook )
-			}
-			
-			$add_where->("$w[0] ${op} $w[1]");
-			
-		};
-	} elsif ($op eq '&&') {
-		foreach my $expr (@args) {
-			$self->expr2sql( $expr, $level, %args )
+			$add_where->( $literal );
+		} elsif ($expr->isa('RDF::Query::Node::Blank')) {
+			my $hash		= $self->_mysql_node_hash( $expr );
+			$add_where->( $hash );
+		} elsif ($expr->isa('RDF::Query::Node::Resource')) {
+			my $uri		= $self->_mysql_node_hash( $expr );
+			$add_where->( $uri );
+		} elsif ($expr->isa('RDF::Query::Node::Variable')) {
+			my $name	= $expr->name;
+			my $col		= $vars->{ $name };
+			no warnings 'uninitialized';
+			$add_where->( qq(${col}) );
 		}
-	} elsif ($op eq '||') {
-		my @w;
-		my $where_hook	= sub {
-						my $w	= shift;
-						push(@w, $w);
-						return;
-					};
-		
-		foreach my $expr (@args) {
-			$self->expr2sql( $expr, $level, %args, where_hook => $where_hook )
-		}
-		
-		my $where	= '(' . join(' OR ', map { qq<($_)> } @w) . ')';
-		$add_where->( $where );
-	} elsif ($op eq 'FUNCTION') {
-		my $uri	= $self->qualify_uri( shift(@args) );
+	} elsif ($blessed and $expr->isa('RDF::Query::Algebra::Expr::Function')) {
+		my $uri	= $expr->uri->uri_value;
 		my $func	= $self->get_function( $uri );
 		if ($func) {
-			my ($v, $f, $w)	= $func->( $self, $parsed_vars, $level, @args );
+			my ($v, $f, $w)	= $func->( $self, $parsed_vars, $level, $expr->arguments );
 			foreach my $key (keys %$v) {
 				my $val	= $v->{ $key };
 				$vars->{ $key }	= $val unless (exists($vars->{ $key }));
@@ -737,22 +605,122 @@ sub expr2sql {
 		} else {
 			throw RDF::Query::Error::CompilationError( -text => "Unknown custom function $uri in FILTER." );
 		}
-	} else {
-		throw RDF::Query::Error::CompilationError( -text => "SQL compilation of FILTER($op) queries not yet implemented." );
-	}
-	
-	return $sql;
-	
-	
-	if (0) {
-		my $data	= $expr->[1];
-		my ($func, @args)	= @$data;
-		if ($func eq '~~') {
-			my ($var, $pattern)	= @args;
+	} elsif ($blessed and $expr->isa('RDF::Query::Algebra::Expr')) {
+		my $op		= $expr->op;
+		my @args	= $expr->operands;
+		
+		if ($op eq '!') {
+			if ($args[0]->isa('RDF::Query::Algebra::Expr::Function')) {
+				if ($args[0]->uri->uri_value eq 'sparql:isbound') {
+					my $expr	= RDF::Query::Algebra::Expr::Function->new(
+									RDF::Query::Node::Resource->new('rdfquery:isNotBound'),
+									$args[0]->arguments
+								);
+					$self->expr2sql( $expr, $level, %args );
+				}
+			}
 		} else {
-			warn "unknown filter function: $func";
+			if ($op =~ m#^(=|==|!=|[<>]=?|[*]|/|[-+])$#) {
+				
+				$op	= '<>' if ($op eq '!=');
+				$op	= '=' if ($op eq '==');
+				
+				my ($a, $b)	= @args;
+				my $a_type	= $a->type;
+				my $b_type	= $b->type;
+				
+				try {
+					if ($op eq '=') {
+						if ($a_type eq 'VAR' and $b_type eq 'VAR') {
+							# comparing equality on two type-unknown variables.
+							# could need rdf-term equality, so punt to the
+							# catch block below.
+							throw RDF::Query::Error::ComparisonError;
+						}
+					}
+					
+					foreach my $data ([$a_type, 'LHS'], [$b_type, 'RHS']) {
+						my ($type, $side)	= @$data;
+						unless ($type =~ m/^(VAR|LITERAL|FUNCTION)$/) {
+							if ($op =~ m/^!?=$/) {
+								# throw to the catch block below.
+								throw RDF::Query::Error::ComparisonError( -text => "Using comparison operator '${op}' on unknown node type requires RDF-Term semantics." );
+							} else {
+								# throw error out of the compiler.
+								throw RDF::Query::Error::CompilationError( -text => "Cannot use the comparison operator '${op}' on a ${side} ${type} node." );
+							}
+						}
+					}
+					
+					if ($a_type eq 'VAR') {
+						++$$level; my $var_name_a	= $self->expr2sql( $a, $level, equality => $equality );
+						my $sql_a	= "(SELECT value FROM Literals WHERE ${var_name_a} = ID LIMIT 1)";
+						if ($b_type eq 'VAR') {
+							# ?var cmp ?var
+							++$$level; my $var_name_b	= $self->expr2sql( $b, $level, equality => $equality );
+							my $sql_b	= "(SELECT value FROM Literals WHERE ${var_name_b} = ID LIMIT 1)";
+							$add_where->( "${sql_a} ${op} ${sql_b}" );
+						} else {
+							# ?var cmp NODE
+							++$$level; my $sql_b	= $self->expr2sql( $b, $level, equality => $equality );
+							$add_where->( "${sql_a} ${op} ${sql_b}" );
+						}
+					} else {
+						++$$level; my $sql_a	= $self->expr2sql( $a, $level, equality => $equality );
+						if ($b->[0] eq 'VAR') {
+							# ?var cmp NODE
+							++$$level; my $var_name	= $self->expr2sql( $b, $level, equality => $equality );
+							my $sql_b	= "(SELECT value FROM Literals WHERE ${var_name} = ID LIMIT 1)";
+							$add_where->( "${sql_a} ${op} ${sql_b}" );
+						} else {
+							# NODE cmp NODE
+							++$$level; my $sql_b	= $self->expr2sql( $b, $level, equality => $equality );
+							$add_where->( "${sql_a} ${op} ${sql_b}" );
+						}
+					}
+				} catch RDF::Query::Error::ComparisonError with {
+					# we can't compare these terms using the XPath semantics (for literals),
+					# so fall back on RDF-Term semantics.
+					my $err	= shift;
+					
+					my @w;
+					my $where_hook	= sub {
+									my $w	= shift;
+									push(@w, $w);
+									return;
+								};
+					
+					foreach my $expr (@args) {
+						$self->expr2sql( $expr, $level, %args, %args, equality => 'rdf', where_hook => $where_hook )
+					}
+					
+					$add_where->("$w[0] ${op} $w[1]");
+					
+				};
+			} elsif ($op eq '&&') {
+				foreach my $expr (@args) {
+					$self->expr2sql( $expr, $level, %args )
+				}
+			} elsif ($op eq '||') {
+				my @w;
+				my $where_hook	= sub {
+								my $w	= shift;
+								push(@w, $w);
+								return;
+							};
+				
+				foreach my $expr (@args) {
+					$self->expr2sql( $expr, $level, %args, where_hook => $where_hook )
+				}
+				
+				my $where	= '(' . join(' OR ', map { qq<($_)> } @w) . ')';
+				$add_where->( $where );
+			} else {
+				throw RDF::Query::Error::CompilationError( -text => "SQL compilation of FILTER($op) queries not yet implemented." );
+			}
 		}
 	}
+	return $sql;
 }
 
 =item C<< _mysql_hash ( $data ) >>
@@ -885,97 +853,97 @@ sub get_function {
 
 
 our %functions;
-
-$functions{ '~~' }	= sub {
-	my $self	= shift;
-	my $parsed_vars	= shift;
-	my $level	= shift || \do{ my $a = 0 };
-	my @args	= @_;
-	my (@from, @where);
-	
-	my (@regex, @literal, @pattern);
-	if ($args[0][0] eq 'VAR') {
-		my $name	= $args[0][1];
-		push(@literal, "${name}_Value");
-		push(@literal, "${name}_URI");
-		push(@literal, "${name}_Name");
-	} else {
-		push(@literal, $self->expr2sql( $args[0], $level ));
-	}
-	
-	if ($args[1][0] eq 'VAR') {
-		my $name	= $args[0][1];
-		push(@pattern, "${name}_Value");
-		push(@pattern, "${name}_URI");
-		push(@pattern, "${name}_Name");
-	} else {
-		push(@pattern, $self->expr2sql( $args[1], $level ));
-	}
-	
-	foreach my $literal (@literal) {
-		foreach my $pattern (@pattern) {
-			push(@regex, sprintf(qq(%s REGEXP %s), $literal, $pattern));
+BEGIN {
+	$functions{ 'sparql:regex' }	= sub {
+		my $self	= shift;
+		my $parsed_vars	= shift;
+		my $level	= shift || \do{ my $a = 0 };
+		my @args	= @_;
+		my (@from, @where);
+		
+		my (@regex, @literal, @pattern);
+		if (blessed($args[0]) and $args[0]->isa('RDF::Query::Node::Variable')) {
+			my $name	= $args[0]->name;
+			push(@literal, "${name}_Value");
+			push(@literal, "${name}_URI");
+			push(@literal, "${name}_Name");
+		} else {
+			push(@literal, $self->expr2sql( $args[0], $level ));
 		}
-	}
+		
+		if ($args[1][0] eq 'VAR') {
+			my $name	= $args[0][1];
+			push(@pattern, "${name}_Value");
+			push(@pattern, "${name}_URI");
+			push(@pattern, "${name}_Name");
+		} else {
+			push(@pattern, $self->expr2sql( $args[1], $level ));
+		}
+		
+		foreach my $literal (@literal) {
+			foreach my $pattern (@pattern) {
+				push(@regex, sprintf(qq(%s REGEXP %s), $literal, $pattern));
+			}
+		}
+		
+		push(@where, '(' . join(' OR ', @regex) . ')');
+		return ({}, \@from, \@where);
+	};
 	
-	push(@where, '(' . join(' OR ', @regex) . ')');
-	return ({}, \@from, \@where);
-};
-
-$functions{ 'sop:isBound' }	= sub {
-	my $self	= shift;
-	my $parsed_vars	= shift;
-	my $level	= shift || \do{ my $a = 0 };
-	my @args	= @_;
-	my (@from, @where);
+	$functions{ 'sparql:bound' } = sub {
+		my $self	= shift;
+		my $parsed_vars	= shift;
+		my $level	= shift || \do{ my $a = 0 };
+		my @args	= @_;
+		my (@from, @where);
+		
+		my $literal	= $self->expr2sql( $args[0], $level );
+		push(@where, sprintf(qq(%s IS NOT NULL), $literal));
+		return ({}, \@from, \@where);
+	};
 	
-	my $literal	= $self->expr2sql( $args[0], $level );
-	push(@where, sprintf(qq(%s IS NOT NULL), $literal));
-	return ({}, \@from, \@where);
-};
-
-$functions{ 'rdfquery:isNotBound' }	= sub {
-	my $self	= shift;
-	my $parsed_vars	= shift;
-	my $level	= shift || \do{ my $a = 0 };
-	my @args	= @_;
-	my (@from, @where);
+	$functions{ 'rdfquery:isNotBound' }	= sub {
+		my $self	= shift;
+		my $parsed_vars	= shift;
+		my $level	= shift || \do{ my $a = 0 };
+		my @args	= @_;
+		my (@from, @where);
+		
+		my $literal	= $self->expr2sql( $args[0], $level );
+		push(@where, sprintf(qq(%s IS NULL), $literal));
+		return ({}, \@from, \@where);
+	};
 	
-	my $literal	= $self->expr2sql( $args[0], $level );
-	push(@where, sprintf(qq(%s IS NULL), $literal));
-	return ({}, \@from, \@where);
-};
-
-$functions{ 'http://www.w3.org/2001/XMLSchema#integer' }	= sub {
-	my $self	= shift;
-	my $parsed_vars	= shift;
-	my $level	= shift || \do{ my $a = 0 };
-	my @args	= @_;
-	my (@from, @where);
+	$functions{ 'http://www.w3.org/2001/XMLSchema#integer' }	= sub {
+		my $self	= shift;
+		my $parsed_vars	= shift;
+		my $level	= shift || \do{ my $a = 0 };
+		my @args	= @_;
+		my (@from, @where);
+		
+		my $literal	= $self->expr2sql( $args[0], $level );
+		push(@where, sprintf(qq((0 + %s)), $literal));
+		return ({}, \@from, \@where);
+	};
 	
-	my $literal	= $self->expr2sql( $args[0], $level );
-	push(@where, sprintf(qq((0 + %s)), $literal));
-	return ({}, \@from, \@where);
-};
-
-$functions{ 'http://www.w3.org/2001/XMLSchema#decimal' }	= sub {
-	my $self	= shift;
-	my $parsed_vars	= shift;
-	my $level	= shift || \do{ my $a = 0 };
-	my @args	= @_;
-	
-	my (@from, @where);
-	
-	if ($args[0] eq 'FUNCTION') {
-		Carp::confess;
-	}
-	
-	my $literal	= $self->expr2sql( $args[0], $level );
-	push(@where, sprintf(qq((0.0 + %s)), $literal));
-	return ({}, \@from, \@where);
-};
-$functions{'sop:numeric'}	= $functions{ 'http://www.w3.org/2001/XMLSchema#double' }
-							= $functions{ 'http://www.w3.org/2001/XMLSchema#decimal' };
+	$functions{ 'http://www.w3.org/2001/XMLSchema#double' }	=
+	$functions{ 'http://www.w3.org/2001/XMLSchema#decimal' }	= sub {
+		my $self	= shift;
+		my $parsed_vars	= shift;
+		my $level	= shift || \do{ my $a = 0 };
+		my @args	= @_;
+		
+		my (@from, @where);
+		
+		if ($args[0] eq 'FUNCTION') {
+			Carp::confess;
+		}
+		
+		my $literal	= $self->expr2sql( $args[0], $level );
+		push(@where, sprintf(qq((0.0 + %s)), $literal));
+		return ({}, \@from, \@where);
+	};
+}
 
 
 

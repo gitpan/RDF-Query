@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
+no warnings 'redefine';
 use URI::file;
 
 use lib qw(. t);
@@ -11,7 +12,7 @@ my @models	= test_models( @files );
 
 use Test::More;
 
-eval "use Test::JSON; use JSON;";
+eval "use Test::JSON 0.03; use JSON 2.0;";
 my $run_json_tests	= (not $@) ? 1 : 0;
 my $tests_per_model	= 7 + ($run_json_tests ? 6 : 0);
 
@@ -78,17 +79,17 @@ END
 END
 		my $stream	= $query->execute( $model );
 		ok( $stream->is_graph, 'Graph result' );
-				
-		my $xml		= eval { $stream->as_xml };	# XXX remove eval when removing the TODO!
+		
+		my $xml		= $stream->as_xml;	# XXX remove eval when removing the TODO!
 		no warnings 'uninitialized';
-		like( $xml, qr%:name.*?>Greg Williams<%ms, 'XML Results formatting' );
-		like( $xml, qr%:made\s+.*?rdf:resource="http://kasei\.us/pictures/2004/20040909-Ireland/images/DSC_5705\.jpg"%ms, 'XML Results formatting' );
+		like( $xml, qr%name.*?>Greg Williams<%ms, 'XML Results formatting' );
+		like( $xml, qr%made\s+.*?rdf:resource="http://kasei\.us/pictures/2004/20040909-Ireland/images/DSC_5705\.jpg"%ms, 'XML Results formatting' );
 	}
 	
 	### JSON Tests
 	
-	sub JSON::True;
-	sub JSON::False;
+	sub JSON::true;
+	sub JSON::false;
 	
 	if ($run_json_tests) {
 		{
@@ -109,8 +110,8 @@ END
 			my $expect	= {
 							head	=> { vars => [qw(person homepage)] },
 							results	=> {
-								ordered 	=> JSON::True,
-								distinct	=> JSON::False,
+								ordered 	=> JSON::true,
+								distinct	=> JSON::false,
 								bindings	=> [
 									{
 										person		=> { type => 'uri', value => 'http://kasei.us/about/foaf.xrdf#greg' },
@@ -120,7 +121,7 @@ END
 							}
 						};
 			is_valid_json( $js, 'valid json syntax' );
-			is_json( $js, objToJson($expect), 'expected json results' );
+			is_json( $js, to_json($expect), 'expected json results' );
 		}
 	
 		{
@@ -133,10 +134,10 @@ END
 			my $js		= $stream->as_json;
 			my $expect	= {
 							head	=> { vars => [] },
-							boolean	=> JSON::True,
+							boolean	=> JSON::true,
 						};
 			is_valid_json( $js, 'valid json syntax' );
-			is_json( $js, objToJson($expect), 'expected json results' );
+			is_json( $js, to_json($expect), 'expected json results' );
 		}
 	}
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
+no warnings 'redefine';
 use Test::More;
 
 use lib qw(. t);
@@ -27,7 +28,7 @@ foreach my $model (@models) {
 					}
 END
 		my $stream	= $query->execute( $model );
-		isa_ok( $stream, 'RDF::Query::Stream', 'stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator', 'stream' );
 		my $count;
 		while (not $stream->finished) {
 			my ($node)	= $stream->binding_value( 0 );
@@ -49,10 +50,10 @@ END
 					}
 END
 		my $stream	= $query->execute( $model );
-		isa_ok( $stream, 'RDF::Query::Stream', 'stream' );
+		isa_ok( $stream, 'RDF::Trine::Iterator', 'stream' );
 		my $count;
 		while (my $row = $stream->()) {
-			my ($node)	= $row->[0];
+			my ($node)	= $row->{name};
 			my $name	= $query->bridge->as_string( $node );
 			ok( $name, $name );
 		} continue { last if ++$count >= 100 };

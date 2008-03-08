@@ -14,10 +14,12 @@ package RDF::Query::Node::Resource;
 
 use strict;
 use warnings;
-use base qw(RDF::Query::Node);
+no warnings 'redefine';
+use base qw(RDF::Query::Node RDF::Trine::Node::Resource);
 
+use URI;
 use Data::Dumper;
-use Scalar::Util qw(reftype);
+use Scalar::Util qw(blessed reftype);
 use Carp qw(carp croak confess);
 
 ######################################################################
@@ -30,67 +32,33 @@ BEGIN {
 
 ######################################################################
 
+use overload	'<=>'	=> \&_cmp,
+				'cmp'	=> \&_cmp,
+				'<'		=> sub { _cmp(@_) == -1 },
+				'>'		=> sub { _cmp(@_) == 1 },
+				'!='	=> sub { _cmp(@_) != 0 },
+				'=='	=> sub { _cmp(@_) == 0 },
+				'+'		=> sub { $_[0] },
+				'""'	=> sub { $_[0]->sse },
+			;
+
+sub _cmp {
+	my $a	= shift;
+	my $b	= shift;
+	return 1 unless blessed($b);
+	return -1 if ($b->isa('RDF::Query::Node::Literal'));
+	return 1 if ($b->isa('RDF::Query::Node::Blank'));
+	return 0 unless ($b->isa('RDF::Query::Node::Resource'));
+	my $cmp	= $a->uri_value cmp $b->uri_value;
+	return $cmp;
+}
+
 =head1 METHODS
 
 =over 4
 
 =cut
 
-=item C<new ( $iri )>
-
-Returns a new Resource structure.
-
-=cut
-
-sub new {
-	my $class	= shift;
-	my $iri		= shift;
-	return bless( [ 'URI', $iri ], $class );
-}
-
-=item C<< uri_value >>
-
-Returns the URI/IRI value of this resource.
-
-=cut
-
-sub uri_value {
-	my $self	= shift;
-	return $self->[1];
-}
-
-=item C<< sse >>
-
-Returns the SSE string for this resource.
-
-=cut
-
-sub sse {
-	my $self	= shift;
-	my $uri		= $self->uri_value;
-	if (ref($uri) and reftype($uri) eq 'ARRAY') {
-		my ($ns, $local)	= @$uri;
-		$ns	= '' if ($ns eq '__DEFAULT__');
-		return join(':', $ns, $local);
-	} else {
-		return qq(<${uri}>);
-	}
-}
-
-=item C<< as_sparql >>
-
-Returns the SPARQL string for this node.
-
-=cut
-
-sub as_sparql {
-	my $self	= shift;
-	if ($self->uri_value eq 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type') {
-		return 'a';
-	} else {
-		return $self->sse;
-	}
-}
 
 1;
 

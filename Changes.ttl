@@ -6,7 +6,7 @@
 @prefix asc:     <http://aaronland.info/ns/changefile/> .
                                      
 <>
-        dc:identifier           "$Id: Changes.ttl 290 2007-11-13 04:31:04Z samofool $" ;
+        dc:identifier           "$Id: Changes.ttl 298 2007-12-03 20:48:55Z samofool $" ;
         dc:description          "Changes for RDF::Query" ;
         dcterms:references      <http://kasei.us/code/rdf-query/#project> .
 

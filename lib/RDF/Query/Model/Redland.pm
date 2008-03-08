@@ -2,26 +2,27 @@ package RDF::Query::Model::Redland;
 
 use strict;
 use warnings;
+no warnings 'redefine';
 use base qw(RDF::Query::Model);
 
 use Carp qw(carp croak confess);
 
 use File::Spec;
-use RDF::Redland 1.00;
 use Data::Dumper;
-use LWP::Simple qw(get);
+use LWP::UserAgent;
 use Scalar::Util qw(blessed reftype);
-use Unicode::Normalize qw(normalize);
 use Encode;
 
-use RDF::Query::Stream;
+use RDF::Redland 1.00;
+use RDF::Trine::Iterator;
+use RDF::Trine::Statement::Quad;
 
 ######################################################################
 
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= do { my $REV = (qw$Revision: 267 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
+	$VERSION	= do { my $REV = (qw$Revision: 301 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
 ######################################################################
@@ -90,143 +91,6 @@ sub model {
 	return $self->{'model'};
 }
 
-=item C<new_resource ( $uri )>
-
-Returns a new resource object.
-
-=cut
-
-sub new_resource {
-	my $self	= shift;
-	my $uri		= shift;
-	my $node	= RDF::Redland::URI->new( $uri );
-	return RDF::Redland::Node->new_from_uri( $node );
-}
-
-=item C<new_literal ( $string, $language, $datatype )>
-
-Returns a new literal object.
-
-=cut
-
-sub new_literal {
-	my $self	= shift;
-	my $value	= shift;
-	my $lang	= shift;
-	my $type	= shift;
-	my @args	= ("$value");
-	no warnings 'uninitialized';
-	if ($type and $RDF::Redland::VERSION >= 1.00_02) {
-		# $RDF::Redland::VERSION is introduced in 1.0.2, and that's also when datatypes are fixed.
-		$type	= RDF::Redland::URI->new( $type );
-		push(@args, $type);
-		push(@args, undef);
-	} elsif ($lang) {
-		push(@args, undef);
-		push(@args, $lang);
-	}
-	
-	# XXX XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-	# XXX hack... the values don't seem to work unless i print them out...
-	# XXX popped up as an error when debugging the javascript net function...
-	# XXX possibly an error in the XS in the JavaScript module
-	my $buffer;
-	open( my $fh, '>', \$buffer );
-	print {$fh} Dumper(\@args);
-	close($fh);
-	# XXX XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-	
-	my $literal	= RDF::Redland::Node->new_literal( @args );
-	return $literal;
-}
-
-=item C<new_blank ( $identifier )>
-
-Returns a new blank node object.
-
-=cut
-
-sub new_blank {
-	my $self	= shift;
-	return RDF::Redland::Node->new_from_blank_identifier(@_);
-}
-
-=item C<new_statement ( $s, $p, $o )>
-
-Returns a new statement object.
-
-=cut
-
-sub new_statement {
-	my $self	= shift;
-	return RDF::Redland::Statement->new(@_);
-}
-
-=item C<is_node ( $node )>
-
-=item C<isa_node ( $node )>
-
-Returns true if C<$node> is a node object for the current model.
-
-=cut
-
-sub isa_node {
-	my $self	= shift;
-	my $node	= shift;
-	return UNIVERSAL::isa($node,'RDF::Redland::Node');
-}
-
-=item C<is_resource ( $node )>
-
-=item C<isa_resource ( $node )>
-
-Returns true if C<$node> is a resource object for the current model.
-
-=cut
-
-sub isa_resource {
-	my $self	= shift;
-	my $node	= shift;
-	return (ref($node) and $node->is_resource);
-}
-
-=item C<is_literal ( $node )>
-
-=item C<isa_literal ( $node )>
-
-Returns true if C<$node> is a literal object for the current model.
-
-=cut
-
-sub isa_literal {
-	my $self	= shift;
-	my $node	= shift;
-	return unless (blessed($node));
-	if ($node->isa('DateTime')) {
-		return 1;
-	} else {
-		return (ref($node) and $node->is_literal);
-	}
-}
-
-=item C<is_blank ( $node )>
-
-=item C<isa_blank ( $node )>
-
-Returns true if C<$node> is a blank node object for the current model.
-
-=cut
-
-sub isa_blank {
-	my $self	= shift;
-	my $node	= shift;
-	return (ref($node) and $node->is_blank);
-}
-*RDF::Query::Model::Redland::is_node		= \&isa_node;
-*RDF::Query::Model::Redland::is_resource	= \&isa_resource;
-*RDF::Query::Model::Redland::is_literal		= \&isa_literal;
-*RDF::Query::Model::Redland::is_blank		= \&isa_blank;
-
 =item C<< equals ( $node_a, $node_b ) >>
 
 Returns true if C<$node_a> and C<$node_b> are equal
@@ -237,104 +101,11 @@ sub equals {
 	my $self	= shift;
 	my $nodea	= shift;
 	my $nodeb	= shift;
-	return $nodea->equals( $nodeb );
+	return 1 if (not(defined($nodea)) and not(defined($nodeb)));
+	return 0 unless blessed($nodea);
+	return $nodea->equal( $nodeb );
 }
 
-
-=item C<as_string ( $node )>
-
-Returns a string version of the node object.
-
-=cut
-
-sub as_string {
-	my $self	= shift;
-	my $node	= shift;
-	return undef unless (blessed($node));
-	my $string	= $node->as_string;
-	return $string;
-}
-
-=item C<literal_value ( $node )>
-
-Returns the string value of the literal object.
-
-=cut
-
-sub literal_value {
-	my $self	= shift;
-	my $node	= shift;
-	return undef unless (blessed($node));
-	if ($node->isa('DateTime')) {
-		my $f	= DateTime::Format::W3CDTF->new;
-		return $f->format_datetime( $node );
-	} else {
-		return decode('utf8', $node->literal_value) || '';
-	}
-}
-
-=item C<literal_datatype ( $node )>
-
-Returns the datatype of the literal object.
-
-=cut
-
-sub literal_datatype {
-	my $self	= shift;
-	my $node	= shift;
-	return unless (blessed($node));
-	return unless ($self->is_literal($node));
-	if ($node->isa('DateTime')) {
-		return 'http://www.w3.org/2001/XMLSchema#dateTime';
-	} else {
-		my $type	= $node->literal_datatype;
-		return undef unless $type;
-		return $type->as_string;
-	}
-}
-
-=item C<literal_value_language ( $node )>
-
-Returns the language of the literal object.
-
-=cut
-
-sub literal_value_language {
-	my $self	= shift;
-	my $node	= shift;
-	return undef unless (blessed($node));
-	return undef unless ($self->is_literal($node));
-	my $lang	= $node->literal_value_language;
-	return $lang;
-}
-
-=item C<uri_value ( $node )>
-
-Returns the URI string of the resource object.
-
-=cut
-
-sub uri_value {
-	my $self	= shift;
-	my $node	= shift;
-	return undef unless (blessed($node));
-	return undef unless ($self->is_resource($node));
-	return $node->uri->as_string;
-}
-
-=item C<blank_identifier ( $node )>
-
-Returns the identifier for the blank node object.
-
-=cut
-
-sub blank_identifier {
-	my $self	= shift;
-	my $node	= shift;
-	return undef unless (blessed($node));
-	return undef unless ($self->is_blank($node));
-	return $node->blank_identifier;
-}
 
 =item C<add_uri ( $uri, $named, $format )>
 
@@ -345,22 +116,30 @@ named context.
 =cut
 
 sub add_uri {
-	my $self	= shift;
-	my $uri		= shift;
-	my $named	= shift;
-	my $format	= shift || 'guess';
+	my $self		= shift;
+	my $uri			= shift;
+	my $named		= shift;
+	my $format		= shift || 'guess';
 	
 	my $model		= $self->{model};
 	my $parser		= RDF::Redland::Parser->new($format);
 	
-	my $data		= get( $uri );
+	my $ua		= LWP::UserAgent->new( agent => "RDF::Query/${RDF::Query::VERSION}" );
+	$ua->default_headers->push_header( 'Accept' => "application/rdf+xml;q=0.5, text/turtle;q=0.7, text/xml" );
+	
+	my $resp	= $ua->get( $uri );
+	unless ($resp->is_success) {
+		warn "No content available from $uri: " . $resp->status_line;
+		return;
+	}
+	my $data	= $resp->content;
 	$data			= decode_utf8( $data );
 	$self->add_string( $data, $uri, $named, $format );
 }
 
 =item C<add_string ( $data, $base_uri, $named, $format )>
 
-Addsd the contents of C<$data> to the model. If C<$named> is true,
+Adds the contents of C<$data> to the model. If C<$named> is true,
 the data is added to the model using C<$base_uri> as the named context.
 
 =cut
@@ -368,16 +147,18 @@ the data is added to the model using C<$base_uri> as the named context.
 sub add_string {
 	my $self	= shift;
 	my $_data	= shift;
-	my $uri		= shift;
+	my $base	= shift;
 	my $named	= shift;
 	my $format	= shift || 'guess';
 	
-	my $data		= normalize( 'C', $_data );
-	my $model		= $self->{model};
+	my $model	= ($named) ? $self->_named_graphs_model : $self->model;
+	
+	my $data		= $_data;
 	my $parser		= RDF::Redland::Parser->new($format);
-	my $redlanduri	= RDF::Redland::URI->new( $uri );
+	my $redlanduri	= RDF::Redland::URI->new( $base );
 	
 	if ($named) {
+		warn "adding named data with name ($base) to model " . Dumper($model) . ": $data\n" if ($debug);
 		my $stream		= $parser->parse_string_as_stream($data, $redlanduri);
 		$model->add_statements( $stream, $redlanduri );
 	} else {
@@ -432,172 +213,185 @@ sub object {
 	return $stmt->object;
 }
 
-=item C<get_statements ($subject, $predicate, $object)>
+=item C<< _get_statements ($subject, $predicate, $object) >>
 
 Returns a stream object of all statements matching the specified subject,
 predicate and objects. Any of the arguments may be undef to match any value.
 
 =cut
 
-sub get_statements {
+sub _get_statements {
 	my $self	= shift;
 	my @triple	= splice(@_, 0, 3);
-	my $context	= shift;
+	my $model	= $self->model;
 	
-#	warn "get_statements: <<" . join(', ', map { ref($_) ? $_->as_string : 'undef' } (@triple)) . ">> [" . (blessed($context) ? $context->as_string : '') . "]";
-	
-	my @defs	= grep defined, @triple;
-	my $model	= $self->{'model'};
+	@triple		= map { _cast_to_redland( $_ ) } @triple;
 	my $stmt	= RDF::Redland::Statement->new( @triple );
+	my @defs	= grep defined, @triple;
 	my $stream;
 	
 #	warn "GETTING " . $stmt->as_string if ($RDF::Query::debug);
 	
 	my %args	= ( bridge => $self );
 	
-	if ($context) {
-		my $iter	= $model->find_statements( $stmt, $context );
-		$args{ context }	= $context;
-		$args{ named }		= 1;
-
+	if (scalar(@defs) == 2) {
+		my @imethods	= qw(sources_iterator arcs_iterator targets_iterator);
+		my @smethods	= qw(subject predicate object);
+		my ($imethod, $smethod);
+		foreach my $i (0 .. 2) {
+			if (not defined $triple[ $i ]) {
+				$imethod	= $imethods[ $i ];
+				$smethod	= $smethods[ $i ];
+				last;
+			}
+		}
+		my $iter	= $model->$imethod( @defs );
 		my $finished	= 0;
 		$stream	= sub {
 			$finished	= 1 if (@_ and $_[0] eq 'close');
 			return undef if ($finished);
-			if (@_ and $_[0] eq 'context') {
-				return $context;
-			} elsif (not $iter) {
+			if (not $iter) {
 				return undef;
 			} elsif ($iter->end) {
 				$iter	= undef;
 				return undef;
 			} else {
-				my $ret	= $iter->current;
+				my $ret		= $iter->current;
+				my $context	= $iter->context;
 				$iter->next;
-				my $ctx	= blessed($context) ? $context->as_string : '';
-#				warn ">>>>> " . $ret->as_string . "\t<$ctx>\n" if (blessed($ret));	# XXX
-				return $ret;
+				my $s		= $stmt->clone;
+				$s->$smethod( $ret );
+				return ($s, $context);
 			}
 		};
 	} else {
-		if (scalar(@defs) == 2) {
-			my @imethods	= qw(sources_iterator arcs_iterator targets_iterator);
-			my @smethods	= qw(subject predicate object);
-			my ($imethod, $smethod);
-			foreach my $i (0 .. 2) {
-				if (not defined $triple[ $i ]) {
-					$imethod	= $imethods[ $i ];
-					$smethod	= $smethods[ $i ];
-					last;
-				}
+		my $iter	= $model->find_statements( $stmt );
+		warn "iterator: $iter (" . $stmt->as_string . ')' if (0);
+		my $finished	= 0;
+		$stream	= sub {
+			$finished	= 1 if (@_ and $_[0] eq 'close');
+			return undef if ($finished);
+			no warnings 'uninitialized';
+			if (not $iter) {
+				return undef;
+			} elsif ($iter->end) {
+				$iter	= undef;
+				return undef;
+			} else {
+				my $ret		= $iter->current;
+				my $context	= $iter->context;
+				$iter->next;
+				return ($ret, $context);
 			}
-			my $iter	= $model->$imethod( @defs );
-			my $context;
-			my $finished	= 0;
-			$stream	= sub {
-				$finished	= 1 if (@_ and $_[0] eq 'close');
-				return undef if ($finished);
-				if (@_ and $_[0] eq 'context') {
-					return $context;
-				} elsif (not $iter) {
-					return undef;
-				} elsif ($iter->end) {
-					$iter	= undef;
-					return undef;
-				} else {
-					my $ret	= $iter->current;
-					$context	= $iter->context;
-					$iter->next;
-					my $s	= $stmt->clone;
-					$s->$smethod( $ret );
-					my $ctx	= blessed($context) ? $context->as_string : '';
-#					warn ">>>>> " . $s->as_string . "\t<$ctx>\n" if (blessed($s));	# XXX
-					return $s;
-				}
-			};
-		} else {
-			my $iter	= $model->find_statements( $stmt );
-			warn "iterator: $iter (" . $stmt->as_string . ')' if (0);
-			my $finished	= 0;
-			my $context;
-			$stream	= sub {
-				$finished	= 1 if (@_ and $_[0] eq 'close');
-				return undef if ($finished);
-				no warnings 'uninitialized';
-				if (@_ and $_[0] eq 'context') {
-					return $context;
-				} elsif (not $iter) {
-					return undef;
-				} elsif ($iter->end) {
-					$context	= $iter->context;
-					$iter	= undef;
-					return undef;
-				} else {
-					my $ret	= $iter->current;
-					$context	= $iter->context;
-					$iter->next;
-					my $ctx	= blessed($context) ? $context->as_string : '';
-#					warn ">>>>> " . $ret->as_string . "\t<$ctx>\n" if (blessed($ret));	# XXX
-					return $ret;
-				}
-			};
-		}
+		};
 	}
 	
-	return RDF::Query::Stream->new( $stream, 'graph', undef, %args );
+	my $iter	= sub {
+		my ($rstmt, $context)	= $stream->();
+		return unless ($rstmt);
+		my $rs		= $rstmt->subject;
+		my $rp		= $rstmt->predicate;
+		my $ro		= $rstmt->object;
+		my @nodes;
+		foreach my $n ($rs, $rp, $ro) {
+			push(@nodes, _cast_to_local( $n ));
+		}
+		my $st	= RDF::Trine::Statement->new( @nodes );
+		return $st;
+	};
+	
+	return RDF::Trine::Iterator::Graph->new( $iter, %args );
 }
 
-
-=item C<count_statements ($subject, $predicate, $object)>
+=item C<< _get_named_statements ( $subject, $predicate, $object, $context ) >>
 
 Returns a stream object of all statements matching the specified subject,
-predicate and objects. Any of the arguments may be undef to match any value.
+predicate, object and context. Any of the arguments may be undef to match
+any value.
 
 =cut
 
-sub count_statements {
-	my $self	= shift;
+sub _get_named_statements {
+	my $self		= shift;
+	my @triple		= splice(@_, 0, 3);
+	Carp::confess 'no context' unless (@_);
+	my $_context	= shift;
+	my $model		= $self->_named_graphs_model;
 	
-	my @triple	= splice(@_, 0, 3);
-	my $context	= shift;
-	
-	my @defs	= grep defined, @triple;
-	my $model	= $self->{'model'};
+	@triple		= map { _cast_to_redland( $_ ) } @triple;
 	my $stmt	= RDF::Redland::Statement->new( @triple );
-	my $stream;
 	
-	my %args	= ( bridge => $self, named => 1 );
+	my $context	= _cast_to_redland( $_context );
+	my @context	= ($context) ? $context : ();
+	my $iter	= $model->find_statements( $stmt, @context );
 	
-	my $iter;
-	if ($context) {
-		$iter	= $model->find_statements( $stmt, $context );
-	} else {
-		if (scalar(@defs) == 2) {
-			my @imethods	= qw(sources_iterator arcs_iterator targets_iterator);
-			my @smethods	= qw(subject predicate object);
-			my ($imethod, $smethod);
-			foreach my $i (0 .. 2) {
-				if (not defined $triple[ $i ]) {
-					$imethod	= $imethods[ $i ];
-					$smethod	= $smethods[ $i ];
-					last;
-				}
-			}
-			$iter	= $model->$imethod( @defs );
+	my $finished	= 0;
+	my $stream	= sub {
+		$finished	= 1 if (@_ and $_[0] eq 'close');
+		return undef if ($finished);
+		if (not $iter) {
+			return undef;
+		} elsif ($iter->end) {
+			$iter	= undef;
+			return undef;
 		} else {
-			warn $stmt->as_string;
-			$iter	= $model->find_statements( $stmt );
+			my $rstmt	= $iter->current;
+			my $rc		= $iter->context;
+			$iter->next;
+			my $rs		= $rstmt->subject;
+			my $rp		= $rstmt->predicate;
+			my $ro		= $rstmt->object;
+			my @nodes;
+			foreach my $n ($rs, $rp, $ro, $rc) {
+				push(@nodes, _cast_to_local( $n ));
+			}
+			my $st	= RDF::Trine::Statement::Quad->new( @nodes );
+			return $st;
 		}
-	}
-	my $count	= 0;
-	while($iter && !$iter->end) {
-		$count++;
-		$iter->next;
-	}
-	
-	return $count;
+	};
+	return RDF::Trine::Iterator::Graph->new( $stream );
 }
 
+
+sub _cast_to_redland {
+	my $node	= shift;
+	return undef unless (blessed($node));
+	if ($node->isa('RDF::Trine::Statement')) {
+		my @nodes	= map { _cast_to_redland( $_ ) } $node->nodes;
+		return RDF::Redland::Statement->new( @nodes );
+	} elsif ($node->isa('RDF::Trine::Node::Resource')) {
+		return RDF::Redland::Node->new_from_uri( $node->uri_value );
+	} elsif ($node->isa('RDF::Trine::Node::Blank')) {
+		return RDF::Redland::Node->new_from_blank_identifier( $node->blank_identifier );
+	} elsif ($node->isa('RDF::Trine::Node::Literal')) {
+		my $lang	= $node->literal_value_language;
+		my $dt		= $node->literal_datatype;
+		my $value	= $node->literal_value;
+		return RDF::Redland::Node->new_literal( "$value", $dt, $lang );
+	} else {
+		return undef;
+	}
+}
+
+sub _cast_to_local {
+	my $node	= shift;
+	return undef unless (blessed($node));
+	my $type	= $node->type;
+	if ($type == $RDF::Redland::Node::Type_Resource) {
+		return RDF::Query::Node::Resource->new( $node->uri->as_string );
+	} elsif ($type == $RDF::Redland::Node::Type_Blank) {
+		return RDF::Query::Node::Blank->new( $node->blank_identifier );
+	} elsif ($type == $RDF::Redland::Node::Type_Literal) {
+		my $lang	= $node->literal_value_language;
+		my $dturi	= $node->literal_datatype;
+		my $dt		= ($dturi)
+					? $dturi->as_string
+					: undef;
+		return RDF::Query::Node::Literal->new( decode('utf8', $node->literal_value), $lang, $dt );
+	} else {
+		return undef;
+	}
+}
 
 =item C<< add_statement ( $statement ) >>
 
@@ -609,7 +403,8 @@ sub add_statement {
 	my $self	= shift;
 	my $stmt	= shift;
 	my $model	= $self->model;
-	$model->add_statement( $stmt );
+	my $rstmt	= _cast_to_redland( $stmt );
+	$model->add_statement( $rstmt );
 }
 
 =item C<< remove_statement ( $statement ) >>
@@ -622,46 +417,8 @@ sub remove_statement {
 	my $self	= shift;
 	my $stmt	= shift;
 	my $model	= $self->model;
-	$model->remove_statement( $stmt );
-}
-
-
-=begin private
-
-=item C<< ignore_contexts >>
-
-=end private
-
-=cut
-
-sub ignore_contexts {
-	my $self	= shift;
-	# no-op
-}
-
-
-=item C<get_context ($stream)>
-
-Returns the context node of the last statement retrieved from the specified
-C<$stream>. The stream object, in turn, calls the closure (that was passed to
-the stream constructor in C<get_statements>) with the argument 'context'.
-
-=cut
-
-sub get_context {
-	my $self	= shift;
-	my $stream	= shift;
-	my %args	= @_;
-	
-	if (0) {
-		Carp::cluck "get_context stream: ";
-		local($RDF::Query::debug)	= 2;
-		RDF::Query::_debug_closure( $stream );
-	}
-	
-	Carp::confess "Not a CODE reference: " . Dumper($stream) unless (reftype($stream) eq 'CODE');
-	my $context	= $stream->('context');
-	return $context;
+	my $rstmt	= _cast_to_redland( $stmt );
+	$model->remove_statement( $rstmt );
 }
 
 =item C<supports ($feature)>
@@ -702,7 +459,7 @@ sub node_count {
 	my $self	= shift;
 	my $model	= $self->model;
 	my $total	= $model->size;
-	my $st		= RDF::Redland::Statement->new( @_ );
+	my $st		= RDF::Redland::Statement->new( map { _cast_to_redland($_) } @_ );
 	my $stream	= $model->find_statements( $st );
 	my $count	= 0;
 	while ($stream and not $stream->end) {
@@ -759,7 +516,7 @@ Returns an iterator object containing every statement in the model.
 
 sub model_as_stream {
 	my $self	= shift;
-	my $model	= $self->model;
+	my $model	= shift || $self->model;
 	return $model->as_stream;
 }
 
@@ -774,7 +531,8 @@ model) to STDERR.
 
 sub debug {
 	my $self	= shift;
-	my $stream	= $self->model_as_stream();
+	my $model	= shift || $self->model;
+	my $stream	= $self->model_as_stream( $model );
 	warn "------------------------------\n";
 	while (my $st = $stream->current) {
 		my $string	= $self->as_string( $st );
@@ -783,9 +541,25 @@ sub debug {
 			$string	.= "\tC<$cs>";
 		}
 		print STDERR "$string\n";
-	} continue { $stream->next }
+		$stream->next;
+	}
 	warn "------------------------------\n";
 }
+
+sub _named_graphs_model {
+	my $self	= shift;
+	if ($self->{named_graphs}) {
+		warn "named graphs model: " . Dumper($self->{named_graphs}) if ($debug);
+		return $self->{named_graphs};
+	} else {
+		my $storage	= RDF::Redland::Storage->new( "hashes", "test", "new='yes',hash-type='memory',contexts='yes'" );
+		my $model	= RDF::Redland::Model->new( $storage, '' );
+		$self->{named_graphs}	= $model;
+		warn "creating new graphs model: " . Dumper($self->{named_graphs}) if ($debug);
+		return $model;
+	}
+}
+
 
 1;
 

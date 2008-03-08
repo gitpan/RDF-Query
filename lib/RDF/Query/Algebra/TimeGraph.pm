@@ -14,6 +14,7 @@ package RDF::Query::Algebra::TimeGraph;
 
 use strict;
 use warnings;
+no warnings 'redefine';
 use base qw(RDF::Query::Algebra);
 
 use Data::Dumper;
@@ -36,7 +37,7 @@ BEGIN {
 
 =cut
 
-=item C<new ( $graph, $pattern )>
+=item C<new ( $interval, $pattern, $time_triples )>
 
 Returns a new TimeGraph structure.
 
@@ -46,6 +47,18 @@ sub new {
 	my $class		= shift;
 	my @data		= @_;	# $interval, $pattern, $triples
 	return bless( [ 'TIME', @data ], $class );
+}
+
+=item C<< construct_args >>
+
+Returns a list of arguments that, passed to this class' constructor,
+will produce a clone of this algebra pattern.
+
+=cut
+
+sub construct_args {
+	my $self	= shift;
+	return ($self->interval, $self->pattern, $self->time_triples);
 }
 
 =item C<< interval >>
@@ -93,12 +106,13 @@ Returns the SSE string for this alegbra expression.
 
 sub sse {
 	my $self	= shift;
+	my $context	= shift;
 	
 	return sprintf(
 		'(time %s %s %s)',
-		$self->interval->sse,
-		$self->pattern->sse,
-		$self->time_triples->sse,
+		$self->interval->sse( $context ),
+		$self->pattern->sse( $context ),
+		$self->time_triples->sse( $context ),
 	);
 }
 
@@ -110,12 +124,13 @@ Returns the SPARQL string for this alegbra expression.
 
 sub as_sparql {
 	my $self	= shift;
-	my $indent	= shift || '';
+	my $context	= shift;
+	my $indent	= shift;
 	my $nindent	= $indent . "\t";
 	my $string	= sprintf(
 		"TIME %s %s",
-		$self->interval->as_sparql( $indent ),
-		$self->pattern->as_sparql( $indent ),
+		$self->interval->as_sparql( $context, $indent ),
+		$self->pattern->as_sparql( $context, $indent ),
 	);
 	return $string;
 }
@@ -142,6 +157,21 @@ sub referenced_variables {
 		map { $_->name } grep { $_->isa('RDF::Query::Node::Variable') } ($self->graph),
 		$self->pattern->referenced_variables,
 		$self->time_triples->referenced_variables,
+	);
+}
+
+=item C<< definite_variables >>
+
+Returns a list of the variable names that will be bound after evaluating this algebra expression.
+
+=cut
+
+sub definite_variables {
+	my $self	= shift;
+	return uniq(
+		map { $_->name } grep { $_->isa('RDF::Query::Node::Variable') } ($self->graph),
+		$self->pattern->definite_variables,
+		$self->time_triples->definite_variables,
 	);
 }
 

@@ -14,9 +14,11 @@ package RDF::Query::Node::Variable;
 
 use strict;
 use warnings;
-use base qw(RDF::Query::Node);
+no warnings 'redefine';
+use base qw(RDF::Query::Node RDF::Trine::Node::Variable);
 
 use Data::Dumper;
+use Scalar::Util qw(blessed);
 use Carp qw(carp croak confess);
 
 ######################################################################
@@ -35,51 +37,6 @@ BEGIN {
 
 =cut
 
-=item C<new ( $name )>
-
-Returns a new Variable structure.
-
-=cut
-
-sub new {
-	my $class	= shift;
-	my $name	= shift;
-	return bless( [ 'VAR', $name ], $class );
-}
-
-=item C<< name >>
-
-Returns the name of the variable.
-
-=cut
-
-sub name {
-	my $self	= shift;
-	return $self->[1];
-}
-
-=item C<< sse >>
-
-Returns the SSE string for this variable.
-
-=cut
-
-sub sse {
-	my $self	= shift;
-	my $name	= $self->name;
-	return qq(?${name});
-}
-
-=item C<< as_sparql >>
-
-Returns the SPARQL string for this node.
-
-=cut
-
-sub as_sparql {
-	my $self	= shift;
-	return $self->sse;
-}
 
 1;
 

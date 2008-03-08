@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use blib qw(../perlrdf/blib);
+no warnings 'redefine';
 
 use lib qw(lib);
 use Test::Harness;

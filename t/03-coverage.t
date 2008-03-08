@@ -2,6 +2,7 @@
 
 use strict;
 use warnings;
+no warnings 'redefine';
 use Test::Exception;
 use Scalar::Util qw(refaddr);
 
@@ -14,7 +15,7 @@ my @models	= test_models( @files );
 
 use Test::More;
 
-plan tests => 1 + (58 * scalar(@models)) + 3;
+plan tests => 1 + (61 * scalar(@models)) + 3;
 
 use_ok( 'RDF::Query' );
 foreach my $model (@models) {
@@ -71,7 +72,7 @@ END
 		my @results	= $query->execute( $model );
 		ok( scalar(@results), 'results' );
 		my $row		= $results[0];
-		my ($p,$h)	= @{ $row };
+		my ($p,$h)	= @{ $row }{qw(person homepage)};
 		ok( $query->bridge->isa_node( $p ), 'isa_node' );
 		ok( $query->bridge->isa_resource( $h ), 'isa_resource(resource)' );
 		is( $query->bridge->uri_value( $h ), 'http://kasei.us/', 'http://kasei.us/' );
@@ -135,12 +136,12 @@ END
 				foaf FOR <http://xmlns.com/foaf/0.1/>
 END
 		my @results	= $query->execute( $model );
-		ok( $query->bridge->isa_resource( $results[0][0] ), 'Person Resource' );
-		ok( $query->bridge->isa_literal( $results[0][1] ), 'Name Resource' );
-		is( $query->bridge->uri_value( $results[0][0] ), 'http://kasei.us/about/foaf.xrdf#greg', 'Person uri' );
-		is( $query->bridge->literal_value( $results[0][1] ), 'Gregory Todd Williams', 'Person name' );
-		is( $query->bridge->literal_value($results[0][1]), 'Gregory Todd Williams', 'Person name #2' );
-		like( $query->bridge->as_string($results[0][1]), qr'Gregory Todd Williams', 'Person name #3' );
+		ok( $query->bridge->isa_resource( $results[0]{person} ), 'Person Resource' );
+		ok( $query->bridge->isa_literal( $results[0]{name} ), 'Name Resource' );
+		is( $query->bridge->uri_value( $results[0]{person} ), 'http://kasei.us/about/foaf.xrdf#greg', 'Person uri' );
+		is( $query->bridge->literal_value( $results[0]{name} ), 'Gregory Todd Williams', 'Person name' );
+		is( $query->bridge->literal_value($results[0]{name}), 'Gregory Todd Williams', 'Person name #2' );
+		like( $query->bridge->as_string($results[0]{name}), qr'Gregory Todd Williams', 'Person name #3' );
 	}
 
 	{
@@ -155,8 +156,8 @@ END
 				foaf FOR <http://xmlns.com/foaf/0.1/>
 END
 		my @results	= $query->execute( $model );
-		ok( $query->bridge->isa_resource( $results[0][0] ), 'Person Resource' );
-		is( $query->bridge->uri_value( $results[0][0] ), 'http://kasei.us/about/foaf.xrdf#greg', 'Person uri' );
+		ok( $query->bridge->isa_resource( $results[0]{person} ), 'Person Resource' );
+		is( $query->bridge->uri_value( $results[0]{person} ), 'http://kasei.us/about/foaf.xrdf#greg', 'Person uri' );
 	}
 
 	{
@@ -236,7 +237,7 @@ END
 		my @results	= $query->execute( $model );
 		ok( scalar(@results), 'got result' );
 		my $row		= $results[0];
-		my ($aim)	= @{ $row };
+		my ($aim)	= @{ $row }{qw(aim)};
 		ok( $query->bridge->isa_literal( $aim ), 'isa_literal' );
 		like( $query->bridge->as_string($aim), qr'samofool', 'got string' );
 	}
@@ -263,7 +264,7 @@ END
 		my $stream	= $query->execute( $model );
 		my $count;
 		while (my $row = $stream->()) {
-			my ($p)	= @{ $row };
+			my ($p)	= @{ $row }{qw(p)};
 			ok( $p, $query->bridge->as_string( $p ) );
 		} continue { ++$count };
 	}
@@ -296,8 +297,8 @@ END
 		my @results	= $query->execute( $model );
 		is( scalar(@results), 1, 'got one result' );
 		my $result	= $results[0];
-		is( $query->bridge->uri_value( $result->[0] ), 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type', 'rdf:type' );
-		is( $query->bridge->uri_value( $result->[1] ), 'http://www.w3.org/1999/02/22-rdf-syntax-ns#Property', 'rdfs:Property' );
+		is( $query->bridge->uri_value( $result->{'a'} ), 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type', 'rdf:type' );
+		is( $query->bridge->uri_value( $result->{'b'} ), 'http://www.w3.org/1999/02/22-rdf-syntax-ns#Property', 'rdfs:Property' );
 		
 	}
 
@@ -327,7 +328,7 @@ END
 		my $stream	= $query->execute( $model );
 		my $count	= 0;
 		while (my $row = $stream->()) {
-			my $thing	= $row->[0];
+			my $thing	= $row->{thing};
 			ok( $query->bridge->isa_blank( $thing ), 'isa blank' );
 			
 			my $id		= $query->bridge->blank_identifier( $thing );
@@ -367,7 +368,7 @@ END
 		my $stream	= $query->execute( $model, bind => { person => $person } );
 		my $count	= 0;
 		while (my $row = $stream->()) {
-			my $node	= $row->[0];
+			my $node	= $row->{name};
 			my $value	= $query->bridge->literal_value( $node );
 			is( $value, $name, 'expected name on pre-bound node' );
 			$count++;
@@ -391,7 +392,6 @@ END
 		is_deeply( ['person'], \@names, 'binding_names' );
 		my @values	= $stream->binding_values;
 		ok( $query->bridge->isa_node( $values[0] ), 'binding_value_by_name' );
-		
 	}
 
 	{
@@ -400,6 +400,21 @@ END
 		my $stream	= $query->execute( $model );
 		my $bridge	= $query->bridge;
 		is( $bridge->as_string( undef ), undef );
+	}
+	
+	{
+		print "# SPARQL query; BASE declaration\n" if ($verbose);
+		my $query	= new RDF::Query ( <<"END" );
+			BASE <http://xmlns.com/>
+			SELECT	?person
+			WHERE	{ ?person <foaf/0.1/name> "Gregory Todd Williams" }
+END
+		my $stream	= $query->execute( $model );
+		my $bridge	= $query->bridge;
+		my $row		= $stream->next;
+		isa_ok( $row, 'HASH' );
+		ok( exists( $row->{ person } ) );
+		is( $bridge->uri_value( $row->{ person } ), 'http://kasei.us/about/foaf.xrdf#greg' );
 	}
 }
 

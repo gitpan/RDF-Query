@@ -14,6 +14,7 @@ package RDF::Query::Temporal;
 
 use strict;
 use warnings;
+no warnings 'redefine';
 use base qw(RDF::Query);
 
 use Scalar::Util qw(blessed);
@@ -22,7 +23,6 @@ our ($debug);
 use constant DEBUG	=> 0;
 BEGIN {
 	$debug		= DEBUG;
-	$RDF::Query::PATTERN_TYPES{ TIME }++;
 }
 
 =begin private
