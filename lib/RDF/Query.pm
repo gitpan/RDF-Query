@@ -76,6 +76,7 @@ require RDF::Query::Functions;	# all the built-in functions including:
 								# also, custom functions including:
 								#     jena:sha1sum, jena:now, jena:langeq, jena:listMember
 								#     ldodds:Distance, kasei:warn
+use RDF::Query::Expression;
 use RDF::Query::Algebra;
 use RDF::Query::Node;
 use RDF::Query::Parser::RDQL;
@@ -92,7 +93,7 @@ BEGIN {
 	$debug			= DEBUG;
 	$js_debug		= 0;
 	$REVISION		= do { my $REV = (qw$Revision: 306 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
-	$VERSION		= '2.000_03';
+	$VERSION		= '2.000_04';
 	$DEFAULT_PARSER	= 'sparql';
 }
 
@@ -863,7 +864,7 @@ sub call_function {
 	my $uri		= shift;
 	warn "trying to get function from $uri" if ($debug);
 	
-	my $filter			= RDF::Query::Algebra::Expr::Function->new( $uri, @_ );
+	my $filter			= RDF::Query::Expression::Function->new( $uri, @_ );
 	return $filter->evaluate( $self, $bridge, $bound );
 }
 
