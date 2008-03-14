@@ -28,9 +28,10 @@ use RDF::Trine::Iterator qw(sgrep smap swatch);
 
 ######################################################################
 
-our ($VERSION, $debug, $lang, $languri);
+our ($VERSION, $debug, $BLOOM_FILTER_ERROR_RATE);
 BEGIN {
 	$debug		= 0;
+	$BLOOM_FILTER_ERROR_RATE	= 0.1;
 	$VERSION	= do { my $REV = (qw$Revision: 121 $)[1]; sprintf("%0.3f", 1 + ($REV/1000)) };
 }
 
@@ -118,7 +119,7 @@ sub add_bloom {
 	
 	my $pattern	= $self->pattern;
 	my $iri		= RDF::Query::Node::Resource->new('http://kasei.us/code/rdf-query/functions/bloom');
-	warn "Adding a bloom filter (with " . $bloom->key_count . " items) function to a remote query";
+	warn "Adding a bloom filter (with " . $bloom->key_count . " items) function to a remote query" if ($debug);
 	my $frozen	= $bloom->freeze;
 	my $literal	= RDF::Query::Node::Literal->new( $frozen );
 	my $expr	= RDF::Query::Expression::Function->new( $iri, $var, $literal );
@@ -258,7 +259,15 @@ sub execute {
 	my $endpoint	= $self->endpoint;
 	my $pattern		= $self->pattern;
 	
-	my $sparql		= sprintf("SELECT DISTINCT * WHERE %s", $pattern->as_sparql( {}, '' ));
+	my %ns			= (%{ $query->{parsed}{namespaces} });
+	my $trial		= 'k';
+	$trial++ while (exists($ns{ $trial }));
+	$ns{ $trial }	= 'http://kasei.us/code/rdf-query/functions/';
+	
+	my $sparql		= join("\n",
+						(map { sprintf("PREFIX %s: <%s>", $_, $ns{$_}) } (keys %ns)),
+						sprintf("SELECT DISTINCT * WHERE %s", $pattern->as_sparql( { namespaces => \%ns }, '' ))
+					);
 	warn "SERVICE REQUEST $endpoint: $sparql\n" if ($debug);
 	
 	my $url			= $endpoint->uri_value . '?query=' . uri_escape($sparql);
@@ -268,8 +277,14 @@ sub execute {
 		throw RDF::Query::Error -text => "SERVICE query couldn't get remote content: " . $resp->status_line;
 	}
 	my $content		= $resp->content;
-	warn $content;
-	my $stream		= RDF::Trine::Iterator->from_string( $content );
+	my $stream		= smap {
+						my $bindings	= $_;
+						return undef unless ($bindings);
+						my %cast	= map {
+										$_ => RDF::Query::Model::RDFTrine::_cast_to_local( $bindings->{ $_ } )
+									} (keys %$bindings);
+						return \%cast;
+					} RDF::Trine::Iterator->from_string( $content );
 	return $stream;
 }
 
@@ -319,18 +334,21 @@ sub _names_for_node {
 	warn "  " x $depth . "name for node " . $node->as_string . "...\n" if ($debug);
 	
 	my @names;
+	my $parser	= RDF::Query::Parser::SPARQL->new();
 	if ($node->isa('RDF::Trine::Node::Blank')) {
-		my $n		= RDF::Query::Node::Variable->new('n');
-		my $p		= RDF::Query::Node::Variable->new('p');
-		my $o		= RDF::Query::Node::Variable->new('o');
-		
-		my $type	= RDF::Query::Node::Resource->new('http://www.w3.org/1999/02/22-rdf-syntax-ns#type');
 		{
-			our $fp		||= RDF::Query::Node::Resource->new('http://www.w3.org/2002/07/owl#FunctionalProperty');
-			my $s1		= RDF::Query::Algebra::Triple->new( $p, $type, $fp );
-			my $s2		= RDF::Query::Algebra::Triple->new( $o, $p, $n );
-			my $bgp		= RDF::Query::Algebra::BasicGraphPattern->new( $s1, $s2 );
-			my $iter	= $bgp->execute( $query, $bridge, { n => $node } );
+			our $sa		||= $parser->parse_pattern( '{ ?n <http://www.w3.org/2002/07/owl#sameAs> ?o }' );
+			my $iter	= $sa->execute( $query, $bridge, { n => $node } );
+			
+			while (my $row = $iter->next) {
+				my ($p, $o)	= @{ $row }{qw(p o)};
+				push(@names, $class->_names_for_node( $o, $query, $bridge, $bound, $depth + 1, $pre . '=' . $p->sse ));
+			}
+		}
+		
+		{
+			our $fp		||= $parser->parse_pattern( '{ ?o ?p ?n . ?p a <http://www.w3.org/2002/07/owl#FunctionalProperty> }' );
+			my $iter	= $fp->execute( $query, $bridge, { n => $node } );
 			
 			while (my $row = $iter->next) {
 				my ($p, $o)	= @{ $row }{qw(p o)};
@@ -339,11 +357,8 @@ sub _names_for_node {
 		}
 		
 		{
-			our $ifp	||= RDF::Query::Node::Resource->new('http://www.w3.org/2002/07/owl#InverseFunctionalProperty');
-			my $s1		= RDF::Query::Algebra::Triple->new( $p, $type, $ifp );
-			my $s2		= RDF::Query::Algebra::Triple->new( $n, $p, $o );
-			my $bgp		= RDF::Query::Algebra::BasicGraphPattern->new( $s1, $s2 );
-			my $iter	= $bgp->execute( $query, $bridge, { n => $node } );
+			our $ifp	||= $parser->parse_pattern( '{ ?n ?p ?o . ?p a <http://www.w3.org/2002/07/owl#InverseFunctionalProperty> }' );
+			my $iter	= $ifp->execute( $query, $bridge, { n => $node } );
 			
 			while (my $row = $iter->next) {
 				my ($p, $o)	= @{ $row }{qw(p o)};
