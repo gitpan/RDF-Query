@@ -1,13 +1,13 @@
-# RDF::Query::Algebra::Union
+# RDF::Query::Algebra::Limit
 # -----------------------------------------------------------------------------
 
 =head1 NAME
 
-RDF::Query::Algebra::Union - Algebra class for Union patterns
+RDF::Query::Algebra::Limit - Algebra class for limiting query results
 
 =cut
 
-package RDF::Query::Algebra::Union;
+package RDF::Query::Algebra::Limit;
 
 use strict;
 use warnings;
@@ -19,10 +19,11 @@ use Set::Scalar;
 use Scalar::Util qw(blessed);
 use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
+use RDF::Trine::Iterator qw(sgrep);
 
 ######################################################################
 
-our ($VERSION, $debug, $lang, $languri);
+our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
 	$VERSION	= '2.001';
@@ -36,17 +37,17 @@ BEGIN {
 
 =cut
 
-=item C<new ( $left, $right )>
+=item C<< new ( $pattern, $limit ) >>
 
-Returns a new Union structure.
+Returns a new Sort structure.
 
 =cut
 
 sub new {
 	my $class	= shift;
-	my $left	= shift;
-	my $right	= shift;
-	return bless( [ 'UNION', $left, $right ], $class );
+	my $pattern	= shift;
+	my $limit	= shift;
+	return bless( [ $pattern, $limit ], $class );
 }
 
 =item C<< construct_args >>
@@ -58,41 +59,31 @@ will produce a clone of this algebra pattern.
 
 sub construct_args {
 	my $self	= shift;
-	return ($self->first, $self->second);
+	my $pattern	= $self->pattern;
+	my $limit	= $self->limit;
+	return ($pattern, $limit);
 }
 
-=item C<< first >>
+=item C<< pattern >>
 
-Returns the first pattern (LHS) of the union.
+Returns the pattern to be sorted.
 
 =cut
 
-sub first {
+sub pattern {
+	my $self	= shift;
+	return $self->[0];
+}
+
+=item C<< limit >>
+
+Returns the limit number of the pattern.
+
+=cut
+
+sub limit {
 	my $self	= shift;
 	return $self->[1];
-}
-
-=item C<< second >>
-
-Returns the second pattern (RHS) of the union.
-
-=cut
-
-
-=item C<< patterns >>
-
-Returns the two patterns belonging to the UNION pattern.
-
-=cut
-
-sub patterns {
-	my $self	= shift;
-	return ($self->first, $self->second);
-}
-
-sub second {
-	my $self	= shift;
-	return $self->[2];
 }
 
 =item C<< sse >>
@@ -106,9 +97,9 @@ sub sse {
 	my $context	= shift;
 	
 	return sprintf(
-		'(union %s %s)',
-		$self->first->sse( $context ),
-		$self->second->sse( $context )
+		'(limit %s %s)',
+		$self->pattern->sse( $context ),
+		$self->limit,
 	);
 }
 
@@ -122,10 +113,11 @@ sub as_sparql {
 	my $self	= shift;
 	my $context	= shift;
 	my $indent	= shift;
+	
 	my $string	= sprintf(
-		"%s\n${indent}UNION\n${indent}%s",
-		$self->first->as_sparql( $context, $indent ),
-		$self->second->as_sparql( $context, $indent ),
+		"%s\nLIMIT %d",
+		$self->pattern->as_sparql( $context, $indent ),
+		$self->limit,
 	);
 	return $string;
 }
@@ -137,7 +129,7 @@ Returns the type of this algebra expression.
 =cut
 
 sub type {
-	return 'UNION';
+	return 'LIMIT';
 }
 
 =item C<< referenced_variables >>
@@ -148,7 +140,7 @@ Returns a list of the variable names used in this algebra expression.
 
 sub referenced_variables {
 	my $self	= shift;
-	return uniq($self->first->referenced_variables, $self->second->referenced_variables);
+	return uniq($self->pattern->referenced_variables);
 }
 
 =item C<< definite_variables >>
@@ -159,9 +151,7 @@ Returns a list of the variable names that will be bound after evaluating this al
 
 sub definite_variables {
 	my $self	= shift;
-	my $seta	= Set::Scalar->new( $self->first->definite_variables );
-	my $setb	= Set::Scalar->new( $self->second->definite_variables );
-	return $seta->intersection( $setb )->members;
+	return $self->pattern->definite_variables;
 }
 
 =item C<< fixup ( $query, $bridge, $base, \%namespaces ) >>
@@ -182,7 +172,7 @@ sub fixup {
 	if (my $opt = $bridge->fixup( $self, $query, $base, $ns )) {
 		return $opt;
 	} else {
-		return $class->new( map { $_->fixup( $query, $bridge, $base, $ns ) } $self->patterns );
+		return $class->new( $self->pattern->fixup( $query, $bridge, $base, $ns ), $self->limit );
 	}
 }
 
@@ -198,31 +188,11 @@ sub execute {
 	my $context		= shift;
 	my %args		= @_;
 	
-	my @names;
-	my @streams;
-	foreach my $u_triples ($self->first, $self->second) {
-		my $stream	= $u_triples->execute( $query, $bridge, $bound, $context, %args );
-		
-		if ($debug) {
-			$stream		= $stream->materialize;
-			warn "union stream:\n";
-			while (my $b = $stream->next) {
-				warn "BINDING: " . join(', ', map { my $v = $b->{$_}; join('=', $_, (blessed($v) ? $v->sse : '')) } (keys %$b));
-			}
-			$stream->reset;
-		}
-		
-		push(@names, $stream->binding_names);
-		push(@streams, $stream);
-	}
+	my $limit		= $self->limit;
+	my $stream		= $self->pattern->execute( $query, $bridge, $bound, $context, %args );
 	
-	@streams	= map { $_->project( @names ) } @streams;
-	my $stream	= shift(@streams);
-	while (@streams) {
-		$stream	= $stream->concat( shift(@streams), undef, \@names );
-	}
-	
-	return $stream;
+	my $count		= 0;
+	return sgrep { $count++ < $limit } $stream;
 }
 
 

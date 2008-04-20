@@ -1,13 +1,13 @@
-# RDF::Query::Algebra::Union
+# RDF::Query::Algebra::Distinct
 # -----------------------------------------------------------------------------
 
 =head1 NAME
 
-RDF::Query::Algebra::Union - Algebra class for Union patterns
+RDF::Query::Algebra::Distinct - Algebra class for distinct query results
 
 =cut
 
-package RDF::Query::Algebra::Union;
+package RDF::Query::Algebra::Distinct;
 
 use strict;
 use warnings;
@@ -19,10 +19,11 @@ use Set::Scalar;
 use Scalar::Util qw(blessed);
 use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
+use RDF::Trine::Iterator qw(sgrep);
 
 ######################################################################
 
-our ($VERSION, $debug, $lang, $languri);
+our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
 	$VERSION	= '2.001';
@@ -36,17 +37,16 @@ BEGIN {
 
 =cut
 
-=item C<new ( $left, $right )>
+=item C<< new ( $pattern ) >>
 
-Returns a new Union structure.
+Returns a new Sort structure.
 
 =cut
 
 sub new {
 	my $class	= shift;
-	my $left	= shift;
-	my $right	= shift;
-	return bless( [ 'UNION', $left, $right ], $class );
+	my $pattern	= shift;
+	return bless( [ $pattern ], $class );
 }
 
 =item C<< construct_args >>
@@ -58,41 +58,19 @@ will produce a clone of this algebra pattern.
 
 sub construct_args {
 	my $self	= shift;
-	return ($self->first, $self->second);
+	my $pattern	= $self->pattern;
+	return ($pattern);
 }
 
-=item C<< first >>
+=item C<< pattern >>
 
-Returns the first pattern (LHS) of the union.
+Returns the pattern to be sorted.
 
 =cut
 
-sub first {
+sub pattern {
 	my $self	= shift;
-	return $self->[1];
-}
-
-=item C<< second >>
-
-Returns the second pattern (RHS) of the union.
-
-=cut
-
-
-=item C<< patterns >>
-
-Returns the two patterns belonging to the UNION pattern.
-
-=cut
-
-sub patterns {
-	my $self	= shift;
-	return ($self->first, $self->second);
-}
-
-sub second {
-	my $self	= shift;
-	return $self->[2];
+	return $self->[0];
 }
 
 =item C<< sse >>
@@ -106,9 +84,8 @@ sub sse {
 	my $context	= shift;
 	
 	return sprintf(
-		'(union %s %s)',
-		$self->first->sse( $context ),
-		$self->second->sse( $context )
+		'(distinct %s)',
+		$self->pattern->sse( $context ),
 	);
 }
 
@@ -122,12 +99,11 @@ sub as_sparql {
 	my $self	= shift;
 	my $context	= shift;
 	my $indent	= shift;
-	my $string	= sprintf(
-		"%s\n${indent}UNION\n${indent}%s",
-		$self->first->as_sparql( $context, $indent ),
-		$self->second->as_sparql( $context, $indent ),
-	);
-	return $string;
+	
+	# we don't add 'DISTINCT' here because it would be in the wrong place.
+	# RDF::Query::as_sparql() adds it outside the pattern serialization
+	# along with projection and 'SELECT'.
+	return $self->pattern->as_sparql( $context, $indent );
 }
 
 =item C<< type >>
@@ -137,7 +113,7 @@ Returns the type of this algebra expression.
 =cut
 
 sub type {
-	return 'UNION';
+	return 'DISTINCT';
 }
 
 =item C<< referenced_variables >>
@@ -148,7 +124,7 @@ Returns a list of the variable names used in this algebra expression.
 
 sub referenced_variables {
 	my $self	= shift;
-	return uniq($self->first->referenced_variables, $self->second->referenced_variables);
+	return uniq($self->pattern->referenced_variables);
 }
 
 =item C<< definite_variables >>
@@ -159,9 +135,7 @@ Returns a list of the variable names that will be bound after evaluating this al
 
 sub definite_variables {
 	my $self	= shift;
-	my $seta	= Set::Scalar->new( $self->first->definite_variables );
-	my $setb	= Set::Scalar->new( $self->second->definite_variables );
-	return $seta->intersection( $setb )->members;
+	return $self->pattern->definite_variables;
 }
 
 =item C<< fixup ( $query, $bridge, $base, \%namespaces ) >>
@@ -182,7 +156,7 @@ sub fixup {
 	if (my $opt = $bridge->fixup( $self, $query, $base, $ns )) {
 		return $opt;
 	} else {
-		return $class->new( map { $_->fixup( $query, $bridge, $base, $ns ) } $self->patterns );
+		return $class->new( $self->pattern->fixup( $query, $bridge, $base, $ns ) );
 	}
 }
 
@@ -198,29 +172,16 @@ sub execute {
 	my $context		= shift;
 	my %args		= @_;
 	
-	my @names;
-	my @streams;
-	foreach my $u_triples ($self->first, $self->second) {
-		my $stream	= $u_triples->execute( $query, $bridge, $bound, $context, %args );
-		
-		if ($debug) {
-			$stream		= $stream->materialize;
-			warn "union stream:\n";
-			while (my $b = $stream->next) {
-				warn "BINDING: " . join(', ', map { my $v = $b->{$_}; join('=', $_, (blessed($v) ? $v->sse : '')) } (keys %$b));
-			}
-			$stream->reset;
-		}
-		
-		push(@names, $stream->binding_names);
-		push(@streams, $stream);
-	}
+	my $stream		= $self->pattern->execute( $query, $bridge, $bound, $context, %args );
 	
-	@streams	= map { $_->project( @names ) } @streams;
-	my $stream	= shift(@streams);
-	while (@streams) {
-		$stream	= $stream->concat( shift(@streams), undef, \@names );
-	}
+	my %seen;
+	my @variables	= $query->variables;
+	$stream	= sgrep {
+		my $row	= $_;
+		no warnings 'uninitialized';
+		my $key	= join($;, map {$bridge->as_string( $_ )} map { $row->{$_} } @variables);
+		return (not $seen{ $key }++);
+	} $stream;
 	
 	return $stream;
 }

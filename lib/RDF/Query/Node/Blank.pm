@@ -1,12 +1,13 @@
 # RDF::Query::Node::Blank
-# -------------
-# $Revision: 121 $
-# $Date: 2006-02-06 23:07:43 -0500 (Mon, 06 Feb 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
 
 RDF::Query::Node::Blank - RDF Node class for blank nodes
+
+=head1 METHODS
+
+=over 4
 
 =cut
 
@@ -26,7 +27,7 @@ use Carp qw(carp croak confess);
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= '2.000';
+	$VERSION	= '2.001';
 }
 
 ######################################################################
@@ -54,11 +55,16 @@ sub _cmp {
 	return $cmp;
 }
 
-=head1 METHODS
+=item C<< as_sparql >>
 
-=over 4
+Returns the SPARQL string for this node.
 
 =cut
+
+sub as_sparql {
+	my $self	= shift;
+	return $self->sse;
+}
 
 
 1;

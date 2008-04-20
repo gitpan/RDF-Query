@@ -1,13 +1,13 @@
-# RDF::Query::Expression::Unary
+# RDF::Query::Expression::Alias
 # -----------------------------------------------------------------------------
 
 =head1 NAME
 
-RDF::Query::Expression::Unary - Class for unary expressions
+RDF::Query::Expression::Alias - Class for aliasing expressions with variable names
 
 =cut
 
-package RDF::Query::Expression::Unary;
+package RDF::Query::Expression::Alias;
 
 use strict;
 use warnings;
@@ -35,6 +35,39 @@ BEGIN {
 
 =cut
 
+=item C<< name >>
+
+Returns the variable name of the aliased expression.
+
+=cut
+
+sub name {
+	my $self	= shift;
+	return $self->alias->name;
+}
+
+=item C<< alias >>
+
+Returns the variable object of the aliased expression.
+
+=cut
+
+sub alias {
+	my $self	= shift;
+	return $self->op;
+}
+
+=item C<< expression >>
+
+Returns the expression object of the aliased expression.
+
+=cut
+
+sub expression {
+	my $self	= shift;
+	return ($self->operands)[0];
+}
+
 =item C<< sse >>
 
 Returns the SSE string for this alegbra expression.
@@ -46,7 +79,7 @@ sub sse {
 	my $context	= shift;
 	
 	return sprintf(
-		'(%s %s)',
+		'(alias %s %s)',
 		$self->op,
 		map { $_->sse( $context ) } $self->operands,
 	);
@@ -62,8 +95,9 @@ sub as_sparql {
 	my $self	= shift;
 	my $context	= shift;
 	my $indent	= shift;
-	my $op		= $self->op;
-	return sprintf("($op %s)", map { $_->as_sparql( $context, $indent ) } $self->operands);
+	my $alias	= $self->alias;
+	my $expr	= $self->expression;
+	return sprintf("(%s AS %s)", $expr->as_sparql, $alias->as_sparql);
 }
 
 =item C<< evaluate ( $query, $bridge, \%bound ) >>
@@ -78,32 +112,9 @@ sub evaluate {
 	my $query	= shift;
 	my $bridge	= shift;
 	my $bound	= shift;
-	my $op		= $self->op;
-	my ($data)	= $self->operands;
-	my $l		= $data->isa('RDF::Query::Algebra')
-				? $data->evaluate( $query, $bridge, $bound )
-				: ($data->isa('RDF::Query::Node::Variable'))
-					? $bound->{ $data->name }
-					: $data;
-	
-	my $value;
-	if ($op eq '+') {
-		$value	= $l->numeric_value;
-	} elsif ($op eq '-') {
-		$value	= -1 * $l->numeric_value;
-	} elsif ($op eq '!') {
-		my $alg		= RDF::Query::Expression::Function->new( "sparql:ebv", $data );
-		my $bool	= $alg->evaluate( $query, $bridge, $bound );
-		if ($bool->literal_value eq 'true') {
-			return RDF::Query::Node::Literal->new( 'false', undef, 'http://www.w3.org/2001/XMLSchema#boolean' );
-		} else {
-			return RDF::Query::Node::Literal->new( 'true', undef, 'http://www.w3.org/2001/XMLSchema#boolean' );
-		}
-	} else {
-		warn "unknown unary op: $op";
-		die;
-	}
-	return RDF::Query::Node::Literal->new( $value, undef, $l->literal_datatype );
+	my $expr	= $self->expression;
+	my $value	= $query->var_or_expr_value( $bridge, $bound, $expr );
+	return $value;
 }
 
 

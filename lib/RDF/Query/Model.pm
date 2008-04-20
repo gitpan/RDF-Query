@@ -1,7 +1,4 @@
 # RDF::Query::Model
-# -------------
-# $Revision: 121 $
-# $Date: 2006-02-06 23:07:43 -0500 (Mon, 06 Feb 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -27,7 +24,7 @@ use Carp qw(carp croak confess);
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
 	$debug		= 1;
-	$VERSION	= '2.000';
+	$VERSION	= '2.001';
 }
 
 ######################################################################
@@ -441,6 +438,19 @@ sub count_statements {
 	return $count;
 }
 
+=item C<< fixup ( $pattern, $query, $base, \%namespaces ) >>
+
+Called prior to query execution, if the underlying model can optimize
+the execution of C<< $pattern >>, this method returns a optimized
+RDF::Query::Algebra object to replace C<< $pattern >>. Otherwise, returns
+C<< undef >> and the C<< fixup >> method of C<< $pattern >> will be used
+instead.
+
+=cut
+
+sub fixup {
+	return;
+}
 
 =item C<< debug >>
 

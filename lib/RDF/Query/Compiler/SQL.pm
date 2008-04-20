@@ -1,7 +1,4 @@
 # RDF::Query::Compiler::SQL
-# -------------
-# $Revision: 121 $
-# $Date: 2006-02-06 23:07:43 -0500 (Mon, 06 Feb 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -34,7 +31,7 @@ my (@NODE_TYPE_TABLES, %NODE_TYPE_TABLES);
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= '2.000';
+	$VERSION	= '2.001';
 	@NODE_TYPE_TABLES	= (
 							['Resources', 'ljr', 'URI'],
 							['Literals', 'ljl', qw(Value Language Datatype)],
@@ -132,7 +129,7 @@ sub emit_select {
 	my $from	= $self->{from};
 	my $where	= $self->{where};
 	
-	my $options				= $parsed->{options} || {};
+	my $options				= $self->{options} || {};
 	my $unique				= $options->{'distinct'};
 	
 	my $from_clause;
@@ -190,8 +187,7 @@ sub order_by_clause {
 	
 	my $vars	= $self->{vars};
 	
-	my $parsed				= $self->{parsed};
-	my $options				= $parsed->{options} || {};
+	my $options				= $self->{options} || {};
 	my %variable_value_cols	= %$varcols;
 	
 	my $sql		= '';
@@ -483,9 +479,24 @@ sub patterns2sql {
 		} elsif ($triple->isa('RDF::Query::Algebra::GroupGraphPattern')) {
 			++$$level;
 			$self->patterns2sql( [ $triple->patterns ], $level, %args );
+		} elsif ($triple->isa('RDF::Query::Algebra::Distinct')) {
+			$self->{options}{distinct}	= 1;
+			my $pattern	= $triple->pattern;
+			$self->patterns2sql( [ $pattern ], $level, %args );
+		} elsif ($triple->isa('RDF::Query::Algebra::Limit')) {
+			$self->{options}{limit}	= $triple->limit;
+			my $pattern	= $triple->pattern;
+			$self->patterns2sql( [ $pattern ], $level, %args );
+		} elsif ($triple->isa('RDF::Query::Algebra::Offset')) {
+			$self->{options}{offset}	= $triple->offset;
+			my $pattern	= $triple->pattern;
+			$self->patterns2sql( [ $pattern ], $level, %args );
+		} elsif ($triple->isa('RDF::Query::Algebra::Sort')) {
+			$self->{options}{orderby}	= [ $triple->orderby ];
+			my $pattern	= $triple->pattern;
+			$self->patterns2sql( [ $pattern ], $level, %args );
 		} else {
-			my $op	= $triple->[0];
-			throw RDF::Query::Error::CompilationError( -text => "Unknown op '$op' in SQL compilation." );
+			throw RDF::Query::Error::CompilationError( -text => "Unknown pattern type '$triple' in SQL compilation." );
 		}
 	}
 	

@@ -1,7 +1,4 @@
 # RDF::Query::Algebra
-# -------------
-# $Revision: 121 $
-# $Date: 2006-02-06 23:07:43 -0500 (Mon, 06 Feb 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -17,7 +14,7 @@ RDF::Query::Node - Base class for Algebra expressions
 package RDF::Query::Algebra;
 
 BEGIN {
-	our $VERSION	= '2.000';
+	our $VERSION	= '2.001';
 }
 
 use strict;
@@ -28,13 +25,14 @@ use Scalar::Util qw(blessed);
 use List::MoreUtils qw(uniq);
 
 
-use RDF::Query::Algebra::BasicGraphPattern;
 use RDF::Query::Expression;
+use RDF::Query::Expression::Alias;
 use RDF::Query::Expression::Nary;
 use RDF::Query::Expression::Binary;
 use RDF::Query::Expression::Unary;
 use RDF::Query::Expression::Function;
-use RDF::Query::Algebra::OldFilter;
+
+use RDF::Query::Algebra::BasicGraphPattern;
 use RDF::Query::Algebra::Filter;
 use RDF::Query::Algebra::GroupGraphPattern;
 use RDF::Query::Algebra::Optional;
@@ -45,6 +43,10 @@ use RDF::Query::Algebra::NamedGraph;
 use RDF::Query::Algebra::Service;
 use RDF::Query::Algebra::TimeGraph;
 use RDF::Query::Algebra::Aggregate;
+use RDF::Query::Algebra::Sort;
+use RDF::Query::Algebra::Limit;
+use RDF::Query::Algebra::Offset;
+use RDF::Query::Algebra::Distinct;
 
 =item C<< referenced_blanks >>
 
@@ -146,6 +148,28 @@ sub qualify_uris {
 		}
 	}
 	return $class->new( @args );
+}
+
+=item C<< subpatterns_of_type ( $type ) >>
+
+Returns a list of Algebra patterns matching C<< $type >> (tested with C<< isa >>).
+This list includes the current algebra object if it matches C<< $type >>, and is
+generated in infix order.
+
+=cut
+
+sub subpatterns_of_type {
+	my $self	= shift;
+	my $type	= shift;
+	
+	my @patterns;
+	push(@patterns, $self) if ($self->isa($type));
+	foreach my $arg ($self->construct_args) {
+		if (blessed($arg) and $arg->isa('RDF::Query::Algebra')) {
+			push(@patterns, $arg->subpatterns_of_type($type));
+		}
+	}
+	return @patterns;
 }
 
 1;

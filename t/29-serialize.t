@@ -6,8 +6,8 @@ no warnings 'redefine';
 use lib qw(. t);
 BEGIN { require "models.pl"; }
 
-use Test::More;
-plan qw(no_plan);	# tests => 16;
+use Test::Exception;
+use Test::More tests => 24;
 
 use_ok( 'RDF::Query' );
 
@@ -50,7 +50,7 @@ use_ok( 'RDF::Query' );
 	my $query	= new RDF::Query ( $sparql );
 	my $string	= $query->as_sparql;
 	$string		=~ s/\s+/ /gms;
-	is( $string, "PREFIX foaf: <http://xmlns.com/foaf/0.1/> SELECT ?name WHERE { ?person a foaf:Person . ?person foaf:name ?name . } ORDER BY ?name LIMIT 5 OFFSET 5", 'sparql to sparql with slice' );
+	is( $string, "PREFIX foaf: <http://xmlns.com/foaf/0.1/> SELECT ?name WHERE { ?person a foaf:Person . ?person foaf:name ?name . } ORDER BY ?name OFFSET 5 LIMIT 5", 'sparql to sparql with slice' );
 }
 
 {
@@ -128,6 +128,60 @@ END
 	is( $sparql, $again, 'as_sparql: sparql round trip: select with named graph' );
 }
 
+{
+	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparqlp' );
+		PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT *
+		WHERE {
+			{ ?person foaf:name ?name } UNION { ?person foaf:nick ?name }
+		}
+END
+	my $sparql	= $query->as_sparql;
+	my $again	= RDF::Query->new( $sparql )->as_sparql;
+	is( $sparql, $again, 'as_sparql: union' );
+}
+
+{
+	my $query	= new RDF::Query ( <<"END" );
+		PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT ?person
+		WHERE {
+			?person foaf:name ?name .
+			FILTER( !BOUND(?name) )
+		}
+END
+	my $sparql	= $query->as_sparql;
+	my $again	= RDF::Query->new( $sparql )->as_sparql;
+	is( $sparql, $again, 'as_sparql: select with filter !BOUND' );
+}
+
+{
+	my $query	= new RDF::Query ( <<"END" );
+		PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT DISTINCT ?name
+		WHERE {
+			?person foaf:name ?name .
+		}
+END
+	my $sparql	= $query->as_sparql;
+	my $qagain	= RDF::Query->new( $sparql );
+	my $again	= $qagain->as_sparql;
+	is( $sparql, $again, 'as_sparql: select DISTINCT' );
+}
+
+{
+	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparqlp' );
+		PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT COUNT(?person)
+		WHERE {
+			?person foaf:name ?name .
+		}
+END
+	throws_ok {
+		$query->as_sparql;
+	} 'RDF::Query::Error::SerializationError';
+}
+
 ################################################################################
 ### SSE TESTS
 
@@ -190,11 +244,49 @@ END
 		SELECT ?person
 		WHERE {
 			?person foaf:name ?name .
+			FILTER( !BOUND(?name) )
+		}
+END
+	my $sse		= $query->sse;
+	is( $sse, '(filter (! (function <sparql:bound> ?name)) (join (bgp (triple ?person foaf:name ?name))))', 'sse: select with filter !BOUND' );
+}
+
+{
+	my $query	= new RDF::Query ( <<"END" );
+		PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT ?person
+		WHERE {
+			?person foaf:name ?name .
 			FILTER( REGEX(?name, "Greg") )
 		}
 END
 	my $sse		= $query->sse;
 	is( $sse, '(filter (sparql:regex ?name "Greg") (join (bgp (triple ?person foaf:name ?name))))', 'sse: select with filter regex' );
 }
+
+{
+	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparqlp' );
+		PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT *
+		WHERE {
+			{ ?person foaf:name ?name } UNION { ?person foaf:nick ?name }
+		}
+END
+	my $sse		= $query->sse;
+	is( $sse, '(join (union (join (bgp (triple ?person foaf:name ?name))) (join (bgp (triple ?person foaf:nick ?name)))))', 'sse: select with filter regex' );
+}
+
+{
+	my $query	= new RDF::Query ( <<"END", undef, undef, 'sparqlp' );
+		PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+		SELECT COUNT(?person)
+		WHERE {
+			?person foaf:name ?name .
+		}
+END
+	my $sse		= $query->sse;
+	is( $sse, '(join (aggregate (join (bgp (triple ?person foaf:name ?name))) (alias "COUNT(?person)" (COUNT ?person)) ))', 'sse: aggregate count(?person)' );
+}
+
 
 __END__

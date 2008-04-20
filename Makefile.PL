@@ -35,11 +35,10 @@ WriteMakefile(
 					'List::MoreUtils'			=> 0,
 					'Parse::RecDescent'			=> 0,
 					'RDF::Core'					=> 0,
-					'RDF::Trine'				=> 0.104,
+					'RDF::Trine'				=> 0.106,
 					'Scalar::Util'				=> 0,
 					'Scalar::Util'				=> 0,
 					'Set::Scalar'				=> 0,
-					'Storable'					=> 0,
 					'URI'						=> 0,
 				},
 );

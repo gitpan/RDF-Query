@@ -1,7 +1,4 @@
 # RDF::Query::Node::Literal
-# -------------
-# $Revision: 121 $
-# $Date: 2006-02-06 23:07:43 -0500 (Mon, 06 Feb 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -29,7 +26,7 @@ use Carp qw(carp croak confess);
 our ($VERSION, $debug, $LAZY_COMPARISONS);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= '2.000';
+	$VERSION	= '2.001';
 }
 
 ######################################################################
@@ -185,6 +182,21 @@ sub datetime {
 		my $dt		= eval { $f->parse_datetime( $value ) };
 		$INSIDE_OUT_DATES{ $addr }	= $dt;
 		return $dt;
+	}
+}
+
+=item C<< as_sparql >>
+
+Returns the SPARQL string for this node.
+
+=cut
+
+sub as_sparql {
+	my $self	= shift;
+	if ($self->is_numeric_type) {
+		return $self->literal_value;
+	} else {
+		return $self->sse;
 	}
 }
 

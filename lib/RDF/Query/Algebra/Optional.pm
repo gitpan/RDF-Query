@@ -1,7 +1,4 @@
 # RDF::Query::Algebra::Optional
-# -------------
-# $Revision: 121 $
-# $Date: 2006-02-06 23:07:43 -0500 (Mon, 06 Feb 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -27,7 +24,7 @@ use RDF::Trine::Iterator qw(smap sgrep swatch);
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= '2.000';
+	$VERSION	= '2.001';
 }
 
 ######################################################################
@@ -152,7 +149,7 @@ sub definite_variables {
 	return $self->pattern->definite_variables;
 }
 
-=item C<< fixup ( $bridge, $base, \%namespaces ) >>
+=item C<< fixup ( $query, $bridge, $base, \%namespaces ) >>
 
 Returns a new pattern that is ready for execution using the given bridge.
 This method replaces generic node objects with bridge-native objects.
@@ -162,10 +159,16 @@ This method replaces generic node objects with bridge-native objects.
 sub fixup {
 	my $self	= shift;
 	my $class	= ref($self);
+	my $query	= shift;
 	my $bridge	= shift;
 	my $base	= shift;
 	my $ns		= shift;
-	return $class->new( map { $_->fixup( $bridge, $base, $ns ) } ($self->pattern, $self->optional) );
+
+	if (my $opt = $bridge->fixup( $self, $query, $base, $ns )) {
+		return $opt;
+	} else {
+		return $class->new( map { $_->fixup( $query, $bridge, $base, $ns ) } ($self->pattern, $self->optional) );
+	}
 }
 
 =item C<< execute ( $query, $bridge, \%bound, $context, %args ) >>

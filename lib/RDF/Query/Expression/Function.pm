@@ -1,7 +1,4 @@
 # RDF::Query::Expression::Function
-# -------------
-# $Revision: 121 $
-# $Date: 2006-02-06 23:07:43 -0500 (Mon, 06 Feb 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -27,7 +24,7 @@ use Carp qw(carp croak confess);
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= '2.000';
+	$VERSION	= '2.001';
 }
 
 ######################################################################
@@ -38,7 +35,7 @@ our %FUNCTION_MAP	= (
 	langmatches	=> "LANGMATCHES",
 	sameterm	=> "sameTerm",
 	datatype	=> "DATATYPE",
-	isbound		=> "BOUND",
+	bound		=> "BOUND",
 	isuri		=> "isURI",
 	isiri		=> "isIRI",
 	isblank		=> "isBlank",
@@ -128,7 +125,7 @@ sub as_sparql {
 	my $indent	= shift;
 	my @args	= $self->arguments;
 	my $uri		= $self->uri->uri_value;
-	my $func	= ($uri =~ m/^(sop|sparql):(str|lang|langmatches|sameTerm|datatype|regex|is(Bound|URI|IRI|Blank|Literal))/i)
+	my $func	= ($uri =~ m/^(sop|sparql):(str|lang|langmatches|sameTerm|datatype|regex|bound|is(URI|IRI|Blank|Literal))/i)
 				? $FUNCTION_MAP{ lc($2) }
 				: $self->uri->as_sparql( $context, $indent );
 	my $string	= sprintf(

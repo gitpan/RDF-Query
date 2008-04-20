@@ -1,7 +1,4 @@
 # RDF::Query::Node::Resource
-# -------------
-# $Revision: 121 $
-# $Date: 2006-02-06 23:07:43 -0500 (Mon, 06 Feb 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -27,10 +24,17 @@ use Carp qw(carp croak confess);
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= '2.000';
+	$VERSION	= '2.001';
 }
 
 ######################################################################
+
+
+=head1 METHODS
+
+=over 4
+
+=cut
 
 use overload	'<=>'	=> \&_cmp,
 				'cmp'	=> \&_cmp,
@@ -53,11 +57,17 @@ sub _cmp {
 	return $cmp;
 }
 
-=head1 METHODS
+=item C<< as_sparql >>
 
-=over 4
+Returns the SPARQL string for this node.
 
 =cut
+
+sub as_sparql {
+	my $self	= shift;
+	my $context	= shift;
+	return $self->sse( $context );
+}
 
 
 1;

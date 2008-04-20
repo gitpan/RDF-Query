@@ -1,7 +1,4 @@
 # RDF::Query::Functions
-# -------------
-# $Revision: 121 $
-# $Date: 2006-02-06 23:07:43 -0500 (Mon, 06 Feb 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -26,7 +23,6 @@ use I18N::LangTags;
 use Bloom::Filter;
 use Data::Dumper;
 use MIME::Base64;
-use Storable qw(thaw);
 use Digest::SHA1 qw(sha1_hex);
 use Carp qw(carp croak confess);
 
@@ -35,7 +31,7 @@ use Carp qw(carp croak confess);
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= '2.000';
+	$VERSION	= '2.001';
 }
 
 ######################################################################
@@ -268,8 +264,12 @@ $RDF::Query::functions{"http://www.w3.org/2001/XMLSchema#dateTime"}	= sub {
 $RDF::Query::functions{"sparql:str"}	= sub {
 	my $query	= shift;
 	my $bridge	= shift;
-	
 	my $node	= shift;
+	
+	unless (blessed($node)) {
+		throw RDF::Query::Error::TypeError -text => "STR() must be called with either a literal or resource";
+	}
+	
 	if ($node->is_literal) {
 		my $value	= $node->literal_value;
 		return RDF::Query::Node::Literal->new( $value );

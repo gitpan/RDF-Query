@@ -1,7 +1,4 @@
 # RDF::Query::Algebra::Aggregate
-# -------------
-# $Revision: 121 $
-# $Date: 2006-02-06 23:07:43 -0500 (Mon, 06 Feb 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -17,6 +14,7 @@ use warnings;
 no warnings 'redefine';
 use base qw(RDF::Query::Algebra);
 
+use Scalar::Util qw(blessed);
 use Data::Dumper;
 use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
@@ -27,7 +25,7 @@ use RDF::Trine::Iterator qw(smap);
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= '2.000';
+	$VERSION	= '2.001';
 }
 
 ######################################################################
@@ -124,14 +122,16 @@ sub sse {
 	my @ops		= $self->ops;
 	foreach my $data (@ops) {
 		my ($alias, $op, $col)	= @$data;
-		push(@ops_sse, sprintf('(%s (%s %s))', $alias, $op, $col));
+		push(@ops_sse, sprintf('(alias "%s" (%s %s))', $alias, $op, $col->sse));
 	}
 	
+	my @group	= $self->groupby;
+	my $group	= (@group) ? '(' . join(', ', @group) . ')' : '';
 	return sprintf(
-		'(aggregate %s (%s) %s)',
+		'(aggregate %s %s %s)',
 		$self->pattern->sse( $context ),
-		join(', ', $self->groupby),
-		join(', ', @ops_sse)
+		join(', ', @ops_sse),
+		$group,
 	);
 }
 
@@ -145,7 +145,7 @@ sub as_sparql {
 	my $self	= shift;
 	my $context	= shift;
 	my $indent	= shift;
-	throw RDF::Query::Error -text => "Aggregates can't be serialized as SPARQL";
+	throw RDF::Query::Error::SerializationError -text => "Aggregates can't be serialized as SPARQL";
 }
 
 =item C<< type >>
@@ -182,7 +182,7 @@ sub definite_variables {
 	return @aliases;
 }
 
-=item C<< fixup ( $bridge, $base, \%namespaces ) >>
+=item C<< fixup ( $query, $bridge, $base, \%namespaces ) >>
 
 Returns a new pattern that is ready for execution using the given bridge.
 This method replaces generic node objects with bridge-native objects.
@@ -192,15 +192,21 @@ This method replaces generic node objects with bridge-native objects.
 sub fixup {
 	my $self	= shift;
 	my $class	= ref($self);
+	my $query	= shift;
 	my $bridge	= shift;
 	my $base	= shift;
 	my $ns		= shift;
-	my $fixed	= $class->new(
-					$self->pattern->fixup( $bridge, $base, $ns ),
-					[ $self->groupby ],
-					@{ $self->[2] }
-				);
-	return $fixed;
+
+	if (my $opt = $bridge->fixup( $self, $query, $base, $ns )) {
+		return $opt;
+	} else {
+		my $fixed	= $class->new(
+						$self->pattern->fixup( $query, $bridge, $base, $ns ),
+						[ $self->groupby ],
+						@{ $self->[2] }
+					);
+		return $fixed;
+	}
 }
 
 =item C<< execute ( $query, $bridge, \%bound, $context, %args ) >>
@@ -215,56 +221,89 @@ sub execute {
 	my $context		= shift;
 	my %args		= @_;
 	
+	my %seen;
+	my %groups;
 	my %aggregates;
 	my @aggregators;
-	my %groups;
 	my @groupby		= $self->groupby;
+	local($RDF::Query::Node::Literal::LAZY_COMPARISONS)	= 1;
 	foreach my $data ($self->ops) {
 		my ($alias, $op, $col)	= @$data;
 		if ($op eq 'COUNT') {
 			push(@aggregators, sub {
 				my $row		= shift;
-				my @group	= @{ $row }{ @groupby };
+				my @group	= map { $query->var_or_expr_value( $bridge, $row, $_ ) } @groupby;
+				my $group	= join('<<<', map { $bridge->as_string( $_ ) } @group);
+				
+				unless ($groups{ $group }) {
+					my %data;
+					foreach my $i (0 .. $#groupby) {
+						my $group	= $groupby[ $i ];
+						my $key		= $group->can('name') ? $group->name : $group->as_sparql;
+						my $value	= $group[ $i ];
+						$data{ $key }	= $value;
+					}
+					$groups{ $group }	= \%data;
+				}
+				
+				my $should_inc	= 0;
+				if ($col eq '*') {
+					$should_inc	= 1;
+				} else {
+					my $value	= $query->var_or_expr_value( $bridge, $row, $col );
+					$should_inc	= (defined $value) ? 1 : 0;
+				}
+				
+				if ($should_inc) {
+					$aggregates{ $alias }{ $group }++;
+				}
+			});
+		} elsif ($op eq 'COUNT-DISTINCT') {
+			push(@aggregators, sub {
+				my $row		= shift;
+				my @group	= map { $query->var_or_expr_value( $bridge, $row, $_ ) } @groupby;
 				my $group	= join('<<<', map { $bridge->as_string( $_ ) } @group);
 				$groups{ $group }	||= { map { $_ => $row->{ $_ } } @groupby };
-				$aggregates{ $alias }{ $group }++;
+				
+				my @cols	= (blessed($col) ? $col->name : keys %$row);
+				no warnings 'uninitialized';
+				my $values	= join('<<<', @{ $row }{ @cols });
+				if (exists($row->{ $col->name })) {
+					$aggregates{ $alias }{ $group }++ unless ($seen{ $values }++);
+				}
 			});
 		} elsif ($op eq 'MAX') {
 			push(@aggregators, sub {
 				my $row		= shift;
-				my @group	= @{ $row }{ @groupby };
+				my @group	= map { $query->var_or_expr_value( $bridge, $row, $_ ) } @groupby;
 				my $group	= join('<<<', map { $bridge->as_string( $_ ) } @group);
 				$groups{ $group }	||= { map { $_ => $row->{ $_ } } @groupby };
 				if (exists($aggregates{ $alias }{ $group })) {
-					my $cmp	= $query->check_constraints( {}, [ '>', $row->{ $col }, $aggregates{ $alias }{ $group } ], bridge => $bridge );
-					if ($cmp) {
-						$aggregates{ $alias }{ $group }	= $row->{ $col };
+					if ($row->{ $col->name } > $aggregates{ $alias }{ $group }) {
+						$aggregates{ $alias }{ $group }	= $row->{ $col->name };
 					}
 				} else {
-					$aggregates{ $alias }{ $group }	= $row->{ $col };
+					$aggregates{ $alias }{ $group }	= $row->{ $col->name };
 				}
 			});
 		} elsif ($op eq 'MIN') {
 			push(@aggregators, sub {
 				my $row		= shift;
-				my @group	= @{ $row }{ @groupby };
+				my @group	= map { $query->var_or_expr_value( $bridge, $row, $_ ) } @groupby;
 				my $group	= join('<<<', map { $bridge->as_string( $_ ) } @group);
 				$groups{ $group }	||= { map { $_ => $row->{ $_ } } @groupby };
 				if (exists($aggregates{ $alias }{ $group })) {
-					my $cmp	= $query->check_constraints( {}, [ '<', $row->{ $col }, $aggregates{ $alias }{ $group } ], bridge => $bridge );
-					warn "MIN: " . Dumper($cmp, $row->{ $col }, $aggregates{ $alias }{ $group });
-					if ($cmp) {
-						$aggregates{ $alias }{ $group }	= $row->{ $col };
+					if ($row->{ $col->name } < $aggregates{ $alias }{ $group }) {
+						$aggregates{ $alias }{ $group }	= $row->{ $col->name };
 					}
 				} else {
-					$aggregates{ $alias }{ $group }	= $row->{ $col };
+					$aggregates{ $alias }{ $group }	= $row->{ $col->name };
 				}
 			});
 		} else {
 			throw RDF::Query::Error -text => "Unknown aggregate operator $op";
 		}
 	}
-	
 	
 	
 	$args{ orderby }	= [ map { [ 'ASC', RDF::Query::Node::Variable->new( $_ ) ] } @groupby ];
@@ -277,11 +316,11 @@ sub execute {
 	
 	my @rows;
 	foreach my $group (keys %groups) {
-		my $row	= $groups{ $group };
-		my %row	= %$row;
+		my $row		= $groups{ $group };
+		my %row		= %$row;
 		foreach my $agg (keys %aggregates) {
 			my $value		= $aggregates{ $agg }{ $group };
-			$row{ $agg }	= ($bridge->is_node($value)) ? $value : $bridge->new_literal( $value );
+			$row{ $agg }	= ($bridge->is_node($value)) ? $value : $bridge->new_literal( $value, undef, 'http://www.w3.org/2001/XMLSchema#decimal' );
 		}
 		push(@rows, \%row);
 	}

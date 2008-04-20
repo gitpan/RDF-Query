@@ -1,7 +1,4 @@
 # RDF::Query::Algebra::Quad
-# -------------
-# $Revision: 121 $
-# $Date: 2006-02-06 23:07:43 -0500 (Mon, 06 Feb 2006) $
 # -----------------------------------------------------------------------------
 
 =head1 NAME
@@ -28,7 +25,7 @@ use RDF::Trine::Iterator qw(smap sgrep swatch);
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= '2.000';
+	$VERSION	= '2.001';
 }
 
 ######################################################################
@@ -38,6 +35,33 @@ BEGIN {
 =over 4
 
 =cut
+
+=item C<< as_sparql >>
+
+Returns the SPARQL string for this alegbra expression.
+
+=cut
+
+sub as_sparql {
+	my $self	= shift;
+	my $context	= shift || {};
+	my $indent	= shift;
+	
+	my $pred	= $self->predicate;
+	if ($pred->isa('RDF::Trine::Node::Resource') and $pred->uri_value eq 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type') {
+		$pred	= 'a';
+	} else {
+		$pred	= $pred->as_sparql( $context );
+	}
+	
+	my $string	= sprintf(
+		"%s %s %s .",
+		$self->subject->as_sparql( $context ),
+		$pred,
+		$self->object->as_sparql( $context ),
+	);
+	return $string;
+}
 
 =item C<< referenced_blanks >>
 
@@ -100,7 +124,7 @@ sub qualify_uris {
 	return $class->new( @nodes );
 }
 
-=item C<< fixup ( $bridge, $base, \%namespaces ) >>
+=item C<< fixup ( $query, $bridge, $base, \%namespaces ) >>
 
 Returns a new pattern that is ready for execution using the given bridge.
 This method replaces generic node objects with bridge-native objects.
@@ -110,14 +134,19 @@ This method replaces generic node objects with bridge-native objects.
 sub fixup {
 	my $self	= shift;
 	my $class	= ref($self);
+	my $query	= shift;
 	my $bridge	= shift;
 	my $base	= shift;
 	my $ns		= shift;
 	
-	my @nodes	= $self->nodes;
-	@nodes	= map { $bridge->as_native( $_, $base, $ns ) } @nodes;
-	my $fixed	= $class->new( @nodes );
-	return $fixed;
+	if (my $opt = $bridge->fixup( $self, $query, $base, $ns )) {
+		return $opt;
+	} else {
+		my @nodes	= $self->nodes;
+		@nodes	= map { $bridge->as_native( $_, $base, $ns ) } @nodes;
+		my $fixed	= $class->new( @nodes );
+		return $fixed;
+	}
 }
 
 =item C<< execute ( $query, $bridge, \%bound, $context, %args ) >>
