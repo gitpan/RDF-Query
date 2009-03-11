@@ -23,10 +23,9 @@ use RDF::Trine::Iterator qw(sgrep);
 
 ######################################################################
 
-our ($VERSION, $debug);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -72,6 +71,9 @@ Returns the pattern to be sorted.
 
 sub pattern {
 	my $self	= shift;
+	if (@_) {
+		$self->[0]	= shift;
+	}
 	return $self->[0];
 }
 
@@ -95,11 +97,13 @@ Returns the SSE string for this alegbra expression.
 sub sse {
 	my $self	= shift;
 	my $context	= shift;
+	my $prefix	= shift || '';
+	my $indent	= $context->{indent};
 	
 	return sprintf(
-		'(offset %s %s)',
-		$self->pattern->sse( $context ),
+		"(offset %s\n${prefix}${indent}%s)",
 		$self->offset,
+		$self->pattern->sse( $context, "${prefix}${indent}" ),
 	);
 }
 
@@ -169,31 +173,23 @@ sub fixup {
 	my $base	= shift;
 	my $ns		= shift;
 	
-	if (my $opt = $bridge->fixup( $self, $query, $base, $ns )) {
+	if (my $opt = $query->algebra_fixup( $self, $bridge, $base, $ns )) {
 		return $opt;
 	} else {
 		return $class->new( $self->pattern->fixup( $query, $bridge, $base, $ns ), $self->offset );
 	}
 }
 
-=item C<< execute ( $query, $bridge, \%bound, $context, %args ) >>
+=item C<< is_solution_modifier >>
+
+Returns true if this node is a solution modifier.
 
 =cut
 
-sub execute {
-	my $self		= shift;
-	my $query		= shift;
-	my $bridge		= shift;
-	my $bound		= shift;
-	my $context		= shift;
-	my %args		= @_;
-	
-	my $offset		= $self->offset;
-	my $stream		= $self->pattern->execute( $query, $bridge, $bound, $context, %args );
-	
-	my $count		= 0;
-	return sgrep { $count++ >= $offset } $stream;
+sub is_solution_modifier {
+	return 1;
 }
+
 
 
 1;

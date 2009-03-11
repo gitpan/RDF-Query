@@ -20,10 +20,9 @@ use Carp qw(carp croak confess);
 
 ######################################################################
 
-our ($VERSION, $debug, $lang, $languri);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -104,12 +103,14 @@ Returns the SSE string for this alegbra expression.
 sub sse {
 	my $self	= shift;
 	my $context	= shift;
+	my $prefix	= shift || '';
+	my $indent	= $context->{indent};
 	
 	return sprintf(
-		'(time %s %s %s)',
-		$self->interval->sse( $context ),
-		$self->pattern->sse( $context ),
-		$self->time_triples->sse( $context ),
+		'(time\n${prefix}${indent}%s\n${prefix}${indent}%s\n${prefix}${indent}%s)',
+		$self->interval->sse( $context, "${prefix}${indent}" ),
+		$self->pattern->sse( $context, "${prefix}${indent}" ),
+		$self->time_triples->sse( $context, "${prefix}${indent}" ),
 	);
 }
 

@@ -23,10 +23,9 @@ use RDF::Trine::Iterator qw(sgrep);
 
 ######################################################################
 
-our ($VERSION, $debug);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -70,6 +69,9 @@ Returns the pattern to be sorted.
 
 sub pattern {
 	my $self	= shift;
+	if (@_) {
+		$self->[0]	= shift;
+	}
 	return $self->[0];
 }
 
@@ -82,10 +84,12 @@ Returns the SSE string for this alegbra expression.
 sub sse {
 	my $self	= shift;
 	my $context	= shift;
+	my $prefix	= shift || '';
+	my $indent	= $context->{indent};
 	
 	return sprintf(
-		'(distinct %s)',
-		$self->pattern->sse( $context ),
+		'(distinct\n${prefix}${indent}%s)',
+		$self->pattern->sse( $context, "${prefix}${indent}" ),
 	);
 }
 
@@ -100,10 +104,7 @@ sub as_sparql {
 	my $context	= shift;
 	my $indent	= shift;
 	
-	# we don't add 'DISTINCT' here because it would be in the wrong place.
-	# RDF::Query::as_sparql() adds it outside the pattern serialization
-	# along with projection and 'SELECT'.
-	return $self->pattern->as_sparql( $context, $indent );
+	return 'DISTINCT ' . $self->pattern->as_sparql( $context, $indent );
 }
 
 =item C<< type >>
@@ -153,37 +154,21 @@ sub fixup {
 	my $base	= shift;
 	my $ns		= shift;
 	
-	if (my $opt = $bridge->fixup( $self, $query, $base, $ns )) {
+	if (my $opt = $query->algebra_fixup( $self, $bridge, $base, $ns )) {
 		return $opt;
 	} else {
 		return $class->new( $self->pattern->fixup( $query, $bridge, $base, $ns ) );
 	}
 }
 
-=item C<< execute ( $query, $bridge, \%bound, $context, %args ) >>
+=item C<< is_solution_modifier >>
+
+Returns true if this node is a solution modifier.
 
 =cut
 
-sub execute {
-	my $self		= shift;
-	my $query		= shift;
-	my $bridge		= shift;
-	my $bound		= shift;
-	my $context		= shift;
-	my %args		= @_;
-	
-	my $stream		= $self->pattern->execute( $query, $bridge, $bound, $context, %args );
-	
-	my %seen;
-	my @variables	= $query->variables;
-	$stream	= sgrep {
-		my $row	= $_;
-		no warnings 'uninitialized';
-		my $key	= join($;, map {$bridge->as_string( $_ )} map { $row->{$_} } @variables);
-		return (not $seen{ $key }++);
-	} $stream;
-	
-	return $stream;
+sub is_solution_modifier {
+	return 1;
 }
 
 

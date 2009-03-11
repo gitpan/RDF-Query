@@ -26,7 +26,7 @@ package RDF::Query::Parser::SPARQLP;
 use strict;
 use warnings;
 use base qw(RDF::Query::Parser::SPARQL);
-our $VERSION		= '2.002';
+our $VERSION		= '2.003_01';
 
 use URI;
 use Data::Dumper;
@@ -34,14 +34,13 @@ use RDF::Query::Error qw(:try);
 use RDF::Query::Parser;
 use RDF::Query::Algebra;
 use RDF::Trine::Namespace qw(rdf);
-use Scalar::Util qw(blessed looks_like_number);
+use Scalar::Util qw(blessed looks_like_number reftype);
 use List::MoreUtils qw(uniq);
 
 our $r_AGGREGATE_CALL	= qr/MIN|MAX|COUNT/i;
 
-sub _Query {
+sub __solution_modifiers {
 	my $self	= shift;
-	$self->SUPER::_Query;
 	my $aggdata	= delete( $self->{build}{__aggregate} );
 	if ($aggdata) {
 		my $groupby	= delete( $self->{build}{__group_by} ) || [];
@@ -50,12 +49,13 @@ sub _Query {
 		my $agg		= RDF::Query::Algebra::Aggregate->new( $ggp, $groupby, %{ $aggdata } );
 		push(@{ $self->{build}{triples} }, $agg);
 	}
+	$self->SUPER::__solution_modifiers( @_ );
 }
 
 # [22] GraphPatternNotTriples ::= OptionalGraphPattern | GroupOrUnionGraphPattern | GraphGraphPattern
 sub _GraphPatternNotTriples_test {
 	my $self	= shift;
-	return 1 if $self->_test(qr/SERVICE|TIME/i);
+	return 1 if $self->_test(qr/UNSAID|SERVICE|TIME/i);
 	return $self->SUPER::_GraphPatternNotTriples_test;
 }
 
@@ -65,6 +65,8 @@ sub _GraphPatternNotTriples {
 		$self->_ServiceGraphPattern;
 	} elsif ($self->_test(qr/TIME/i)) {
 		$self->_TimeGraphPattern;
+	} elsif ($self->_NotGraphPattern_test) {
+		$self->_NotGraphPattern;
 	} else {
 		$self->SUPER::_GraphPatternNotTriples;
 	}
@@ -123,6 +125,16 @@ sub __handle_GraphPatternNotTriples {
 	my ($class, @args)	= @$data;
 	if ($class eq 'RDF::Query::Algebra::Service') {
 	} elsif ($class eq 'RDF::Query::Algebra::TimeGraph') {
+	} elsif ($class eq 'RDF::Query::Algebra::Not') {
+		my $cont	= $self->_pop_pattern_container;
+		my $ggp		= RDF::Query::Algebra::GroupGraphPattern->new( @$cont );
+		$self->_push_pattern_container;
+		# my $ggp	= $self->_remove_pattern();
+		unless ($ggp) {
+			$ggp	= RDF::Query::Algebra::GroupGraphPattern->new();
+		}
+		my $not	= $class->new( $ggp, @args );
+		$self->_add_patterns( $not );
 	} else {
 		$self->SUPER::__handle_GraphPatternNotTriples( $data );
 	}
@@ -232,6 +244,33 @@ sub _WhereClause {
 	$self->SUPER::_WhereClause;
 	
 	$self->__consume_ws_opt;
+	if ($self->_test( qr/BINDINGS/i )) {
+		$self->_eat( qr/BINDINGS/i );
+		
+		my @vars;
+		$self->__consume_ws_opt;
+		$self->_Var;
+		push( @vars, splice(@{ $self->{stack} }));
+		$self->__consume_ws_opt;
+		while ($self->_test(qr/[\$?]/)) {
+			$self->_Var;
+			push( @vars, splice(@{ $self->{stack} }));
+			$self->__consume_ws_opt;
+		}
+		
+		$self->_eat('{');
+		$self->__consume_ws_opt;
+		while ($self->_Binding_test) {
+			$self->_Binding;
+			$self->__consume_ws_opt;
+		}
+		$self->_eat('}');
+		
+		$self->{build}{bindings}{vars}	= \@vars;
+		$self->__consume_ws_opt;
+	}
+
+	$self->__consume_ws_opt;
 	if ($self->_test( qr/GROUP\s+BY/i )) {
 		$self->_eat( qr/GROUP\s+BY/i );
 		
@@ -250,6 +289,31 @@ sub _WhereClause {
 	}
 }
 
+sub _Binding_test {
+	my $self	= shift;
+	return $self->_test( '(' );
+}
+
+sub _Binding {
+	my $self	= shift;
+	$self->_eat( '(' );
+	$self->__consume_ws_opt;
+	
+	my @terms;
+	$self->__consume_ws_opt;
+	$self->_VarOrTerm;
+	push( @terms, splice(@{ $self->{stack} }));
+	$self->__consume_ws_opt;
+	while ($self->_VarOrTerm_test) {
+		$self->_VarOrTerm;
+		push( @terms, splice(@{ $self->{stack} }));
+		$self->__consume_ws_opt;
+	}
+	push( @{ $self->{build}{bindings}{terms} }, \@terms );
+	$self->__consume_ws_opt;
+	$self->_eat( ')' );
+}
+
 sub __GroupByVar_test {
 	my $self	= shift;
 	return ($self->_BuiltInCall_test or $self->_test( qr/[(]/i) or $self->SUPER::__SelectVar_test);
@@ -265,6 +329,169 @@ sub __GroupByVar {
 		$self->SUPER::__SelectVar;
 	}
 }
+
+
+
+################################################################################
+### ARQ Property Paths
+### http://jena.sourceforge.net/ARQ/property_paths.html
+
+# verb test is the same as normal with the addition of parens for path groups and caret for reverse
+sub _Verb_test {
+	my $self	= shift;
+	if ($self->_test(qr/[(^]/)) {
+		return 1;
+	} else {
+		return $self->SUPER::_Verb_test;
+	}
+}
+
+
+sub __strip_path_identifier {
+	my $node	= shift;
+	if (reftype($node) eq 'ARRAY' and $node->[0] eq 'PATH') {
+		# strip the 'PATH' identifier off the front of the pattern
+		$node	= $node->[1];
+	}
+	return $node;
+}
+
+sub _Verb {
+	my $self	= shift;
+	
+	my $path	= 0;
+	if ($self->_test(qr/\(/)) {
+		$path	= 1;
+		$self->_eat('(');
+		$self->__consume_ws_opt;
+		$self->_Verb;
+		my $verb	= __strip_path_identifier( splice( @{ $self->{stack} } ) );
+		
+		# keep the parens so we can round-trip serialization easily
+		$self->_add_stack( [ '(', $verb ] );
+		$self->__consume_ws_opt;
+		$self->_eat(')');
+	} elsif ($self->_test(qr/\^/)) {
+		$path	= 1;
+		$self->_eat('^');
+		$self->__consume_ws_opt;
+		$self->SUPER::_Verb;
+		my $verb	= splice( @{ $self->{stack} } );
+		$self->_add_stack( [ '^', $verb ] );
+	} else {
+		$self->SUPER::_Verb;
+	}
+	
+	my ($verb)	= __strip_path_identifier( splice( @{ $self->{stack} } ) );
+	
+	BLOCK: {
+		# XXX we should match a '?' here, too, but it can mistake a variable for
+		# XXX a path modifier (as in { ?s a ?o }), and then fail to match the variable
+		# XXX (since the '?' has been eaten). This has to be fixed by updating the
+		# XXX parser to do proper tokenizing.
+		if ($path or $self->_test(qr#[*+{/^|]#)) {
+			# unary operators
+			if ($self->_test(qr#[*?+{]#)) {
+				if ($self->_test(qr/[+][0-9.]/)) {
+					# the '+' should belong to the INTEGER or DECIMAL that follows the predicate
+					# so break out, and leave the '+' to be parsed later
+					last BLOCK;
+				}
+				my ($unop) = $self->_eat(qr#[*?+{]#);
+				if ($unop eq '{') {
+					# RANGE and EXACT ops. Use '{' for ranges (including unbounded)
+					# and 'x' for exact repetitions. So 'elt*' is ['{',elt,0] while
+					# 'elt{2}' is ['x',elt,2]
+					my $exact;
+					my @range	= $self->_eat(qr/(\d+)/);
+					if ($self->_test(',')) {
+						$exact	= 0;	# range (vs. exact)
+						$self->_eat(',');
+						if ($self->_test(qr/\d/)) {
+							my ($to)	= $self->_eat(qr/(\d+)/);
+							push(@range, $to);
+						}
+					} else {
+						$exact	= 1;	# exact (vs. range)
+					}
+					$self->_eat('}');
+					my $op	= ($exact ? 'x' : '{');
+					$verb	= [ $op, $verb, @range ];
+				} elsif ($unop eq '*') {
+					# kleene star is equivalent to {0,}
+					$verb	= [ '{', $verb, 0 ];
+				} elsif ($unop eq '?') {
+					# ? is equivalent to {0,1}
+					$verb	= [ '{', $verb, 0, 1 ];
+				} elsif ($unop eq '+') {
+					# + is equivalent to {1,}
+					$verb	= [ '{', $verb, 1 ];
+				}
+			}
+			
+			$self->__consume_ws_opt;
+			
+			# binary operators
+			while ($self->_test(qr#[/^|]#)) {
+				my ($binop) = $self->_eat(qr#[/^|]#);
+				$self->__consume_ws_opt;
+				$self->_Verb;
+				my ($rhs)	= __strip_path_identifier( splice( @{ $self->{stack} } ) );
+				$verb		= [ $binop, $verb, $rhs ];
+			}
+			
+			$self->_add_stack( ['PATH', $verb] );
+			return;
+		}
+	}
+	
+	$self->_add_stack( $verb );
+}
+
+sub _TriplesBlock {
+	my $self	= shift;
+	$self->_push_pattern_container;
+	$self->__TriplesBlock;
+	my @triples		= @{ $self->_pop_pattern_container };
+	
+	my @paths;
+	for (my $i = $#triples; $i >= 0; $i--) {
+		my $t	= $triples[$i];
+		my $p	= $t->predicate;
+		if (reftype($p) eq 'ARRAY' and $p->[0] eq 'PATH') {
+			splice(@triples, $i, 1);
+			my $start	= $t->subject;
+			my $end		= $t->object;
+			my $path	= RDF::Query::Algebra::Path->new( $start, $p->[1], $end );
+			push(@paths, $path);
+		}
+	}
+	my $bgp			= RDF::Query::Algebra::BasicGraphPattern->new( @triples );
+	if (@paths) {
+		my $ggp	= RDF::Query::Algebra::GroupGraphPattern->new( $bgp, @paths );
+		$self->_add_patterns( $ggp );
+	} else {
+		$self->_add_patterns( $bgp );
+	}
+}
+
+# NotGraphPattern ::= 'UNSAID' GroupGraphPattern
+sub _NotGraphPattern_test {
+	my $self	= shift;
+	return $self->_test( qr/UNSAID/i );
+}
+
+sub _NotGraphPattern {
+	my $self	= shift;
+	$self->_eat( qr/UNSAID/i );
+	$self->__consume_ws_opt;
+	$self->_GroupGraphPattern;
+	my $ggp	= $self->_remove_pattern;
+	my $opt		= ['RDF::Query::Algebra::Not', $ggp];
+	$self->_add_stack( $opt );
+}
+
+
 
 1;
 

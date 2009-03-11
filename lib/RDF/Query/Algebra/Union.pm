@@ -16,16 +16,16 @@ use base qw(RDF::Query::Algebra);
 
 use Data::Dumper;
 use Set::Scalar;
+use Log::Log4perl;
 use Scalar::Util qw(blessed);
 use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
 
 ######################################################################
 
-our ($VERSION, $debug, $lang, $languri);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -104,11 +104,13 @@ Returns the SSE string for this alegbra expression.
 sub sse {
 	my $self	= shift;
 	my $context	= shift;
+	my $prefix	= shift || '';
+	my $indent	= $context->{indent};
 	
 	return sprintf(
-		'(union %s %s)',
-		$self->first->sse( $context ),
-		$self->second->sse( $context )
+		"(union\n${prefix}${indent}%s\n${prefix}${indent}%s)",
+		$self->first->sse( $context, "${prefix}${indent}" ),
+		$self->second->sse( $context, "${prefix}${indent}" )
 	);
 }
 
@@ -179,52 +181,12 @@ sub fixup {
 	my $base	= shift;
 	my $ns		= shift;
 	
-	if (my $opt = $bridge->fixup( $self, $query, $base, $ns )) {
+	if (my $opt = $query->algebra_fixup( $self, $bridge, $base, $ns )) {
 		return $opt;
 	} else {
 		return $class->new( map { $_->fixup( $query, $bridge, $base, $ns ) } $self->patterns );
 	}
 }
-
-=item C<< execute ( $query, $bridge, \%bound, $context, %args ) >>
-
-=cut
-
-sub execute {
-	my $self		= shift;
-	my $query		= shift;
-	my $bridge		= shift;
-	my $bound		= shift;
-	my $context		= shift;
-	my %args		= @_;
-	
-	my @names;
-	my @streams;
-	foreach my $u_triples ($self->first, $self->second) {
-		my $stream	= $u_triples->execute( $query, $bridge, $bound, $context, %args );
-		
-		if ($debug) {
-			$stream		= $stream->materialize;
-			warn "union stream:\n";
-			while (my $b = $stream->next) {
-				warn "BINDING: " . join(', ', map { my $v = $b->{$_}; join('=', $_, (blessed($v) ? $v->sse : '')) } (keys %$b));
-			}
-			$stream->reset;
-		}
-		
-		push(@names, $stream->binding_names);
-		push(@streams, $stream);
-	}
-	
-	@streams	= map { $_->project( @names ) } @streams;
-	my $stream	= shift(@streams);
-	while (@streams) {
-		$stream	= $stream->concat( shift(@streams), undef, \@names );
-	}
-	
-	return $stream;
-}
-
 
 1;
 

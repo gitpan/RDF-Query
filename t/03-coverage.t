@@ -15,7 +15,7 @@ my @models	= test_models( @files );
 
 use Test::More;
 
-plan tests => 1 + (61 * scalar(@models)) + 3;
+plan tests => 1 + (62 * scalar(@models)) + 3;
 
 use_ok( 'RDF::Query' );
 foreach my $model (@models) {
@@ -35,7 +35,7 @@ END
 
 	{
 		print "# using RDQL language URI\n" if ($verbose);
-		my $query	= new RDF::Query ( <<"END", undef, 'http://jena.hpl.hp.com/2003/07/query/RDQL', undef );
+		my $query	= new RDF::Query ( <<"END", { lang => 'rdql' } );
 			SELECT
 				?person
 			WHERE
@@ -263,7 +263,7 @@ END
 END
 		my $stream	= $query->execute( $model );
 		my $count;
-		while (my $row = $stream->()) {
+		while (my $row = $stream->next) {
 			my ($p)	= @{ $row }{qw(p)};
 			ok( $p, $query->bridge->as_string( $p ) );
 		} continue { ++$count };
@@ -327,7 +327,7 @@ END
 END
 		my $stream	= $query->execute( $model );
 		my $count	= 0;
-		while (my $row = $stream->()) {
+		while (my $row = $stream->next) {
 			my $thing	= $row->{thing};
 			ok( $query->bridge->isa_blank( $thing ), 'isa blank' );
 			
@@ -359,15 +359,17 @@ END
 		print "# \n";
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 			PREFIX	: <http://xmlns.com/foaf/0.1/>
-			SELECT	?name
+			SELECT	?person ?name
 			WHERE	{ ?person :name ?name }
 END
 		my $bridge		= $query->get_bridge( $model );
-		my ($id, $name)	= ('lauren', 'Lauren Bradford');
+		my ($id, $name)	= ('lauren', 'Lauren B');
 		my $person	= $bridge->new_resource( "http://kasei.us/about/foaf.xrdf#${id}" );
 		my $stream	= $query->execute( $model, bind => { person => $person } );
 		my $count	= 0;
-		while (my $row = $stream->()) {
+		while (my $row = $stream->next) {
+			my $p	= $row->{person};
+			is( $p->uri_value, "http://kasei.us/about/foaf.xrdf#${id}", 'expected pre-bound person URI' );
 			my $node	= $row->{name};
 			my $value	= $query->bridge->literal_value( $node );
 			is( $value, $name, 'expected name on pre-bound node' );

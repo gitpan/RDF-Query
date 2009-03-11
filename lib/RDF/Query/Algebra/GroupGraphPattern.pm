@@ -14,12 +14,14 @@ use warnings;
 no warnings 'redefine';
 use base qw(RDF::Query::Algebra);
 
+use Log::Log4perl;
 use Scalar::Util qw(blessed);
 use Data::Dumper;
 use List::Util qw(first);
 use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
 use RDF::Query::Error qw(:try);
+use Time::HiRes qw(gettimeofday tv_interval);
 use RDF::Trine::Iterator qw(sgrep smap swatch);
 
 ######################################################################
@@ -27,7 +29,7 @@ use RDF::Trine::Iterator qw(sgrep smap swatch);
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 	our %SERVICE_BLOOM_IGNORE	= ('http://dbpedia.org/sparql' => 1);	# by default, assume dbpedia doesn't implement k:bloom().
 }
 
@@ -49,8 +51,11 @@ sub new {
 	my $class		= shift;
 	my @patterns	= @_;
 	my $self	= bless( \@patterns, $class );
-	if (@patterns) {
-		Carp::confess unless blessed($patterns[0]);
+	foreach my $p (@patterns) {
+		unless (blessed($p)) {
+			Carp::cluck;
+			throw RDF::Query::Error::MethodInvocationError -text => "GroupGraphPattern constructor called with unblessed value";
+		}
 	}
 	return $self;
 }
@@ -99,11 +104,18 @@ Returns the SSE string for this alegbra expression.
 sub sse {
 	my $self	= shift;
 	my $context	= shift;
+	my $prefix	= shift || '';
+	my $indent	= $context->{indent};
 	
-	return sprintf(
-		'(join %s)',
-		join(' ', map { $_->sse( $context ) } $self->patterns)
-	);
+	my @patterns	= $self->patterns;
+	if (scalar(@patterns) == 1) {
+		return $patterns[0]->sse( $context, $prefix );
+	} else {
+		return sprintf(
+			"(join\n${prefix}${indent}%s)",
+			join("\n${prefix}${indent}", map { $_->sse( $context, "${prefix}${indent}" ) } @patterns)
+		);
+	}
 }
 
 =item C<< as_sparql >>
@@ -115,14 +127,14 @@ Returns the SPARQL string for this alegbra expression.
 sub as_sparql {
 	my $self	= shift;
 	my $context	= shift;
-	my $indent	= shift;
+	my $indent	= shift || '';
 	
 	my @patterns;
 	foreach my $p ($self->patterns) {
 		push(@patterns, $p->as_sparql( $context, "$indent\t" ));
 	}
 	my $patterns	= join("\n${indent}\t", @patterns);
-	my $string	= sprintf("{\n${indent}\t%s\n${indent}}", $patterns);
+	my $string		= sprintf("{\n${indent}\t%s\n${indent}}", $patterns);
 	return $string;
 }
 
@@ -173,11 +185,10 @@ sub fixup {
 	my $base	= shift;
 	my $ns		= shift;
 
-	if (my $opt = $bridge->fixup( $self, $query, $base, $ns )) {
+	if (my $opt = $query->algebra_fixup( $self, $bridge, $base, $ns )) {
 		return $opt;
 	} else {
 		my @triples	= $self->patterns;
-		
 		my $ggp			= $class->new( map { $_->fixup( $query, $bridge, $base, $ns ) } @triples );
 		return $ggp;
 	}
@@ -194,9 +205,11 @@ sub execute {
 	my $bound		= shift;
 	my $context		= shift;
 	my %args		= @_;
+	my $l		= Log::Log4perl->get_logger("rdf.query.algebra.groupgraphpattern");
 	
-	my (@triples)	= $self->patterns;
 	my $stream;
+	my (@triples)	= $self->patterns;
+	my $t0			= [gettimeofday];
 	foreach my $triple (@triples) {
 		Carp::confess "not an algebra or rdf node: " . Dumper($triple) unless ($triple->isa('RDF::Query::Algebra') or $triple->isa('RDF::Query::Node'));
 		
@@ -209,36 +222,41 @@ sub execute {
 		### service call, we can try to send along a bloom filter function.
 		### if it doesn't work (the remote endpoint may not support the kasei:bloom
 		### function), then fall back on making the call without the filter.
-		try {
-			if ($stream and $triple->isa('RDF::Query::Algebra::Service')) {
-				unless ($SERVICE_BLOOM_IGNORE{ $triple->endpoint->uri_value }) {
+		if ($stream and $triple->isa('RDF::Query::Algebra::Service') and not($triple->pattern->isa('RDF::Query::Algebra::Filter'))) {
+			try {
+				my $endpoint_url	= $triple->endpoint->uri_value;
+				unless ($SERVICE_BLOOM_IGNORE{ $endpoint_url }) {
 	# 				local($RDF::Trine::Iterator::debug)	= 1;
 					$stream		= $stream->materialize;
-					my $m		= $stream;
-					
-					my @vars	= $triple->referenced_variables;
-					my %svars	= map { $_ => 1 } $stream->binding_names;
-					my $var		= RDF::Query::Node::Variable->new( first { $svars{ $_ } } @vars );
-					
-					my $error	= $query->{_bloom_filter_error} || $RDF::Query::Algebra::Service::BLOOM_FILTER_ERROR_RATE || 0.001;
-					my $f		= RDF::Query::Algebra::Service->bloom_filter_for_iterator( $query, $bridge, $bound, $m, $var, $error );
-					
-					my $pattern	= $triple->add_bloom( $var, $f );
+					my $pattern	= $self->_bloom_optimized_pattern( $stream, $triple, $query, $bridge, $bound );
 					my $new	= $pattern->execute( $query, $bridge, $bound, $context, %args );
 					throw RDF::Query::Error unless ($new);
-					$stream	= $self->join_bnode_streams( $m, $new, $query, $bridge, $bound );
+					$stream	= $self->join_bnode_streams( $stream, $new, $query, $bridge, $bound );
+					if (my $l = $query->logger) {
+						$l->add_key_value( 'endpoint_supports_bloom_filter', $endpoint_url => 1 );
+					}
 					$handled	= 1;
 				}
-			}
-		} otherwise {
-			$SERVICE_BLOOM_IGNORE{ $triple->endpoint->uri_value }	= 1;
-			warn "*** Wasn't able to use k:bloom as a FILTER restriction in SERVICE call.\n" if ($debug);
-		};
+			} catch RDF::Query::Error::RequestedInterruptError with {
+				my $e	= shift;
+				$e->throw;
+			} otherwise {
+				my $e	= shift;
+				warn "error: " . $e;
+				$SERVICE_BLOOM_IGNORE{ $triple->endpoint->uri_value }	= 1;
+				warn "*** Wasn't able to use k:bloom as a FILTER restriction in SERVICE call.\n" if ($debug);
+			};
+		}
 		
 		unless ($handled) {
 			my $new	= $triple->execute( $query, $bridge, $bound, $context, %args );
 			if ($stream) {
-				$stream	= RDF::Trine::Iterator::Bindings->join_streams( $stream, $new, %args )
+				my $e	= $new->extra_result_data;
+				if (ref($e) and $e->{'bnode-map'}) {
+					$stream	= $self->join_bnode_streams( $stream, $new, $query, $bridge, $bound );
+				} else {
+					$stream	= RDF::Trine::Iterator::Bindings->join_streams( $stream, $new, %args )
+				}
 			} else {
 				$stream	= $new;
 			}
@@ -249,7 +267,39 @@ sub execute {
 		$stream	= RDF::Trine::Iterator::Bindings->new([{}], []);
 	}
 	
+	if (my $log = $query->logger) {
+		$l->debug("logging ggp execution time");
+		my $elapsed = tv_interval ( $t0 );
+		$log->push_key_value( 'execute_time-ggp', $self->as_sparql, $elapsed );
+	} else {
+		warn "no logger present for ggp execution time" if ($debug > 1);
+	}
+	
 	return $stream;
+}
+
+sub _bloom_optimized_pattern {
+	my $self	= shift;
+	my $mstream	= shift;
+	my $service	= shift;
+	my $query	= shift;
+	my $bridge	= shift;
+	my $bound	= shift;
+	my @vars	= $service->referenced_variables;
+	my %svars	= map { $_ => 1 } $mstream->binding_names;
+	my $var		= RDF::Query::Node::Variable->new( first { $svars{ $_ } } @vars );
+	
+	my $error	= $self->_bloom_filter_error_rate( $query );
+	my $f		= RDF::Query::Algebra::Service->bloom_filter_for_iterator( $query, $bridge, $bound, $mstream, $var, $error );
+	
+	my $pattern	= $service->add_bloom( $var, $f );
+	return $pattern;
+}
+
+sub _bloom_filter_error_rate {
+	my $self	= shift;
+	my $query	= shift;
+	return $query->{_bloom_filter_error} || $RDF::Query::Algebra::Service::BLOOM_FILTER_ERROR_RATE || 0.001;	
 }
 
 =item C<< join_bnode_streams ( $streamA, $streamB, $query, $bridge ) >>
@@ -278,7 +328,8 @@ sub join_bnode_streams {
 	my $bstream	= shift;
 	my $query	= shift;
 	my $bridge	= shift;
-	
+	my $l		= Log::Log4perl->get_logger("rdf.query.algebra.groupgraphpattern");
+
 	Carp::confess unless ($astream->isa('RDF::Trine::Iterator::Bindings'));
 	Carp::confess unless ($bstream->isa('RDF::Trine::Iterator::Bindings'));
 	
@@ -293,6 +344,7 @@ sub join_bnode_streams {
 		}
 	}
 	my $b_map	= (%b_map) ? \%b_map : undef;
+	$l->debug('BNODE MAP: ' . Dumper($b_map));
 	################################################
 	
 	my @names	= uniq( map { $_->binding_names() } ($astream, $bstream) );
@@ -300,11 +352,15 @@ sub join_bnode_streams {
 	my $b		= $bstream->project( @names );
 	
 	my @results;
-	my @data	= $b->get_all();
+	my @data		= $b->get_all();
+	my $total_rows	= scalar(@data);
+	my @used		= (0) x $total_rows;
 	no warnings 'uninitialized';
 	while (my $rowa = $a->next) {
-		LOOP: foreach my $rowb (@data) {
-			warn "[--JOIN--] " . join(' ', map { my $row = $_; '{' . join(', ', map { join('=', $_, ($row->{$_}) ? $row->{$_}->as_string : '(undef)') } (keys %$row)) . '}' } ($rowa, $rowb)) . "\n" if ($debug);
+		LOOP: foreach my $rowb_index (0 .. $#data) {
+			my $rowb	= $data[ $rowb_index ];
+			$total_rows++;
+			$l->debug("[--JOIN--] " . join(' ', map { my $row = $_; '{' . join(', ', map { join('=', $_, ($row->{$_}) ? $row->{$_}->as_string : '(undef)') } (keys %$row)) . '}' } ($rowa, $rowb)) . "\n");
 			my %keysa	= map {$_=>1} (keys %$rowa);
 			my @shared	= grep { $keysa{ $_ } } (keys %$rowb);
 			foreach my $key (@shared) {
@@ -319,6 +375,7 @@ sub join_bnode_streams {
 					if (not $equal) {
 						my $names	= $b_map->{ $val_b->as_string };
 						if ($names) {
+							$l->debug("nodes aren't equal: " . Data::Dumper->Dump([$val_a, $val_b], [qw(val_a val_b)]));
 							my $bnames	= Set::Scalar->new( @{ $names } );
 							my $anames	= Set::Scalar->new( RDF::Query::Algebra::Service->_names_for_node( $val_a, $query, $bridge, {} ) );
 							if ($debug) {
@@ -326,28 +383,46 @@ sub join_bnode_streams {
 								warn "bnames: $bnames\n";
 							}
 							if (my $int = $anames->intersection( $bnames )) {
-								warn "node equality based on $int" if ($debug);
+								$l->debug("node equality based on $int");
 								$equal	= 1;
 							}
 						}
 					}
 					
 					unless ($equal) {
-						warn "can't join because mismatch of $key (" . join(' <==> ', map {$_->as_string} ($val_a, $val_b)) . ")" if ($debug);
+						$l->debug("can't join because mismatch of $key (" . join(' <==> ', map {$_->as_string} ($val_a, $val_b)) . ")");
 						next LOOP;
 					}
 				}
 			}
 			
 			my $row	= { (map { $_ => $rowa->{$_} } grep { defined($rowa->{$_}) } keys %$rowa), (map { $_ => $rowb->{$_} } grep { defined($rowb->{$_}) } keys %$rowb) };
-			if ($debug) {
-				warn "JOINED:\n";
+			if ($l->is_debug) {
+				$l->debug("JOINED:");
 				foreach my $key (keys %$row) {
-					warn "$key\t=> " . $row->{ $key }->as_string . "\n";
+					$l->debug("$key\t=> " . $row->{ $key }->as_string);
 				}
 			}
+			
+			$used[ $rowb_index ]	= 1;
 			push(@results, $row);
 		}
+	}
+	
+	my $false_positives	= 0;
+	LOOP: foreach my $rowb_index (0 .. $#data) {
+		if ($used[ $rowb_index ] == 0) {
+			$false_positives++;
+		}
+	}
+	
+	if ($l->is_debug) {
+		$l->debug("TOTAL ROWS: $total_rows");
+		$l->debug("FALSE POSITIVES: $false_positives");
+		if ($total_rows) {
+			$l->debug("FALSE POSITIVE RATE: " . sprintf('%0.2f', ($false_positives / $total_rows)));
+		}
+		$l->debug("EXPECTED RATE: " . $self->_bloom_filter_error_rate( $query ));
 	}
 	
 	my $args	= $astream->_args;

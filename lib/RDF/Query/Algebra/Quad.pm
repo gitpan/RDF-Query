@@ -22,10 +22,9 @@ use RDF::Trine::Iterator qw(smap sgrep swatch);
 
 ######################################################################
 
-our ($VERSION, $debug, $lang, $languri);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -124,6 +123,23 @@ sub qualify_uris {
 	return $class->new( @nodes );
 }
 
+=item C<< bf () >>
+
+Returns a string representing the state of the nodes of the triple (bound or free).
+
+=cut
+
+sub bf {
+	my $self	= shift;
+	my $bf		= '';
+	foreach my $n ($self->nodes) {
+		$bf		.= ($n->isa('RDF::Query::Node::Variable'))
+				? 'f'
+				: 'b';
+	}
+	return $bf;
+}
+
 =item C<< fixup ( $query, $bridge, $base, \%namespaces ) >>
 
 Returns a new pattern that is ready for execution using the given bridge.
@@ -139,7 +155,7 @@ sub fixup {
 	my $base	= shift;
 	my $ns		= shift;
 	
-	if (my $opt = $bridge->fixup( $self, $query, $base, $ns )) {
+	if (my $opt = $query->algebra_fixup( $self, $bridge, $base, $ns )) {
 		return $opt;
 	} else {
 		my @nodes	= $self->nodes;
@@ -147,123 +163,6 @@ sub fixup {
 		my $fixed	= $class->new( @nodes );
 		return $fixed;
 	}
-}
-
-=item C<< execute ( $query, $bridge, \%bound, $context, %args ) >>
-
-=cut
-
-sub execute {
-	my $self		= shift;
-	my $query		= shift;
-	my $bridge		= shift;
-	my $bound		= shift;
-	my $context		= shift;
-	my %args		= @_;
-	
-	our $indent;
-	my @triple		= $self->nodes;
-	
-	my %bind;
-	my $vars	= 0;
-	my ($var, $method);
-	my (@vars, @methods);
-	my @methodmap	= qw(subject predicate object context);
-	
-	my %map;
-	my %seen;
-	my $dup_var	= 0;
-	my @dups;
-	for my $idx (0 .. 3) {
-		warn "looking at triple " . $methodmap[ $idx ] if ($debug);
-		my $data	= $triple[$idx];
-		if (blessed($data)) {
-			if ($data->isa('RDF::Query::Node::Variable') or $data->isa('RDF::Query::Node::Blank')) {
-				my $tmpvar	= ($data->isa('RDF::Query::Node::Variable'))
-							? $data->name
-							: '__' . $data->blank_identifier;
-				$map{ $methodmap[ $idx ] }	= $tmpvar;
-				if ($seen{ $tmpvar }++) {
-					$dup_var	= 1;
-				}
-				my $val		= $bound->{ $tmpvar };
-				if ($bridge->is_node($val)) {
-					warn "${indent}-> already have value for $tmpvar: " . $bridge->as_string( $val ) . "\n" if ($debug);
-					$triple[$idx]	= $val;
-				} else {
-					++$vars;
-					warn "${indent}-> found variable $tmpvar (we've seen $vars variables already)\n" if ($debug);
-					$triple[$idx]	= undef;
-					$vars[$idx]		= $tmpvar;
-					$methods[$idx]	= $methodmap[ $idx ];
-				}
-			}
-		} else {
-		}
-	}
-	
-	my $stream;
-	my @streams;
-	
-	warn "QUAD EXECUTING: " . Dumper(\@triple) if ($debug);
-	my $statements	= $bridge->get_named_statements( @triple );
-	warn "-> statements stream: $statements\n" if ($debug);
-	
-	if ($dup_var) {
-		# there's a node in the triple pattern that is repeated (like (?a ?b ?b)), but since get_statements() can't
-		# directly make that query, we're stuck filtering the triples after we get the stream back.
-		my %counts;
-		my $dup_key;
-		for (keys %map) {
-			my $val	= $map{ $_ };
-			if ($counts{ $val }++) {
-				$dup_key	= $val;
-			}
-		}
-		my @dup_methods	= grep { $map{$_} eq $dup_key } @methodmap;
-		$statements	= sgrep {
-			my $stmt	= $_;
-			if (2 == @dup_methods) {
-				my ($a, $b)	= @dup_methods;
-				return ($bridge->equals( $stmt->$a(), $stmt->$b() )) ? 1 : 0;
-			} else {
-				my ($a, $b, $c)	= @dup_methods;
-				return (($bridge->equals( $stmt->$a(), $stmt->$b() )) and ($bridge->equals( $stmt->$a(), $stmt->$c() ))) ? 1 : 0;
-			}
-		} $statements;
-	}
-	
-	my $bindings	= smap {
-		my $stmt	= $_;
-		
-		my $result	= { %$bound };
-		foreach (0 .. $#vars) {
-			my $var		= $vars[ $_ ];
-			my $method	= $methods[ $_ ];
-			next unless (defined($var));
-			
-			warn "${indent}-> got variable $var = " . $bridge->as_string( $stmt->$method() ) . "\n" if ($debug);
-			if (defined($bound->{$var})) {
-				warn "${indent}-> uh oh. $var has been defined more than once.\n" if ($debug);
-				if ($bridge->as_string( $stmt->$method() ) eq $bridge->as_string( $bound->{$var} )) {
-					warn "${indent}-> the two values match. problem avoided.\n" if ($debug);
-				} else {
-					warn "${indent}-> the two values don't match. this triple won't work.\n" if ($debug);
-					warn "${indent}-> the existing value is" . $bridge->as_string( $bound->{$var} ) . "\n" if ($debug);
-					return ();
-				}
-			} else {
-				$result->{ $var }	= $stmt->$method();
-			}
-		}
-		$result;
-	} $statements;
-	
-	my $sub	= sub {
-		my $r	= $bindings->next;
-		return $r;
-	};
-	return RDF::Trine::Iterator::Bindings->new( $sub, [grep defined, @vars], bridge => $bridge );
 }
 
 

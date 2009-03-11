@@ -7,13 +7,16 @@ use base qw(RDF::Query::Model);
 
 use Carp qw(carp croak confess);
 
+use Log::Log4perl;
 use File::Spec;
 use File::Temp qw(tempfile);
 use Data::Dumper;
 use Scalar::Util qw(blessed reftype refaddr);
 use LWP::UserAgent;
 use Encode;
+use Error qw(:try);
 
+use RDF::Query::Model::RDFTrine::Filter;
 use RDF::Query::Model::RDFTrine::BasicGraphPattern;
 
 use RDF::Trine 0.102;
@@ -26,10 +29,9 @@ use RDF::Trine::Iterator qw(smap);
 
 ######################################################################
 
-our ($VERSION, $debug);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -76,15 +78,24 @@ resources and blanks).
 =cut
 
 sub meta {
-	return {
+	my $self	= shift;
+	my $meta	= {
 		class		=> __PACKAGE__,
-		model		=> 'RDF::Trine::Store::DBI',
 		statement	=> 'RDF::Query::Algebra::Triple',
 		node		=> 'RDF::Trine::Node',
 		resource	=> 'RDF::Trine::Node::Resource',
 		literal		=> 'RDF::Trine::Node::Literal',
 		blank		=> 'RDF::Trine::Node::Blank',
 	};
+	
+	if (blessed($self)) {
+		$meta->{ model }	= ref($self->model);
+		$meta->{ store }	= ref($self->model->_store);
+	} else {
+		$meta->{ model }	= 'RDF::Trine::Model';
+		$meta->{ store }	= 'RDF::Trine::Store';
+	}
+	return $meta;
 }
 
 =item C<model ()>
@@ -95,6 +106,9 @@ Returns the underlying model object.
 
 sub model {
 	my $self	= shift;
+	unless (blessed($self)) {
+		throw RDF::Query::Error::MethodInvocationError -text => "RDF::Query::Model::RDFTrine::model() cannot be called as a class method";
+	}
 	return $self->{'model'};
 }
 
@@ -141,6 +155,8 @@ sub as_string {
 		return qq[($id)];
 	} elsif (blessed($node) and $node->isa('RDF::Query::Algebra::Triple')) {
 		return $node->as_sparql;
+	} elsif (blessed($node) and $node->isa('RDF::Query::Algebra::Quad')) {
+		return $node->as_string;
 	} else {
 		return;
 	}
@@ -227,16 +243,17 @@ sub add_uri {
 	my $named		= shift;
 	my $format		= shift || 'guess';
 	
-	my $ua		= LWP::UserAgent->new( agent => "RDF::Query/${RDF::Query::VERSION}" );
+	my $ua			= LWP::UserAgent->new( agent => "RDF::Query/${RDF::Query::VERSION}" );
 	$ua->default_headers->push_header( 'Accept' => "application/rdf+xml;q=0.5, text/turtle;q=0.7, text/xml" );
 	
-	my $resp	= $ua->get( $uri );
+	my $resp		= $ua->get( $uri );
 	unless ($resp->is_success) {
 		warn "No content available from $uri: " . $resp->status_line;
 		return;
 	}
-	my $content	= $resp->content;
-	$self->add_string( $content, $uri, $named, $format );
+	my $data		= $resp->content;
+	$data			= decode_utf8( $data );
+	$self->add_string( $data, $uri, $named, $format );
 }
 
 =item C<add_string ( $data, $base_uri, $named, $format )>
@@ -256,24 +273,6 @@ sub add_string {
 	my $graph	= RDF::Query::Node::Resource->new( $base );
 	my $model	= ($named) ? $self->_named_graphs_model : $self->model;
 	
-# 	our $USE_RAPPER;
-# 	if ($USE_RAPPER) {
-# 		if ($data !~ m/<rdf:RDF/ms) {
-# 			my ($fh, $filename) = tempfile();
-# 			print $fh $data;
-# 			close($fh);
-# 			$data	= do {
-# 								open(my $fh, '-|', "rapper -q -i turtle -o rdfxml $filename") or die $!;
-# 								local($/)	= undef;
-# 								my $data	= <$fh>;
-# 								my $c		= $self->{counter}++;
-# 								$data		=~ s/nodeID="([^"]+)"/nodeID="r${c}r$1"/smg;
-# 								$data;
-# 							};
-# 			unlink($filename);
-# 		}
-# 	}
-	
 	my $handler	= ($named)
 				? sub { my $st	= shift; $model->add_statement( $st, $graph ) }
 				: sub { my $st	= shift; $model->add_statement( $st ) };
@@ -281,19 +280,6 @@ sub add_string {
 	if ($data =~ m/<rdf:RDF/ms) {
 		my $parser	= RDF::Trine::Parser->new('rdfxml');
 		$parser->parse( $base, $data, $handler );
-# 		
-# 		require RDF::Redland;
-# 		my $uri		= RDF::Redland::URI->new( $base );
-# 		my $parser	= RDF::Redland::Parser->new($format);
-# 		my $stream	= $parser->parse_string_as_stream($data, $uri);
-# 		while ($stream and !$stream->end) {
-# 			my $statement	= $stream->current;
-# 			my $stmt		= ($named)
-# 							? RDF::Query::Algebra::Quad->from_redland( $statement, $graph )
-# 							: RDF::Query::Algebra::Triple->from_redland( $statement );
-# 			$model->add_statement( $stmt );
-# 			$stream->next;
-# 		}
 	} else {
 		my $parser	= RDF::Trine::Parser->new('turtle');
 		$parser->parse( $base, $data, $handler );
@@ -357,12 +343,13 @@ predicate and objects. Any of the arguments may be undef to match any value.
 sub _get_statements {
 	my $self	= shift;
 	my @triple	= splice(@_, 0, 3);
+	my $l		= Log::Log4perl->get_logger("rdf.query.model.rdftrine");
 	
 	my $model	= $self->model;
 	my @nodes	= map { blessed($_) ? $_ : $self->new_variable() } @triple;
-	if ($debug) {
-		warn "statement pattern: " . Dumper(\@nodes);
-		warn "model contains:\n";
+	if ($l->is_debug) {
+		$l->debug("statement pattern: " . Dumper(\@nodes));
+		$l->debug("model contains:");
 		$model->_debug;
 	}
 	my $stream	= smap { _cast_triple_to_local( $_ ) } $model->get_statements( @nodes );
@@ -385,6 +372,28 @@ sub _get_named_statements {
 	my $model	= $self->_named_graphs_model;
 	my @nodes	= map { $self->is_node($_) ? $_ : $self->new_variable() } (@triple, $context);
 	my $stream	= smap { _cast_quad_to_local( $_ ) } $model->get_statements( @nodes );
+	return $stream;
+}
+
+=item C<< _get_basic_graph_pattern ( @triples ) >>
+
+Returns a stream object of all variable bindings matching the specified RDF::Trine::Statement objects.
+
+=cut
+
+sub _get_basic_graph_pattern {
+	my $self	= shift;
+	my @triples	= @_;
+	my $model	= ($triples[0]->isa('RDF::Trine::Statement::Quad'))
+				? $self->_named_graphs_model
+				: $self->model;
+	my $pattern	= RDF::Trine::Pattern->new( @triples );
+	my $stream	= smap {
+					foreach my $k (keys %$_) {
+						$_->{ $k }	= _cast_to_local($_->{ $k })
+					}
+					$_
+				} $model->get_pattern( $pattern );
 	return $stream;
 }
 
@@ -414,11 +423,50 @@ sub remove_statement {
 	$model->remove_statement( $stmt );
 }
 
+=item C<count_statements ($subject, $predicate, $object)>
+
+Returns a stream object of all statements matching the specified subject,
+predicate and objects. Any of the arguments may be undef to match any value.
+
+=cut
+
+sub count_statements {
+	my $self	= shift;
+	return $self->model->count_statements( @_ );
+}
+
+=item C<node_count ( $subj, $pred, $obj )>
+
+Returns a number representing the frequency of statements in the
+model matching the given triple. This number is used in cost analysis
+for query optimization, and has a range of [0, 1] where zero represents
+no matching triples in the model and one represents matching all triples
+in the model.
+
+=cut
+
+sub node_count {
+	my $self	= shift;
+	my @nodes	= @_[0..2];
+	foreach my $i (0..2) {
+		if (blessed($nodes[$i]) and $nodes[$i]->isa('RDF::Trine::Node::Variable')) {
+			$nodes[$i]	= undef;
+		}
+	}
+	my $model	= $self->model;
+	my $total	= $self->count_statements();
+	
+	my $count	= $self->count_statements( @nodes );
+	return 0 unless ($total);
+	return $count / $total;
+}
+
 =item C<supports ($feature)>
 
 Returns true if the underlying model supports the named C<$feature>.
 Possible features include:
 
+	* basic_graph_pattern
 	* named_graph
 	* node_counts
 	* temp_model
@@ -429,6 +477,11 @@ Possible features include:
 sub supports {
 	my $self	= shift;
 	my $feature	= shift;
+	my $meta	= $self->meta;
+	if ($meta->{store} eq 'RDF::Trine::Store::Hexastore') {
+		return 1 if ($feature eq 'node_counts');
+	}
+	return 1 if ($feature eq 'basic_graph_pattern');
 	return 1 if ($feature eq 'temp_model');
 	return 1 if ($feature eq 'named_graph');
 	return 1 if ($feature eq 'named_graphs');
@@ -452,15 +505,98 @@ sub fixup {
 	my $query	= shift;
 	my $base	= shift;
 	my $ns		= shift;
+	my $l		= Log::Log4perl->get_logger("rdf.query.model.rdftrine");
 	
-	if ($pattern->isa('RDF::Query::Algebra::BasicGraphPattern')) {
-		# call fixup on the triples so that they get converted to bridge-native objects
-		my @triples		= map { $_->fixup( $query, $self, $base, $ns ) } $pattern->triples;
-		my $tpattern	= RDF::Trine::Pattern->new( @triples );
-		return RDF::Query::Model::RDFTrine::BasicGraphPattern->new( $tpattern, $pattern );
+# 	if ($pattern->isa('RDF::Query::Algebra::BasicGraphPattern') and not(scalar(@{$query->get_computed_statement_generators}))) {
+# 		# call fixup on the triples so that they get converted to bridge-native objects
+# 		my @triples		= map { $_->fixup( $query, $self, $base, $ns ) } $pattern->triples;
+# 		my $tpattern	= RDF::Trine::Pattern->new( @triples );
+# 		return RDF::Query::Model::RDFTrine::BasicGraphPattern->new( $tpattern, $pattern );
+# 	} elsif ($pattern->isa('RDF::Query::Algebra::Filter')) {
+	if ($pattern->isa('RDF::Query::Algebra::Filter')) {
+		my $filter	= $pattern;
+		my $ggp	= $filter->pattern;
+		if ($ggp->isa('RDF::Query::Algebra::GroupGraphPattern')) {
+			$l->debug("pattern is a ggp");
+			my @patterns	= $ggp->patterns;
+			if (scalar(@patterns) == 1 and $patterns[0]->isa('RDF::Query::Algebra::BasicGraphPattern')) {
+				$l->debug("'-> pattern is a bgp");
+				my $bgp	= $patterns[0];
+				my $compiled;
+				try {
+					$self->model->_store->_sql_for_pattern( $filter );
+					$compiled	= RDF::Query::Model::RDFTrine::Filter->new( $filter );
+					$l->debug("    '-> filter can be compiled to RDF::Trine");
+					$l->debug("        '-> " . Dumper($compiled));
+				} otherwise {
+					$l->debug("    '-> filter CANNOT be compiled to RDF::Trine");
+				};
+				return $compiled;
+			} else {
+				return;
+			}
+		} else {
+			return;
+		}
 	} else {
 		return;
 	}
+}
+
+=item C<< cost_naive ( $bgp, $context ) >>
+
+=cut
+
+sub cost_naive {
+	my $self		= shift;
+	my $costmodel	= shift;
+	my $pattern		= shift;
+	my $context		= shift;
+	if ($pattern->isa('RDF::Query::Model::RDFTrine::BasicGraphPattern')) {
+		# XXX hacked constant. this should do something more like ARQ's naive variable counting cost computation.
+		my $card	= $self->cardinality_naive( $costmodel, $pattern, $context );
+		return $card;
+	}
+	return;
+}
+
+=item C<< cardinality_naive ( $bgp, $context ) >>
+
+=cut
+
+sub cardinality_naive {
+	my $self		= shift;
+	my $costmodel	= shift;
+	my $pattern		= shift;
+	my $context		= shift;
+	if ($pattern->isa('RDF::Query::Model::RDFTrine::BasicGraphPattern')) {
+		# XXX hacked constant. this should do something more like ARQ's naive variable counting cost computation.
+		my @t		= $pattern->triples;
+		my $size	= 0.5 * $costmodel->_size;
+		return $size ** scalar(@t);
+	}
+	return;
+}
+
+=item C<< generate_plans ( $algebra, $context ) >>
+
+=cut
+
+sub generate_plans {
+	my $self	= shift;
+	my $class	= ref($self) || $self;
+	my $algebra	= shift;
+	my $context	= shift;
+	my %args	= @_;
+	my $model	= $context->model;
+	my $query	= $context->query;
+	if ($algebra->isa('RDF::Query::Algebra::BasicGraphPattern')) {
+		if (not($query) or not(scalar(@{$query->get_computed_statement_generators}))) {
+			my @triples	= $algebra->triples;
+			return RDF::Query::Model::RDFTrine::BasicGraphPattern->new( @triples );
+		}
+	}
+	return;
 }
 
 sub _named_graphs_model {

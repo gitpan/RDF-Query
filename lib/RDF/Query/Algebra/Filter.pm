@@ -24,10 +24,9 @@ use RDF::Trine::Iterator qw(sgrep smap swatch);
 
 ######################################################################
 
-our ($VERSION, $debug, $lang, $languri);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -97,9 +96,7 @@ Returns the filter pattern.
 sub pattern {
 	my $self	= shift;
 	if (@_) {
-		my $pattern	= shift;
-		Carp::confess unless ($pattern->isa('RDF::Query::Algebra::GroupGraphPattern'));
-		$self->[2]	= $pattern;
+		$self->[2]	= shift;
 	}
 	return $self->[2];
 }
@@ -113,11 +110,13 @@ Returns the SSE string for this alegbra expression.
 sub sse {
 	my $self	= shift;
 	my $context	= shift;
+	my $prefix	= shift || '';
+	my $indent	= $context->{indent};
 	
 	return sprintf(
-		'(filter %s %s)',
-		$self->expr->sse( $context ),
-		$self->pattern->sse( $context ),
+		"(filter %s\n${prefix}${indent}%s)",
+		$self->expr->sse( $context, "${prefix}${indent}" ),
+		$self->pattern->sse( $context, "${prefix}${indent}" ),
 	);
 }
 
@@ -130,7 +129,7 @@ Returns the SPARQL string for this alegbra expression.
 sub as_sparql {
 	my $self	= shift;
 	my $context	= shift;
-	my $indent	= shift;
+	my $indent	= shift || '';
 	
 	my $expr	= $self->expr;
 	my $filter_sparql	= $expr->as_sparql( $context, $indent );
@@ -196,7 +195,7 @@ sub fixup {
 	my $base	= shift;
 	my $ns		= shift;
 	
-	if (my $opt = $bridge->fixup( $self, $query, $base, $ns )) {
+	if (my $opt = $query->algebra_fixup( $self, $bridge, $base, $ns )) {
 		return $opt;
 	} else {
 		my $expr	= $self->expr;
@@ -208,33 +207,15 @@ sub fixup {
 	}
 }
 
-=item C<< execute ( $query, $bridge, \%bound, $context, %args ) >>
+=item C<< is_solution_modifier >>
+
+Returns true if this node is a solution modifier.
 
 =cut
 
-sub execute {
-	my $self		= shift;
-	my $query		= shift;
-	my $bridge		= shift;
-	my $bound		= shift;
-	my $context		= shift;
-	my %args		= @_;
-	
-	my $expr		= $self->expr;
-	my $bool		= RDF::Query::Node::Resource->new( "sparql:ebv" );
-	my $filter		= RDF::Query::Expression::Function->new( $bool, $expr );
-	my $pattern		= $self->pattern;
-	my $stream		= sgrep {
-						my $bound	= $_;
-						my $bool	= 0;
-						eval {
-							my $value	= $filter->evaluate( $query, $bridge, $bound );
-							$bool	= ($value->literal_value eq 'true') ? 1 : 0;
-						};
-						return $bool;
-					} $pattern->execute( $query, $bridge, $bound, $context, %args );
+sub is_solution_modifier {
+	return 0;
 }
-
 
 
 1;

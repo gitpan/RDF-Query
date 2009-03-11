@@ -21,10 +21,9 @@ use Carp qw(carp croak confess);
 
 ######################################################################
 
-our ($VERSION, $debug, $lang, $languri);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -59,7 +58,7 @@ sub new {
 	my $class	= shift;
 	my $uri		= shift;
 	my @args	= @_;
-	unless (blessed($uri) and $uri->isa('RDF::Query::Node::Resource')) {
+	unless (blessed($uri) and $uri->isa('RDF::Trine::Node::Resource')) {
 		$uri	= RDF::Query::Node::Resource->new( $uri );
 	}
 	return $class->SUPER::new( $uri, @args );
@@ -98,15 +97,16 @@ sub sse {
 	my $context	= shift;
 	
 	my $uri		= $self->uri->uri_value;
-	if ($uri =~ m/^(sop|sparql):(str|lang|langmatches|sameTerm|datatype|regex|is(Bound|URI|IRI|Blank|Literal))/i) {
+	if ($uri =~ m/^(sop|sparql):(str|lang|langmatches|sameTerm|datatype|regex|bound|is(URI|IRI|Blank|Literal))/i) {
+		my $func	= $2;
 		return sprintf(
 			'(%s %s)',
-			$uri,
+			$func,
 			join(' ', map { $_->sse( $context ) } $self->arguments),
 		);
 	} else {
 		return sprintf(
-			'(function %s %s)',
+			'(%s %s)',
 			$self->uri->sse( $context ),
 			join(' ', map { $_->sse( $context ) } $self->arguments),
 		);
@@ -195,6 +195,7 @@ sub evaluate {
 	my $bound	= shift;
 	my $uri		= $self->uri;
 	
+	no warnings 'uninitialized';
 	if ($uri->uri_value =~ /^sparql:logical-(.+)$/) {
 		# logical operators must have their arguments passed lazily, because
 		# some of them can still succeed even if some of their arguments throw
@@ -205,7 +206,7 @@ sub evaluate {
 						return unless (defined $value);
 						return $value->isa('RDF::Query::Algebra')
 							? $value->evaluate( $query, $bridge, $bound )
-							: ($value->isa('RDF::Query::Node::Variable'))
+							: ($value->isa('RDF::Trine::Node::Variable'))
 								? $bound->{ $value->name }
 								: $value
 					};
@@ -216,7 +217,7 @@ sub evaluate {
 		my @args	= map {
 						$_->isa('RDF::Query::Algebra')
 							? $_->evaluate( $query, $bridge, $bound )
-							: ($_->isa('RDF::Query::Node::Variable'))
+							: ($_->isa('RDF::Trine::Node::Variable'))
 								? $bound->{ $_->name }
 								: $_
 					} $self->arguments;

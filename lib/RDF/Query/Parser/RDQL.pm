@@ -22,12 +22,11 @@ use Scalar::Util qw(blessed);
 
 ######################################################################
 
-our ($VERSION, $debug, $lang, $languri);
+our ($VERSION, $lang, $languri);
 BEGIN {
 	$::RD_TRACE	= undef;
 	$::RD_HINT	= undef;
-	$debug		= 1;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 	$lang		= 'rdql';
 	$languri	= 'http://jena.hpl.hp.com/2003/07/query/RDQL';
 }
@@ -244,6 +243,16 @@ sub parse {
 	my $parsed	= $parser->query( $query );
 	
 	if ($parsed) {
+		my $pattern	= $parsed->{triples}[0];
+		if (blessed($pattern)) {
+			my $ns		= $parsed->{namespaces};
+			my $fixed	= $pattern->qualify_uris( $ns );
+			$parsed->{triples}[0]	= $fixed;
+		}
+		$pattern	= RDF::Query::Algebra::Project->new( $parsed->{triples}[0], $parsed->{variables} );
+		$parsed->{triples}[0]	= $pattern;
+		
+		
 		return $parsed;
 	} else {
 		return $self->fail( "Failed to parse: '$query'" );

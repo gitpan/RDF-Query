@@ -7,6 +7,7 @@ use base qw(RDF::Query::Model);
 
 use Carp qw(carp croak confess);
 
+use Log::Log4perl;
 use File::Spec;
 use Data::Dumper;
 use LWP::UserAgent;
@@ -19,10 +20,9 @@ use RDF::Trine::Statement::Quad;
 
 ######################################################################
 
-our ($VERSION, $debug);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -69,9 +69,11 @@ resources and blanks).
 =cut
 
 sub meta {
+	my $self	= shift;
 	return {
 		class		=> __PACKAGE__,
 		model		=> 'RDF::Redland::Model',
+		store		=> 'RDF::Redland::Storage',
 		statement	=> 'RDF::Redland::Statement',
 		node		=> 'RDF::Redland::Node',
 		resource	=> 'RDF::Redland::Node',
@@ -124,15 +126,15 @@ sub add_uri {
 	my $model		= $self->{model};
 	my $parser		= RDF::Redland::Parser->new($format);
 	
-	my $ua		= LWP::UserAgent->new( agent => "RDF::Query/${RDF::Query::VERSION}" );
+	my $ua			= LWP::UserAgent->new( agent => "RDF::Query/${RDF::Query::VERSION}" );
 	$ua->default_headers->push_header( 'Accept' => "application/rdf+xml;q=0.5, text/turtle;q=0.7, text/xml" );
 	
-	my $resp	= $ua->get( $uri );
+	my $resp		= $ua->get( $uri );
 	unless ($resp->is_success) {
 		warn "No content available from $uri: " . $resp->status_line;
 		return;
 	}
-	my $data	= $resp->content;
+	my $data		= $resp->content;
 	$data			= decode_utf8( $data );
 	$self->add_string( $data, $uri, $named, $format );
 }
@@ -150,6 +152,7 @@ sub add_string {
 	my $base	= shift;
 	my $named	= shift;
 	my $format	= shift || 'guess';
+	my $l		= Log::Log4perl->get_logger("rdf.query.model.redland");
 	
 	my $model	= ($named) ? $self->_named_graphs_model : $self->model;
 	
@@ -158,7 +161,7 @@ sub add_string {
 	my $redlanduri	= RDF::Redland::URI->new( $base );
 	
 	if ($named) {
-		warn "adding named data with name ($base) to model " . Dumper($model) . ": $data\n" if ($debug);
+		$l->debug("adding named data with name ($base) to model " . Dumper($model) . ": $data\n");
 		my $stream		= $parser->parse_string_as_stream($data, $redlanduri);
 		$model->add_statements( $stream, $redlanduri );
 	} else {
@@ -532,30 +535,32 @@ model) to STDERR.
 sub debug {
 	my $self	= shift;
 	my $model	= shift || $self->model;
+	my $l		= Log::Log4perl->get_logger("rdf.query.model.redland");
 	my $stream	= $self->model_as_stream( $model );
-	warn "------------------------------\n";
+	$l->debug("------------------------------");
 	while (my $st = $stream->current) {
 		my $string	= $self->as_string( $st );
 		if (my $c 	= $stream->context) {
 			my $cs	= $c->as_string;
 			$string	.= "\tC<$cs>";
 		}
-		print STDERR "$string\n";
+		$l->debug($string);
 		$stream->next;
 	}
-	warn "------------------------------\n";
+	$l->debug("------------------------------");
 }
 
 sub _named_graphs_model {
 	my $self	= shift;
+	my $l		= Log::Log4perl->get_logger("rdf.query.model.redland");
 	if ($self->{named_graphs}) {
-		warn "named graphs model: " . Dumper($self->{named_graphs}) if ($debug);
+		$l->debug("named graphs model: " . Dumper($self->{named_graphs}));
 		return $self->{named_graphs};
 	} else {
 		my $storage	= RDF::Redland::Storage->new( "hashes", "test", "new='yes',hash-type='memory',contexts='yes'" );
 		my $model	= RDF::Redland::Model->new( $storage, '' );
 		$self->{named_graphs}	= $model;
-		warn "creating new graphs model: " . Dumper($self->{named_graphs}) if ($debug);
+		$l->debug("creating new graphs model: " . Dumper($self->{named_graphs}));
 		return $model;
 	}
 }

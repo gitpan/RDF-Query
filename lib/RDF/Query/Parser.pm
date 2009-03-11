@@ -26,10 +26,9 @@ use Carp qw(carp croak confess);
 
 ######################################################################
 
-our ($VERSION, $debug, $lang, $languri);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION		= '2.002';
+	$VERSION		= '2.003_01';
 }
 
 ######################################################################
@@ -104,56 +103,56 @@ sub new_uri {
 	return RDF::Query::Node::Resource->new( $uri );
 }
 
-=item C<new_qname ( $prefix, $localPart )>
-
-Returns a new QName URI structure.
-
-=cut
-
-sub new_qname {
-	my $self	= shift;
-	my $prefix	= shift;
-	my $name	= shift;
-	return [ 'URI', [ $prefix, $name ] ];
-}
-
-=item C<new_union ( @patterns )>
-
-Returns a new UNION structure.
-
-=cut
-
-sub new_union {
-	my $self		= shift;
-	my @patterns	= @_;
-	return RDF::Query::Algebra::Union->new( @patterns );
-}
-
-=item C<new_optional ( $patterns )>
-
-Returns a new OPTIONAL structure.
-
-=cut
-
-sub new_optional {
-	my $self		= shift;
-	my $ggp			= shift;
-	my $opt			= shift;
-	return RDF::Query::Algebra::Optional->new( $ggp, $opt );
-}
-
-=item C<new_named_graph ( $graph, $triples )>
-
-Returns a new NAMED GRAPH structure.
-
-=cut
-
-sub new_named_graph {
-	my $self		= shift;
-	my $graph		= shift;
-	my $triples		= shift;
-	return RDF::Query::Algebra::NamedGraph->new( $graph, $triples );
-}
+# =item C<new_qname ( $prefix, $localPart )>
+# 
+# Returns a new QName URI structure.
+# 
+# =cut
+# 
+# sub new_qname {
+# 	my $self	= shift;
+# 	my $prefix	= shift;
+# 	my $name	= shift;
+# 	return [ 'URI', [ $prefix, $name ] ];
+# }
+# 
+# =item C<new_union ( @patterns )>
+# 
+# Returns a new UNION structure.
+# 
+# =cut
+# 
+# sub new_union {
+# 	my $self		= shift;
+# 	my @patterns	= @_;
+# 	return RDF::Query::Algebra::Union->new( @patterns );
+# }
+# 
+# =item C<new_optional ( $patterns )>
+# 
+# Returns a new OPTIONAL structure.
+# 
+# =cut
+# 
+# sub new_optional {
+# 	my $self		= shift;
+# 	my $ggp			= shift;
+# 	my $opt			= shift;
+# 	return RDF::Query::Algebra::Optional->new( $ggp, $opt );
+# }
+# 
+# =item C<new_named_graph ( $graph, $triples )>
+# 
+# Returns a new NAMED GRAPH structure.
+# 
+# =cut
+# 
+# sub new_named_graph {
+# 	my $self		= shift;
+# 	my $graph		= shift;
+# 	my $triples		= shift;
+# 	return RDF::Query::Algebra::NamedGraph->new( $graph, $triples );
+# }
 
 =item C<new_triple ( $s, $p, $o )>
 
@@ -193,32 +192,32 @@ sub new_binary_expression {
 	return RDF::Query::Expression::Binary->new( $op, @operands );
 }
 
-=item C<new_nary_expression ( $operator, @operands )>
-
-Returns a new n-ary expression structure.
-
-=cut
-
-sub new_nary_expression {
-	my $self		= shift;
-	my $op			= shift;
-	my @operands	= @_;
-	return RDF::Query::Expression::Binary->new( $op, @operands );
-}
-
-=item C<new_logical_expression ( $operator, @operands )>
-
-Returns a new logical expression structure.
-
-=cut
-
-sub new_logical_expression {
-	my $self		= shift;
-	my $op			= shift;
-	my @operands	= @_;
-	die $op;
-	return RDF::Query::Expression->new( $op, @operands );
-}
+# =item C<new_nary_expression ( $operator, @operands )>
+# 
+# Returns a new n-ary expression structure.
+# 
+# =cut
+# 
+# sub new_nary_expression {
+# 	my $self		= shift;
+# 	my $op			= shift;
+# 	my @operands	= @_;
+# 	return RDF::Query::Expression::Binary->new( $op, @operands );
+# }
+# 
+# =item C<new_logical_expression ( $operator, @operands )>
+# 
+# Returns a new logical expression structure.
+# 
+# =cut
+# 
+# sub new_logical_expression {
+# 	my $self		= shift;
+# 	my $op			= shift;
+# 	my @operands	= @_;
+# 	die $op;
+# 	return RDF::Query::Expression->new( $op, @operands );
+# }
 
 =item C<new_function_expression ( $function, @operands )>
 
@@ -277,6 +276,7 @@ RDF::Query::Error::ParseError object. Otherwise returns C<undef>.
 sub fail {
 	my $self	= shift;
 	my $error	= shift;
+	my $l		= Log::Log4perl->get_logger("rdf.query.parser");
 	
 	no warnings 'uninitialized';
 	my $parsed	= substr($self->{input}, 0, $self->{position});
@@ -287,8 +287,6 @@ sub fail {
 	
 	$self->set_error( "Syntax error; $error at $line:$col (near '$rest')" );
 	if ($self->{commit}) {
-		Carp::cluck if ($rest =~ /a ann/);
-		Carp::cluck if ($RDF::Query::Parser::debug > 1);
 		throw RDF::Query::Error::ParseError( -text => "$error at $line:$col (near '$rest')" );
 	} else {
 		return undef;
@@ -343,54 +341,54 @@ sub clear_error {
 	$self->{error}	= undef;
 }
 
-=begin private
-
-=item C<set_commit ( [ $value ] )>
-
-Sets the object's commit state.
-
-=end private
-
-=cut
-
-sub set_commit {
-	my $self	= shift;
-	if (@_) {
-		$self->{commit}	= shift;
-	} else {
-		$self->{commit}	= 1;
-	}
-}
-
-=begin private
-
-=item C<unset_commit ()>
-
-Clears the object's commit state.
-
-=end private
-
-=cut
-
-sub unset_commit {
-	my $self	= shift;
-	$self->{commit}	= 0;
-}
-
-=begin private
-
-=item C<get_commit ()>
-
-Returns the object's commit state.
-
-=end private
-
-=cut
-
-sub get_commit {
-	my $self	= shift;
-	return $self->{commit};
-}
+# =begin private
+# 
+# =item C<set_commit ( [ $value ] )>
+# 
+# Sets the object's commit state.
+# 
+# =end private
+# 
+# =cut
+# 
+# sub set_commit {
+# 	my $self	= shift;
+# 	if (@_) {
+# 		$self->{commit}	= shift;
+# 	} else {
+# 		$self->{commit}	= 1;
+# 	}
+# }
+# 
+# =begin private
+# 
+# =item C<unset_commit ()>
+# 
+# Clears the object's commit state.
+# 
+# =end private
+# 
+# =cut
+# 
+# sub unset_commit {
+# 	my $self	= shift;
+# 	$self->{commit}	= 0;
+# }
+# 
+# =begin private
+# 
+# =item C<get_commit ()>
+# 
+# Returns the object's commit state.
+# 
+# =end private
+# 
+# =cut
+# 
+# sub get_commit {
+# 	my $self	= shift;
+# 	return $self->{commit};
+# }
 
 1;
 

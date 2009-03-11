@@ -22,10 +22,9 @@ use RDF::Trine::Iterator qw(smap);
 
 ######################################################################
 
-our ($VERSION, $debug, $lang, $languri);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -117,19 +116,21 @@ Returns the SSE string for this alegbra expression.
 sub sse {
 	my $self	= shift;
 	my $context	= shift;
+	my $prefix	= shift || '';
+	my $indent	= $context->{indent};
 	
 	my @ops_sse;
 	my @ops		= $self->ops;
 	foreach my $data (@ops) {
 		my ($alias, $op, $col)	= @$data;
-		push(@ops_sse, sprintf('(alias "%s" (%s %s))', $alias, $op, $col->sse));
+		push(@ops_sse, sprintf('(alias "%s" (%s %s))', $alias, $op, ($col eq '*' ? '*' : $col->sse( $context, "${prefix}${indent}" ))));
 	}
 	
 	my @group	= $self->groupby;
 	my $group	= (@group) ? '(' . join(', ', @group) . ')' : '';
 	return sprintf(
-		'(aggregate %s %s %s)',
-		$self->pattern->sse( $context ),
+		'(aggregate\n${prefix}${indent}%s\n${prefix}${indent}%s\n${prefix}${indent}%s)',
+		$self->pattern->sse( $context, "${prefix}${indent}" ),
 		join(', ', @ops_sse),
 		$group,
 	);
@@ -197,7 +198,7 @@ sub fixup {
 	my $base	= shift;
 	my $ns		= shift;
 
-	if (my $opt = $bridge->fixup( $self, $query, $base, $ns )) {
+	if (my $opt = $query->algebra_fixup( $self, $bridge, $base, $ns )) {
 		return $opt;
 	} else {
 		my $fixed	= $class->new(
@@ -254,9 +255,7 @@ sub execute {
 					$should_inc	= (defined $value) ? 1 : 0;
 				}
 				
-				if ($should_inc) {
-					$aggregates{ $alias }{ $group }++;
-				}
+				$aggregates{ $alias }{ $group }	+= $should_inc;
 			});
 		} elsif ($op eq 'COUNT-DISTINCT') {
 			push(@aggregators, sub {

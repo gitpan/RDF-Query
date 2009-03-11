@@ -15,16 +15,17 @@ no warnings 'redefine';
 use base qw(RDF::Query::Algebra);
 
 use Data::Dumper;
+use Log::Log4perl;
 use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
-use RDF::Trine::Iterator qw(smap);
+use Time::HiRes qw(gettimeofday tv_interval);
+use RDF::Trine::Iterator qw(smap swatch);
 
 ######################################################################
 
-our ($VERSION, $debug, $lang, $languri);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -85,10 +86,12 @@ Returns the SSE string for this alegbra expression.
 sub sse {
 	my $self	= shift;
 	my $context	= shift;
+	my $prefix	= shift || '';
+	my $indent	= $context->{indent} || '';
 	
 	return sprintf(
-		'(bgp %s)',
-		join(' ', map { $_->sse( $context ) } $self->triples)
+		"(BGP\n${prefix}${indent}%s)",
+		join("\n${prefix}${indent}", map { $_->sse( $context ) } $self->triples)
 	);
 }
 
@@ -101,7 +104,7 @@ Returns the SPARQL string for this alegbra expression.
 sub as_sparql {
 	my $self	= shift;
 	my $context	= shift;
-	my $indent	= shift;
+	my $indent	= shift || '';
 	my @triples;
 	foreach my $t ($self->triples) {
 		push(@triples, $t->as_sparql( $context, $indent ));
@@ -176,13 +179,139 @@ sub fixup {
 	my $base	= shift;
 	my $ns		= shift;
 	
-	if (my $opt = $bridge->fixup( $self, $query, $base, $ns )) {
+	if (my $opt = $query->algebra_fixup( $self, $bridge, $base, $ns )) {
 		return $opt;
 	} else {
 		my @nodes	= map { $_->fixup( $query, $bridge, $base, $ns ) } $self->triples;
+		if (my $cm = $query->costmodel) {
+			# execute triple patterns that have the least cost first (minimizing intermediate results)
+			@nodes	= map { $_->[0] } sort { $a->[1] <=> $b->[1] } map { [ $_, $cm->cost($_) ] } @nodes;
+		}
 		my $fixed	= $class->new( @nodes );
 		return $fixed;
 	}
+}
+
+=item C<< connected >>
+
+Returns true if the pattern is connected through shared variables, fase otherwise.
+
+=cut
+
+sub connected {
+	my $self	= shift;
+	my @triples	= $self->triples;
+	return 1 unless (scalar(@triples) > 1);
+	
+	my %index;
+	my %variables;
+	foreach my $i (0 .. $#triples) {
+		my $t	= $triples[ $i ];
+		$index{ $t->as_string }	= $i;
+		foreach my $n ($t->nodes) {
+			next unless ($n->isa('RDF::Trine::Node::Variable'));
+			push( @{ $variables{ $n->name } }, $t );
+		}
+	}
+	
+	my @connected;
+	foreach my $i (0 .. $#triples) {
+		foreach my $j (0 .. $#triples) {
+			$connected[ $i ][ $j ]	= ($i == $j) ? 1 : 0;
+		}
+	}
+	
+	my %seen;
+	my @queue	= $triples[0];
+	while (my $t = shift(@queue)) {
+		my $string	= $t->as_string;
+		next if ($seen{ $string }++);
+		my @vars	= map { $_->name } grep { $_->isa('RDF::Trine::Node::Variable') } $t->nodes;
+		my @connected_to	= map { @{ $variables{ $_ } } } @vars;
+		foreach my $c (@connected_to) {
+			my $cstring	= $c->as_string;
+			my $i	= $index{$string};
+			
+			my $k		= $index{ $cstring };
+			my @conn	= @{ $connected[$i] };
+			$conn[ $k ]	= 1;
+			foreach my $j (0 .. $#triples) {
+				if ($conn[ $j ] == 1) {
+					$connected[ $k ][ $j ]	= 1;
+					$connected[ $j ][ $k ]	= 1;
+				}
+			}
+			push(@queue, $c);
+		}
+	}
+	
+	foreach my $i (0 .. $#triples) {
+		return 0 unless ($connected[0][$i] == 1);
+	}
+	return 1;
+}
+
+=item C<< subsumes ( $pattern ) >>
+
+Returns true if the bgp subsumes the pattern, false otherwise.
+
+=cut
+
+sub subsumes {
+	my $self	= shift;
+	my $pattern	= shift;
+	if ($pattern->isa('RDF::Trine::Statement')) {
+		foreach my $t ($self->triples) {
+			return 1 if ($t->subsumes($pattern));
+		}
+		return 0;
+	} elsif ($pattern->isa('RDF::Query::Algebra::BasicGraphPattern')) {
+		OUTER: foreach my $p ($pattern->triples) {
+			foreach my $t ($self->triples) {
+				next OUTER if ($t->subsumes($p));
+			}
+			return 0;
+		}
+		return 1;
+	} else {
+		return 0;
+	}
+}
+
+=item C<< bf () >>
+
+Returns a string representing the state of the nodes of the triple (bound or free).
+
+=cut
+
+sub bf {
+	my $self	= shift;
+	my @bf;
+	my %var_to_num;
+	my %use_count;
+	my $counter	= 1;
+	foreach my $t ($self->triples) {
+		my $bf	= $t->bf;
+		if ($bf =~ /f/) {
+			$bf	= '';
+			foreach my $n ($t->nodes) {
+				if ($n->isa('RDF::Query::Node::Variable')) {
+					my $name	= $n->name;
+					my $num		= ($var_to_num{ $name } ||= $counter++);
+					$use_count{ $name }++;
+					$bf	.= "{${num}}";
+				} else {
+					$bf	.= 'b';
+				}
+			}
+		}
+		push(@bf, $bf);
+	}
+	my $bf	= join(',',@bf);
+	if ($counter <= 10) {
+		$bf	=~ s/[{}]//g;
+	}
+	return $bf;
 }
 
 =item C<< clone >>
@@ -206,38 +335,6 @@ sub bind_variables {
 	my $class	= ref($self);
 	my $bound	= shift;
 	return $class->new( map { $_->bind_variables( $bound ) } $self->triples );
-}
-
-=item C<< execute ( $query, $bridge, \%bound, $context, %args ) >>
-
-=cut
-
-sub execute {
-	my $self		= shift;
-	my $query		= shift;
-	my $bridge		= shift;
-	my $bound		= shift;
-	my $context		= shift;
-	my %args		= @_;
-	
-	my (@triples)	= $self->triples;
-	my @streams;
-	foreach my $triple (@triples) {
-		Carp::confess "not an algebra or rdf node: " . Dumper($triple) unless ($triple->isa('RDF::Trine::Statement'));
-		my $stream	= $triple->execute( $query, $bridge, $bound, $context, %args );
-		push(@streams, $stream);
-	}
-	if (@streams) {
-		while (@streams > 1) {
-			my $a	= shift(@streams);
-			my $b	= shift(@streams);
-			unshift(@streams, RDF::Trine::Iterator::Bindings->join_streams( $a, $b ));
-		}
-	} else {
-		push(@streams, RDF::Trine::Iterator::Bindings->new([{}], []));
-	}
-	my $stream	= shift(@streams);
-	return $stream;
 }
 
 

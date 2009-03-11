@@ -31,7 +31,7 @@ use strict;
 use warnings;
 no warnings 'redefine';
 use base qw(RDF::Query::Parser);
-our $VERSION		= '2.002';
+our $VERSION		= '2.003_01';
 
 use URI;
 use Data::Dumper;
@@ -42,7 +42,6 @@ use RDF::Trine::Namespace qw(rdf);
 use Scalar::Util qw(blessed looks_like_number);
 use List::MoreUtils qw(uniq);
 
-our $debug		= 0;
 my $rdf			= RDF::Trine::Namespace->new('http://www.w3.org/1999/02/22-rdf-syntax-ns#');
 my $xsd			= RDF::Trine::Namespace->new('http://www.w3.org/2001/XMLSchema#');
 
@@ -170,6 +169,48 @@ sub parse_pattern {
 	return $data->{triples}[0];
 }
 
+=item C<< parse_expr ( $pattern, $base_uri, \%namespaces ) >>
+
+Parses the C<< $pattern >>, using the given C<< $base_uri >> and returns a
+RDF::Query::Expression pattern.
+
+=cut
+
+sub parse_expr {
+	my $self	= shift;
+	my $input	= shift;
+	my $baseuri	= shift;
+	my $ns		= shift;
+	
+	$input		=~ s/\\u([0-9A-Fa-f]{4})/chr(hex($1))/ge;
+	$input		=~ s/\\U([0-9A-Fa-f]{8})/chr(hex($1))/ge;
+	
+	delete $self->{error};
+	local($self->{namespaces})				= $ns;
+	local($self->{blank_ids})				= 1;
+	local($self->{baseURI})					= $baseuri;
+	local($self->{tokens})					= $input;
+	local($self->{stack})					= [];
+	local($self->{filters})					= [];
+	local($self->{pattern_container_stack})	= [];
+	my $triples								= $self->_push_pattern_container();
+	$self->{build}							= { sources => [], triples => $triples };
+	if ($baseuri) {
+		$self->{build}{base}	= $baseuri;
+	}
+	
+	try {
+		$self->_Expression();
+	} catch RDF::Query::Error with {
+		my $e	= shift;
+		$self->{build}	= undef;
+		$self->{error}	= $e->text;
+	};
+	
+	my $data	= splice(@{ $self->{stack} });
+	return $data;
+}
+
 =item C<< error >>
 
 Returns the error encountered during the last parse.
@@ -275,7 +316,10 @@ sub _syntax_error {
 		}
 	}
 	
-	Carp::cluck( "eating $thing with input <<$self->{tokens}>>" ) if ($debug);
+	my $l		= Log::Log4perl->get_logger("rdf.query.parser.sparql");
+	if ($l->is_debug) {
+		$l->logcluck("Syntax error eating $thing with input <<$self->{tokens}>>");
+	}
 	throw RDF::Query::Error::ParseError -text => "Syntax error: Expected $expect";
 }
 
@@ -373,7 +417,10 @@ sub _Query {
 	} elsif ($self->_test(qr/ASK/i)) {
 		$self->_AskQuery();
 	} else {
-		Carp::cluck( "with input <<$self->{tokens}>>" ) if ($debug);
+		my $l		= Log::Log4perl->get_logger("rdf.query");
+		if ($l->is_debug) {
+			$l->logcluck("Syntax error: Expected query type with input <<$self->{tokens}>>");
+		}
 		throw RDF::Query::Error::ParseError -text => 'Syntax error: Expected query type';
 	}
 	
@@ -463,33 +510,13 @@ sub _SelectQuery {
 	$self->__consume_ws_opt;
 	$self->_SolutionModifier();
 	
-	if ($self->{build}{options}{distinct}) {
-		delete $self->{build}{options}{distinct};
-		my $pattern	= pop(@{ $self->{build}{triples} });
-		my $sort	= RDF::Query::Algebra::Distinct->new( $pattern );
-		push(@{ $self->{build}{triples} }, $sort);
-	}
-	
 	if ($self->{build}{options}{orderby}) {
 		my $order	= delete $self->{build}{options}{orderby};
 		my $pattern	= pop(@{ $self->{build}{triples} });
 		my $sort	= RDF::Query::Algebra::Sort->new( $pattern, @$order );
 		push(@{ $self->{build}{triples} }, $sort);
 	}
-	
-	if (exists $self->{build}{options}{offset}) {
-		my $offset		= delete $self->{build}{options}{offset};
-		my $pattern		= pop(@{ $self->{build}{triples} });
-		my $offseted	= RDF::Query::Algebra::Offset->new( $pattern, $offset );
-		push(@{ $self->{build}{triples} }, $offseted);
-	}
-	
-	if (exists $self->{build}{options}{limit}) {
-		my $limit	= delete $self->{build}{options}{limit};
-		my $pattern	= pop(@{ $self->{build}{triples} });
-		my $limited	= RDF::Query::Algebra::Limit->new( $pattern, $limit );
-		push(@{ $self->{build}{triples} }, $limited);
-	}
+	$self->__solution_modifiers( $star );
 	
 	delete $self->{build}{options};
 	$self->{build}{method}		= 'SELECT';
@@ -538,6 +565,11 @@ sub _ConstructQuery {
 	$self->__consume_ws_opt;
 	$self->_WhereClause;
 	$self->_SolutionModifier();
+	
+	my $pattern		= $self->{build}{triples}[0];
+	my $triples		= delete $self->{build}{construct_triples};
+	my $construct	= RDF::Query::Algebra::Construct->new( $pattern, $triples );
+	$self->{build}{triples}[0]	= $construct;
 	$self->{build}{method}		= 'CONSTRUCT';
 }
 
@@ -1812,6 +1844,37 @@ sub _NIL {
 	$self->_eat( $r_NIL );
 	my $nil	= RDF::Query::Node::Resource->new( $rdf->nil->uri_value );
 	$self->_add_stack( $nil );
+}
+
+sub __solution_modifiers {
+	my $self	= shift;
+	my $star	= shift;
+	
+	my $vars	= $self->{build}{variables};
+	my $pattern	= pop(@{ $self->{build}{triples} });
+	my $proj	= RDF::Query::Algebra::Project->new( $pattern, $vars );
+	push(@{ $self->{build}{triples} }, $proj);
+	
+	if ($self->{build}{options}{distinct}) {
+		delete $self->{build}{options}{distinct};
+		my $pattern	= pop(@{ $self->{build}{triples} });
+		my $sort	= RDF::Query::Algebra::Distinct->new( $pattern );
+		push(@{ $self->{build}{triples} }, $sort);
+	}
+	
+	if (exists $self->{build}{options}{offset}) {
+		my $offset		= delete $self->{build}{options}{offset};
+		my $pattern		= pop(@{ $self->{build}{triples} });
+		my $offseted	= RDF::Query::Algebra::Offset->new( $pattern, $offset );
+		push(@{ $self->{build}{triples} }, $offseted);
+	}
+	
+	if (exists $self->{build}{options}{limit}) {
+		my $limit	= delete $self->{build}{options}{limit};
+		my $pattern	= pop(@{ $self->{build}{triples} });
+		my $limited	= RDF::Query::Algebra::Limit->new( $pattern, $limit );
+		push(@{ $self->{build}{triples} }, $limited);
+	}
 }
 
 1;

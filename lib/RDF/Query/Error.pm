@@ -35,10 +35,9 @@ use base qw(Error);
 
 ######################################################################
 
-our ($VERSION, $debug);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -92,6 +91,10 @@ package RDF::Query::Error::TypeError;
 use base qw(RDF::Query::Error);
 
 package RDF::Query::Error::ExecutionError;
+
+use base qw(RDF::Query::Error);
+
+package RDF::Query::Error::RequestedInterruptError;
 
 use base qw(RDF::Query::Error);
 

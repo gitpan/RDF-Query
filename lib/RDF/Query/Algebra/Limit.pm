@@ -23,10 +23,9 @@ use RDF::Trine::Iterator qw(sgrep);
 
 ######################################################################
 
-our ($VERSION, $debug);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -72,6 +71,9 @@ Returns the pattern to be sorted.
 
 sub pattern {
 	my $self	= shift;
+	if (@_) {
+		$self->[0]	= shift;
+	}
 	return $self->[0];
 }
 
@@ -95,12 +97,24 @@ Returns the SSE string for this alegbra expression.
 sub sse {
 	my $self	= shift;
 	my $context	= shift;
+	my $prefix	= shift || '';
+	my $indent	= $context->{indent};
 	
-	return sprintf(
-		'(limit %s %s)',
-		$self->pattern->sse( $context ),
-		$self->limit,
-	);
+	if ($self->pattern->isa('RDF::Query::Algebra::Offset')) {
+		my $l	= $self->limit;
+		my $o	= $self->pattern->offset;
+		return sprintf(
+			"(slice %d %d\n${prefix}${indent}%s)",
+			$o, $l,
+			$self->pattern->pattern->sse( $context, "${prefix}${indent}" ),
+		);
+	} else {
+		return sprintf(
+			"(limit %s\n${prefix}${indent}%s)",
+			$self->limit,
+			$self->pattern->sse( $context, "${prefix}${indent}" ),
+		);
+	}
 }
 
 =item C<< as_sparql >>
@@ -169,30 +183,21 @@ sub fixup {
 	my $base	= shift;
 	my $ns		= shift;
 	
-	if (my $opt = $bridge->fixup( $self, $query, $base, $ns )) {
+	if (my $opt = $query->algebra_fixup( $self, $bridge, $base, $ns )) {
 		return $opt;
 	} else {
 		return $class->new( $self->pattern->fixup( $query, $bridge, $base, $ns ), $self->limit );
 	}
 }
 
-=item C<< execute ( $query, $bridge, \%bound, $context, %args ) >>
+=item C<< is_solution_modifier >>
+
+Returns true if this node is a solution modifier.
 
 =cut
 
-sub execute {
-	my $self		= shift;
-	my $query		= shift;
-	my $bridge		= shift;
-	my $bound		= shift;
-	my $context		= shift;
-	my %args		= @_;
-	
-	my $limit		= $self->limit;
-	my $stream		= $self->pattern->execute( $query, $bridge, $bound, $context, %args );
-	
-	my $count		= 0;
-	return sgrep { $count++ < $limit } $stream;
+sub is_solution_modifier {
+	return 1;
 }
 
 

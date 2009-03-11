@@ -15,16 +15,16 @@ no warnings 'redefine';
 use base qw(RDF::Query::Expression);
 
 use Data::Dumper;
+use Log::Log4perl;
 use Scalar::Util qw(blessed);
 use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
 
 ######################################################################
 
-our ($VERSION, $debug, $lang, $languri);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -79,17 +79,18 @@ sub evaluate {
 	my $query	= shift;
 	my $bridge	= shift;
 	my $bound	= shift;
+	my $l		= Log::Log4perl->get_logger("rdf.query.expression.binary");
 	my $op		= $self->op;
 	my @operands	= $self->operands;
 	my ($lhs, $rhs)	= map {
 						$_->isa('RDF::Query::Algebra')
 							? $_->evaluate( $query, $bridge, $bound )
-							: ($_->isa('RDF::Query::Node::Variable'))
+							: ($_->isa('RDF::Trine::Node::Variable'))
 								? $bound->{ $_->name }
 								: $_
 	} @operands;
 	
-	warn "Binary Operator '$op': " . Dumper($lhs, $rhs) if ($debug);
+	$l->debug("Binary Operator '$op': " . Dumper($lhs, $rhs));
 	
 	if ($op =~ m#^[-+/*]$#) {
 		my $type	= $self->promote_type( $op, $lhs, $rhs );
@@ -139,7 +140,7 @@ sub evaluate {
 		}
 		
 		my $value	= ($bool) ? 'true' : 'false';
-		warn "-> $value\n" if ($debug);
+		$l->debug("-> $value");
 		return RDF::Query::Node::Literal->new( $value, undef, 'http://www.w3.org/2001/XMLSchema#boolean' );
 	} else {
 		die

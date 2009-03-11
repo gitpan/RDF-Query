@@ -21,10 +21,9 @@ use RDF::Trine::Iterator qw(smap sgrep swatch);
 
 ######################################################################
 
-our ($VERSION, $debug, $lang, $languri);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -91,11 +90,13 @@ Returns the SSE string for this alegbra expression.
 sub sse {
 	my $self	= shift;
 	my $context	= shift;
+	my $prefix	= shift || '';
+	my $indent	= $context->{indent};
 	
 	return sprintf(
-		'(leftjoin %s %s)',
-		$self->pattern->sse( $context ),
-		$self->optional->sse( $context )
+		"(leftjoin\n${prefix}${indent}%s\n${prefix}${indent}%s)",
+		$self->pattern->sse( $context, "${prefix}${indent}" ),
+		$self->optional->sse( $context, "${prefix}${indent}" )
 	);
 }
 
@@ -164,80 +165,11 @@ sub fixup {
 	my $base	= shift;
 	my $ns		= shift;
 
-	if (my $opt = $bridge->fixup( $self, $query, $base, $ns )) {
+	if (my $opt = $query->algebra_fixup( $self, $bridge, $base, $ns )) {
 		return $opt;
 	} else {
 		return $class->new( map { $_->fixup( $query, $bridge, $base, $ns ) } ($self->pattern, $self->optional) );
 	}
-}
-
-=item C<< execute ( $query, $bridge, \%bound, $context, %args ) >>
-
-=cut
-
-sub execute {
-	my $self		= shift;
-	my $query		= shift;
-	my $bridge		= shift;
-	my $bound		= shift;
-	my $context		= shift;
-	my %args		= @_;
-	
-	my $data_triples	= $self->pattern;
-	my $opt_triples		= $self->optional;
-	
-	my $dstream		= $data_triples->execute( $query, $bridge, $bound, $context, %args );
-	
-	my @names		= uniq( map { $_->referenced_variables } ($data_triples, $opt_triples) );
-	my @results;
-	while (my $rowa = $dstream->next) {
-		my %obound	= (%$bound, %$rowa);
-		my $ostream	= $opt_triples->execute( $query, $bridge, \%obound, $context, %args );
-#		warn 'OPTIONAL ALREADY BOUND: ' . Dumper(\%obound, $opt_triples);
-		
-		my $count	= 0;
-		while (my $rowb = $ostream->next) {
-			$count++;
-# 			warn "OPTIONAL JOINING: (" . join(', ', keys %$rowa) . ") JOIN (" . join(', ', keys %$rowb) . ")\n";
-			my %keysa	= map {$_=>1} (keys %$rowa);
-			my @shared	= grep { $keysa{ $_ } } (keys %$rowb);
-#			@names		= @shared unless (@names);
-			my $ok		= 1;
-			foreach my $key (@shared) {
-				my $val_a	= $rowa->{ $key };
-				my $val_b	= $rowb->{ $key };
-				unless ($bridge->equals($val_a, $val_b)) {
-# 					warn "can't join because mismatch of $key (" . join(' <==> ', map {$bridge->as_string($_)} ($val_a, $val_b)) . ")" if ($debug);
-					$ok	= 0;
-					last;
-				}
-			}
-			
-			if ($ok) {
-				my $row	= { %$rowa, %$rowb };
-# 				warn "JOINED:\n";
-# 				foreach my $key (keys %$row) {
-# 					warn "$key\t=> " . $bridge->as_string( $row->{ $key } ) . "\n";
-# 				}
-				push(@results, $row);
-			} else {
-				push(@results, $rowa);
-			}
-		}
-		
-		unless ($count) {
-#################### XXXXXXXXXXXXXXXXXXXXXXXXX								
-#			warn "[optional] didn't return any results. passing through outer result: " . Dumper($rowa);
-			push(@results, $rowa);
-		}
-	}
-	
-	my $stream	= RDF::Trine::Iterator::Bindings->new( \@results, \@names );
-	$stream	= swatch {
-		my $row	= $_;
-#		warn "[OPTIONAL] " . join(', ', map { join('=',$_,$bridge->as_string($row->{$_})) } (keys %$row)) . "\n";
-	} $stream;
-	return $stream;
 }
 
 

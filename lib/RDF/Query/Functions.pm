@@ -19,6 +19,7 @@ use RDF::Query;
 use RDF::Query::Model::RDFTrine;
 use RDF::Query::Error qw(:try);
 
+use Log::Log4perl;
 use I18N::LangTags;
 use Data::Dumper;
 use MIME::Base64;
@@ -27,10 +28,10 @@ use Carp qw(carp croak confess);
 
 ######################################################################
 
-our ($VERSION, $debug);
+our ($VERSION, $l);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$l			= Log::Log4perl->get_logger("rdf.query.functions");
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -301,7 +302,7 @@ $RDF::Query::functions{"sparql:logical-or"}	= sub {
 				$bool		= ($value->literal_value eq 'true') ? 1 : 0;
 			}
 		} otherwise {
-			warn "error in lhs of logical-or" if ($debug);
+			$l->debug("error in lhs of logical-or");
 			$error	||= shift;
 		};
 		last unless (defined($arg));
@@ -338,7 +339,7 @@ $RDF::Query::functions{"sparql:logical-and"}	= sub {
 				$bool		= ($value->literal_value eq 'true') ? 1 : 0;
 			}
 		} otherwise {
-			warn "error in lhs of logical-or" if ($debug);
+			$l->debug("error in lhs of logical-or");
 			$error	||= shift;
 		};
 		last unless (defined($arg));
@@ -484,10 +485,10 @@ $RDF::Query::functions{"sparql:datatype"}	= sub {
 			throw RDF::Query::Error::TypeError ( -text => "cannot call datatype() on a language-tagged literal" );
 		} elsif ($node->has_datatype) {
 			my $type	= $node->literal_datatype;
-			warn "datatype => $type" if ($debug);
+			$l->debug("datatype => $type");
 			return RDF::Query::Node::Resource->new($type);
 		} else {
-			warn 'datatype => string' if ($debug);
+			$l->debug('datatype => string');
 			return RDF::Query::Node::Resource->new('http://www.w3.org/2001/XMLSchema#string');
 		}
 	} else {
@@ -647,13 +648,13 @@ $RDF::Query::functions{"java:com.hp.hpl.jena.query.function.library.listMember"}
 		if ($list->is_resource and $list->uri_value eq 'http://www.w3.org/1999/02/22-rdf-syntax-ns#nil') {
 			return RDF::Query::Node::Literal->new('false', undef, 'http://www.w3.org/2001/XMLSchema#boolean');
 		} else {
-			my $stream	= $bridge->get_statements( $list, $first, undef );
+			my $stream	= $bridge->get_statements( $list, $first, undef, $query, {} );
 			while (my $stmt = $stream->next()) {
 				my $member	= $stmt->object;
 				return RDF::Query::Node::Literal->new('true', undef, 'http://www.w3.org/2001/XMLSchema#boolean') if ($value->equal( $member ));
 			}
 			
-			my $stmt	= $bridge->get_statements( $list, $rest, undef )->next();
+			my $stmt	= $bridge->get_statements( $list, $rest, undef, $query, {} )->next();
 			return RDF::Query::Node::Literal->new('false', undef, 'http://www.w3.org/2001/XMLSchema#boolean') unless ($stmt);
 			
 			my $tail	= $stmt->object;
@@ -744,7 +745,7 @@ BEGIN {
 		my $query	= shift;
 		my $bridge	= shift;
 		my $stream	= shift;
-		warn "bloom filter got result stream\n" if ($debug);
+		$l->debug("bloom filter got result stream\n");
 		my $nodemap	= $query->{_query_cache}{ $BLOOM_URL }{ 'nodemap' };
 		$stream->add_extra_result_data('bnode-map', $nodemap);
 	}
@@ -756,7 +757,7 @@ BEGIN {
 			$query->add_hook_once( 'http://kasei.us/code/rdf-query/hooks/post-execute', \&_BLOOM_ADD_NODE_MAP_TO_STREAM, "${BLOOM_URL}#add_node_map" );
 		}
 	} );
-	$RDF::Query::functions{"http://kasei.us/code/rdf-query/functions/bloom"}	= sub {
+	$RDF::Query::functions{ $BLOOM_URL }	= sub {
 		my $query	= shift;
 		my $bridge	= shift;
 		
@@ -765,8 +766,11 @@ BEGIN {
 		my $bloom;
 		
 		unless ($BLOOM_FILTER_LOADED) {
+			$l->warn("Cannot compute bloom filter because Bloom::Filter is not available");
 			throw RDF::Query::Error::FilterEvaluationError ( -text => "Cannot compute bloom filter because Bloom::Filter is not available" );
 		}
+		
+		$l->debug("k:bloom being executed with node " . $value);
 		
 		if (exists( $query->{_query_cache}{ $BLOOM_URL }{ 'filters' }{ $filter } )) {
 			$bloom	= $query->{_query_cache}{ $BLOOM_URL }{ 'filters' }{ $filter };
@@ -776,11 +780,13 @@ BEGIN {
 			$query->{_query_cache}{ $BLOOM_URL }{ 'filters' }{ $filter }	= $bloom;
 		}
 		
-		my @names	= RDF::Query::Algebra::Service->_names_for_node( $value, $query, $bridge, {}, 0 );
+		my $seen	= $query->{_query_cache}{ $BLOOM_URL }{ 'node_name_cache' }	= {};
+		my @names	= RDF::Query::Algebra::Service->_names_for_node( $value, $query, $bridge, {}, {}, 0, '', $seen );
+		$l->debug("- " . scalar(@names) . " identity names for node");
 		foreach my $string (@names) {
-			warn "checking bloom filter for --> '$string'\n" if ($debug);
+			$l->debug("checking bloom filter for --> '$string'\n");
 			my $ok	= $bloom->check( $string );
-			warn "-> ok\n" if ($ok and $debug);
+			$l->debug("-> ok") if ($ok);
 			if ($ok) {
 				my $nodemap	= $query->{_query_cache}{ $BLOOM_URL }{ 'nodemap' };
 				push( @{ $nodemap->{ $value->as_string } }, $string );
@@ -790,6 +796,42 @@ BEGIN {
 		return RDF::Query::Node::Literal->new('false', undef, 'http://www.w3.org/2001/XMLSchema#boolean');
 	};
 }
+
+$RDF::Query::functions{"http://kasei.us/code/rdf-query/functions/bloom/filter"}	= sub {
+	my $query	= shift;
+	my $bridge	= shift;
+	
+	my $value	= shift;
+	my $filter	= shift;
+	my $bloom;
+	
+	unless ($BLOOM_FILTER_LOADED) {
+		throw RDF::Query::Error::FilterEvaluationError ( -text => "Cannot compute bloom filter because Bloom::Filter is not available" );
+	}
+	
+	if (ref($query) and exists( $query->{_query_cache}{ "http://kasei.us/code/rdf-query/functions/bloom/filter" }{ 'filters' }{ $filter } )) {
+		$bloom	= $query->{_query_cache}{ "http://kasei.us/code/rdf-query/functions/bloom/filter" }{ 'filters' }{ $filter };
+	} else {
+		my $value	= $filter->literal_value;
+		$bloom	= Bloom::Filter->thaw( $value );
+		if (ref($query)) {
+			$query->{_query_cache}{ "http://kasei.us/code/rdf-query/functions/bloom/filter" }{ 'filters' }{ $filter }	= $bloom;
+		}
+	}
+	
+	my $string	= $value->as_string;
+	$l->debug("checking bloom filter for --> '$string'\n");
+	my $ok	= $bloom->check( $string );
+	$l->debug("-> ok") if ($ok);
+	if ($ok) {
+		return RDF::Query::Node::Literal->new('true', undef, 'http://www.w3.org/2001/XMLSchema#boolean');
+	} else {
+		return RDF::Query::Node::Literal->new('false', undef, 'http://www.w3.org/2001/XMLSchema#boolean');
+	}
+};
+
+
+
 1;
 
 __END__

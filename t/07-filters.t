@@ -8,7 +8,7 @@ require "models.pl";
 
 my @files	= map { "data/$_" } qw(about.xrdf foaf.xrdf Flower-2.rdf);
 my @models	= test_models( @files );
-my $tests	= 0 + (scalar(@models) * 43);
+my $tests	= 0 + (scalar(@models) * 46);
 plan tests => $tests;
 
 eval "use Geo::Distance 0.09;";
@@ -21,6 +21,29 @@ foreach my $model (@models) {
 
 	
 	{
+		print "# FILTER equality disjunction\n";
+		my $sparql	= <<"END";
+			PREFIX exif: <http://www.kanzaki.com/ns/exif#>
+			SELECT	?image
+			WHERE	{
+						?image exif:exposureTime ?time .
+						FILTER( ?time = "1/80" || ?time = "1/500" ) .
+					}
+END
+		my $query	= RDF::Query->new( $sparql, undef, undef, 'sparql' );
+		my $count	= 0;
+		my $stream	= $query->execute( $model );
+		my $bridge	= $query->bridge;
+		while (my $row = $stream->next) {
+			my $image	= $row->{image}->uri_value;
+			like( $image, qr<(DSC_5705|DSC_8057)>, 'expected image URI' );
+			$count++;
+		}
+		is( $count, 2, "3 object depictions found" );
+	}
+
+	{
+		print "# FILTER REGEX\n";
 		my $sparql	= <<"END";
 			PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 			PREFIX	rdfs: <http://www.w3.org/2000/01/rdf-schema#>
@@ -39,7 +62,7 @@ END
 		my $count	= 0;
 		my $stream	= $query->execute( $model );
 		my $bridge	= $query->bridge;
-		while (my $row = $stream->()) {
+		while (my $row = $stream->next) {
 			my ($image, $thing, $ttype, $tname)	= @{ $row }{qw(image thing type name)};
 			my $url		= $bridge->uri_value( $image );
 			my $node	= $bridge->as_string( $thing );
@@ -52,6 +75,7 @@ END
 	}
 	
 	{
+		print "# FILTER isBLANK(?person)\n";
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 			PREFIX	dc: <http://purl.org/dc/elements/1.1/>
@@ -65,17 +89,18 @@ END
 		my $stream	= $query->execute( $model );
 		isa_ok( $stream, 'RDF::Trine::Iterator' );
 		my $count	= 0;
-		while (my $row = $stream->()) {
-			isa_ok( $row, "HASH" );
+		while (my $row = $stream->next) {
+			isa_ok( $row, 'HASH' );
 			my ($p,$n)	= @{ $row }{qw(person name)};
-			ok( $query->bridge->isa_node( $p ), $query->bridge->as_string( $p ) . ' is a node' );
-			like( $query->bridge->literal_value( $n ), qr/^Gary Peck/, 'name' );
+			isa_ok( $p, 'RDF::Trine::Node', $query->bridge->as_string( $p ) . ' is a node' );
+			like( $query->bridge->literal_value( $n ), qr/^Gary|Lauren/, 'name' );
 			$count++;
 		}
 		is( $count, 1, "1 person (bnode) found" );
 	}
 	
 	{
+		print "# FILTER isURI(?person)\n";
 		my $query	= new RDF::Query ( <<"END", undef, undef, 'sparql' );
 			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
 			PREFIX	dc: <http://purl.org/dc/elements/1.1/>
@@ -89,7 +114,7 @@ END
 		my $stream	= $query->execute( $model );
 		isa_ok( $stream, 'RDF::Trine::Iterator' );
 		my $count	= 0;
-		while (my $row = $stream->()) {
+		while (my $row = $stream->next) {
 			isa_ok( $row, "HASH" );
 			my ($p,$n)	= @{ $row }{qw(person name)};
 			ok( $query->bridge->isa_node( $p ), $query->bridge->as_string( $p ) . ' is a node' );
@@ -101,6 +126,7 @@ END
 	
 	SKIP: {
 		skip( "Need Geo::Distance 0.09 or higher to run these tests.", 4 ) unless ($GEO_DISTANCE_LOADED);
+		print "# FILTER geo:distance(...)\n";
 		my $sparql	= <<"END";
 			PREFIX	rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 			PREFIX	foaf: <http://xmlns.com/foaf/0.1/>
@@ -139,7 +165,7 @@ END
 		my $stream	= $query->execute( $model );
 		my $bridge	= $query->bridge;
 		my $count	= 0;
-		while (my $row = $stream->()) {
+		while (my $row = $stream->next) {
 			my ($image, $point, $pname, $lat, $lon)	= @{ $row }{qw(image point name lat long)};
 			my $url		= $bridge->uri_value( $image );
 			my $name	= $bridge->literal_value( $pname );
@@ -227,7 +253,7 @@ END
 		
 		my $count	= 0;
 		my $stream	= $query->execute( $model );
-		while (my $row = $stream->()) {
+		while (my $row = $stream->next) {
 			my ($node)	= @{ $row }{qw(p)};
 			my $uri	= $query->bridge->uri_value( $node );
 			is( $uri, 'http://kasei.us/about/foaf.xrdf#greg', 'jena:sha1sum' );
@@ -250,7 +276,7 @@ END
 		
 		my $count	= 0;
 		my $stream	= $query->execute( $model );
-		while (my $row = $stream->()) {
+		while (my $row = $stream->next) {
 			my ($node)	= @{ $row }{qw(p)};
 			my $uri	= $query->bridge->uri_value( $node );
 			is( $uri, 'http://kasei.us/about/foaf.xrdf#greg', 'xpath:matches' );
@@ -311,7 +337,7 @@ END
 		my $stream	= $query->execute( $model );
 		my $count	= 0;
 		my %expect	= map {$_=>1} (1..3);
-		while (my $row = $stream->()) {
+		while (my $row = $stream->next) {
 			my ($data)	= @{ $row }{qw(data)};
 			ok( $query->bridge->isa_literal( $data ), "literal list member" );
 			ok( exists($expect{ $query->bridge->literal_value( $data ) }), , "expected literal value" );

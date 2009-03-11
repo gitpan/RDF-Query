@@ -7,7 +7,7 @@ RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF
 
 =head1 VERSION
 
-This document describes RDF::Query version 2.002, released 25 April 2008.
+This document describes RDF::Query version 2.003_01, released XX March 2009.
 
 =head1 SYNOPSIS
 
@@ -98,7 +98,10 @@ use List::MoreUtils qw(uniq);
 use Scalar::Util qw(blessed reftype looks_like_number);
 use DateTime::Format::W3CDTF;
 
-use RDF::Trine 0.105;
+use Log::Log4perl qw(:easy);
+Log::Log4perl->easy_init($ERROR);
+
+use RDF::Trine 0.108;
 use RDF::Trine::Iterator qw(sgrep smap swatch);
 
 require RDF::Query::Functions;	# (needs to happen at runtime because some of the functions rely on RDF::Query being fully loaded (to call add_hook(), for example))
@@ -116,15 +119,16 @@ use RDF::Query::Parser::SPARQL;
 use RDF::Query::Parser::SPARQLP;	# local extensions to SPARQL
 use RDF::Query::Compiler::SQL;
 use RDF::Query::Error qw(:try);
+use RDF::Query::Logger;
+use RDF::Query::Plan;
+use RDF::Query::CostModel::Naive;
+use RDF::Query::CostModel::Counted;
 
 ######################################################################
 
-our ($VERSION, $debug, $js_debug, $DEFAULT_PARSER);
-use constant DEBUG	=> 0;
+our ($VERSION, $DEFAULT_PARSER);
 BEGIN {
-	$debug			= DEBUG;
-	$js_debug		= 0;
-	$VERSION		= '2.002';
+	$VERSION		= '2.003_01';
 	$DEFAULT_PARSER	= 'sparql';
 }
 
@@ -135,7 +139,9 @@ BEGIN {
 
 =over 4
 
-=item C<new ( $query, $baseuri, $languri, $lang )>
+=item C<< new ( $query, \%options ) >>
+
+=item C<< new ( $query, $baseuri, $languri, $lang, %options ) >>
 
 Returns a new RDF::Query object for the specified C<$query>.
 The query language defaults to SPARQL, but may be set specifically by
@@ -146,11 +152,22 @@ specifying either C<$languri> or C<$lang>, whose acceptable values are:
   $languri: 'http://www.w3.org/TR/rdf-sparql-query/', or 'http://jena.hpl.hp.com/2003/07/query/RDQL'
 
 =cut
+
 sub new {
 	my $class	= shift;
-	my ($query, $baseuri, $languri, $lang, %options)	= @_;
+	my $query	= shift;
+
+	my ($baseuri, $languri, $lang, %options);
+	if (@_ and ref($_[0])) {
+		%options	= %{ shift() };
+		$lang		= $options{ lang };
+		$baseuri	= $options{ base };
+	} else {
+		($baseuri, $languri, $lang, %options)	= @_;
+	}
 	$class->clear_error;
 	
+	my $l		= Log::Log4perl->get_logger("rdf.query");
 	my $f	= DateTime::Format::W3CDTF->new;
 	no warnings 'uninitialized';
 	
@@ -165,7 +182,7 @@ sub new {
 					'http://www.w3.org/TR/rdf-sparql-query/'	=> 'RDF::Query::Parser::SPARQL',
 				);
 	
-	if ($baseuri and not blessed($baseuri)) {
+	if ($baseuri) {
 		$baseuri	= RDF::Query::Node::Resource->new( $baseuri );
 	}
 	
@@ -184,7 +201,7 @@ sub new {
 				}, $class );
 	unless ($parsed->{'triples'}) {
 		$class->set_error( $parser->error );
-		warn $parser->error if ($debug);
+		$l->debug($parser->error);
 		return;
 	}
 	
@@ -204,6 +221,25 @@ sub new {
 	}
 	if (defined $options{secretkey}) {
 		$self->{options}{secretkey}	= $options{secretkey};
+	}
+	
+	if ($options{logger}) {
+		$l->debug("got external logger");
+		$self->{logger}	= $options{logger};
+	}
+	
+	if ($options{costmodel}) {
+		$l->debug("got cost model");
+		$self->{costmodel}	= $options{costmodel};
+	} else {
+		$self->{costmodel}	= RDF::Query::CostModel::Naive->new();
+	}
+	
+	if (my $opt = $options{optimize}) {
+		$l->debug("got optimization flag: $opt");
+		$self->{optimize}	= $opt;
+	} else {
+		$self->{optimize}	= 0;
 	}
 	
 	# add rdf as a default namespace to RDQL queries
@@ -230,6 +266,64 @@ sub get {
 	}
 }
 
+=item C<< prepare ( $model ) >>
+
+Prepares the query, constructing a query execution plan, and returns a list
+containing ($plan, $context). To execute the plan, call
+C<< execute_plan( $plan, $context ) >>.
+
+=cut
+
+sub prepare {
+	my $self	= shift;
+	my $model	= shift;
+	my %args	= @_;
+	my $l		= Log::Log4perl->get_logger("rdf.query");
+	
+	$self->{_query_cache}	= {};	# a new scratch hash for each execution.
+	my %bound	= ($args{ 'bind' }) ? %{ $args{ 'bind' } } : ();
+	my $parsed	= $self->{parsed};
+	my @vars	= $self->variables( $parsed );
+	
+	my $bridge	= $self->{bridge} || $self->get_bridge( $model, %args );
+	if ($bridge) {
+		$self->bridge( $bridge );
+		$l->debug("got bridge $bridge");
+	} else {
+		throw RDF::Query::Error::ModelError ( -text => "Could not create a model object." );
+	}
+	
+	$l->trace("loading data");
+	$self->load_data();
+	$bridge		= $self->bridge();	# reload the bridge object, because load_data might have changed it.
+	
+	$l->trace("constructing ExecutionContext");
+	my $context	= RDF::Query::ExecutionContext->new(
+					bound				=> \%bound,
+					model				=> $bridge,
+					query				=> $self,
+					base				=> $parsed->{base},
+					ns					=> $parsed->{namespaces},
+					logger				=> $self->logger,
+					costmodel			=> $self->costmodel,
+					optimize			=> $self->{optimize},
+					requested_variables	=> \@vars,
+					model_optimize		=> 1,
+				);
+	
+	$self->{model}		= $model;
+	
+	$l->trace("getting QEP...");
+	my $plan		= $self->query_plan( $context );
+	$l->trace("-> done.");
+	
+	unless ($plan) {
+		throw RDF::Query::Error::CompilationError -text => "Query didn't produce a valid execution plan";
+	}
+	
+	return ($plan, $context);
+}
+
 =item C<execute ( $model, %args )>
 
 Executes the query using the specified model. If called in a list
@@ -241,28 +335,39 @@ sub execute {
 	my $self	= shift;
 	my $model	= shift;
 	my %args	= @_;
-	warn "executing query with model $model" if ($debug);
+	my $l		= Log::Log4perl->get_logger("rdf.query");
+	$l->debug("executing query with model " . ($model or ''));
 	
-	$self->{_query_cache}	= {};	# a new scratch hash for each execution.
-	
-	my $parsed	= $self->{parsed};
-	
-	my $stream;
-	$self->{model}		= $model;
-	
-	my %bound	= ($args{ 'bind' }) ? %{ $args{ 'bind' } } : ();
-	my $bridge	= $self->{bridge} || $self->get_bridge( $model, %args );
-	if ($bridge) {
-		$self->bridge( $bridge );
-		warn "got bridge $bridge" if ($debug);
-	} else {
-		throw RDF::Query::Error::ModelError ( -text => "Could not create a model object." );
+	my ($plan, $context)	= $self->prepare( $model, %args );
+	if ($l->is_trace) {
+		$l->trace(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
+		$l->trace($self->as_sparql);
+		$l->trace(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
+		exit;
 	}
-	
-	$self->load_data();
-	my ($pattern, $cpattern)	= $self->fixup();
-	$bridge		= $self->bridge();	# reload the bridge object, because fixup might have changed it.
+	return $self->execute_plan( $plan, $context );
+}
+
+=item C<< execute_plan ( $plan, $context ) >>
+
+Executes the query using the supplied ExecutionContext. If called in a list
+context, returns an array of rows, otherwise returns an iterator.
+
+=cut
+
+sub execute_plan {
+	my $self	= shift;
+	my $plan	= shift;
+	my $context	= shift;
+	my $bridge	= $context->model;
+	my $parsed	= $self->{parsed};
 	my @vars	= $self->variables( $parsed );
+	
+	my $l		= Log::Log4perl->get_logger("rdf.query");
+	
+	my $pattern	= $self->pattern;
+# 	$l->trace("calling fixup()");
+# 	my $cpattern	= $self->fixup();
 	
 	my @funcs	= $pattern->referenced_functions;
 	foreach my $f (@funcs) {
@@ -271,38 +376,27 @@ sub execute {
 	
 	# RUN THE QUERY!
 
-	warn "executing the graph pattern" if ($debug);
+	$l->debug("executing the graph pattern");
 	
-	my $options	= $parsed->{options} || {};		
-	$stream		= $pattern->execute( $self, $bridge, \%bound, undef, %$options );
+	my $options	= $parsed->{options} || {};
+
+	$plan->execute( $context );
+	my $stream	= $plan->as_iterator( $context );
+# 	my $stream	= RDF::Trine::Iterator::Bindings->new( sub { $plan->next }, \@vars, distinct => $plan->distinct, sorted_by => $plan->ordered );
 	
-	warn "performing projection" if ($debug);
+	$l->debug("performing projection");
 	my $expr	= 0;
 	foreach my $v (@{ $parsed->{'variables'} }) {
 		$expr	= 1 if ($v->isa('RDF::Query::Expression::Alias'));
 	}
 	
-	my @pvarnames	= map { $_->name } grep { not($_->isa('RDF::Query::Node::Resource')) } @{ $parsed->{'variables'} };
-	my $projected	= smap( sub {
-						my $row = $_;
-						my $new	= {};
-						foreach my $v (@{ $parsed->{'variables'} }) {
-							next if ($v->isa('RDF::Query::Node::Resource'));
-							$new->{ $v->name }	= $self->var_or_expr_value( $bridge, $row, $v );
-						}
-						$new
-					}, $stream, undef, \@pvarnames);
-	$stream			= $projected;
-
 	if ($parsed->{'method'} eq 'DESCRIBE') {
 		$stream	= $self->describe( $stream );
-	} elsif ($parsed->{'method'} eq 'CONSTRUCT') {
-		$stream	= $self->construct( $stream, $cpattern, $parsed );
 	} elsif ($parsed->{'method'} eq 'ASK') {
 		$stream	= $self->ask( $stream );
 	}
 	
-	warn "going to call post-execute hook" if ($debug);
+	$l->debug("going to call post-execute hook");
 	$self->run_hook( 'http://kasei.us/code/rdf-query/hooks/post-execute', $bridge, $stream );
 	
 	if (wantarray) {
@@ -324,6 +418,7 @@ sub execute_with_named_graphs {
 	my $self		= shift;
 	my $model		= shift;
 	
+	my $l		= Log::Log4perl->get_logger("rdf.query");
 	$self->{model}	= $model;
 	my $bridge		= $self->get_bridge( $model );
 	if ($bridge) {
@@ -333,11 +428,86 @@ sub execute_with_named_graphs {
 	}
 	
 	foreach my $gdata (@_) {
-		warn "-> adding graph data " . $gdata->uri_value if ($debug);
+		$l->debug("-> adding graph data " . $gdata->uri_value);
 		$self->parse_url( $gdata->uri_value, 1 );
 	}
 	
 	return $self->execute( $model );
+}
+
+=begin private
+
+=item C<< query_plan ( $execution_context ) >>
+
+Returns a RDF::Query::Plan object that is (hopefully) the optimal QEP for the
+current query.
+
+=end private
+
+=cut
+
+sub query_plan {
+	my $self	= shift;
+	my $context	= shift;
+	my $parsed	= $self->{parsed};
+	my %constant_plan;
+	if (my $b = $self->{parsed}{bindings}) {
+		my $vars	= $b->{vars};
+		my $values	= $b->{terms};
+		my @names	= map { $_->name } @{ $vars };
+		my @constants;
+		while (my $values = shift(@{ $b->{terms} })) {
+			my %bound;
+			@bound{ @names }	= @{ $values };
+			my $bound			= RDF::Query::VariableBindings->new( \%bound );
+			push(@constants, $bound);
+		}
+		my $constant_plan	= RDF::Query::Plan::Constant->new( @constants );
+		%constant_plan		= ( constants => [ $constant_plan ] );
+	}
+	
+	my $algebra		= $self->pattern;
+	my $pclass		= $self->plan_class;
+	my @plans		= $pclass->generate_plans( $algebra, $context, %constant_plan );
+	
+	my $l		= Log::Log4perl->get_logger("rdf.query.plan");
+	if (wantarray) {
+		return @plans;
+	} else {
+		my ($plan)	= $self->prune_plans( $context, @plans );
+		$l->debug("using query plan: " . $plan->sse({}, ''));
+		return $plan;
+	}
+}
+
+=begin private
+
+=item C<< plan_class >>
+
+Returns the class name for Plan generation. This method should be overloaded by
+RDF::Query subclasses if the subclass also provides a subclass of RDF::Query::Plan.
+
+=end private
+
+=cut
+
+sub plan_class {
+	return 'RDF::Query::Plan';
+}
+
+=begin private
+
+=item C<< prune_plans ( $context, @plans ) >>
+
+=end private
+
+=cut
+
+sub prune_plans {
+	my $self	= shift;
+	my $context	= shift;
+	my @plans	= @_;
+	return $self->plan_class->prune_plans( $context, @plans );
 }
 
 =begin private
@@ -371,8 +541,8 @@ sub describe {
 	$self->{'describe_nodes'}	= [];
 	foreach my $node (@nodes) {
 		push(@{ $self->{'describe_nodes'} }, $node);
-		push(@streams, $bridge->get_statements( $node, undef, undef ));
-		push(@streams, $bridge->get_statements( undef, undef, $node ));
+		push(@streams, $bridge->get_statements( $node, undef, undef, $self, {} ));
+		push(@streams, $bridge->get_statements( undef, undef, $node, $self, {} ));
 	}
 	
 	my $ret	= sub {
@@ -389,81 +559,6 @@ sub describe {
 	return RDF::Trine::Iterator::Graph->new( $ret, bridge => $bridge );
 }
 
-=begin private
-
-=item C<construct ( $stream )>
-
-Takes a stream of matching statements and constructs a result graph matching the
-uery's CONSTRUCT graph patterns.
-
-=end private
-
-=cut
-
-sub construct {
-	my $self		= shift;
-	my $stream		= shift;
-	my $ctriples	= shift;
-	my $parsed		= shift;
-	my $bridge		= $self->bridge;
-	my @streams;
-	
-	my %seen;
-	my %variable_map;
-	foreach my $var_count (0 .. $#{ $parsed->{'variables'} }) {
-		$variable_map{ $parsed->{'variables'}[ $var_count ]->name }	= $var_count;
-	}
-	
-	while (my $row = $stream->next) {
-		my %blank_map;
-		my @triples;	# XXX move @triples out of the while block, and only push one stream below (just before the continue{})
-		TRIPLE: foreach my $triple ($ctriples->patterns) {
-			my @triple	= $triple->nodes;
-			for my $i (0 .. 2) {
-				if (blessed($triple[$i]) and $triple[$i]->isa('RDF::Query::Node')) {
-					if ($triple[$i]->isa('RDF::Query::Node::Variable')) {
-						my $name	= $triple[$i]->name;
-						$triple[$i]	= $row->{ $name };
-					} elsif ($triple[$i]->isa('RDF::Query::Node::Blank')) {
-						my $id	= $triple[$i]->blank_identifier;
-						unless (exists($blank_map{ $id })) {
-							$blank_map{ $id }	= $self->bridge->new_blank();
-						}
-						$triple[$i]	= $blank_map{ $id };
-					}
-				}
-			}
-			
-			my $ok	= 1;
-			foreach (@triple) {
-				if (not blessed($_)) {
-					$ok	= 0;
-					# next TRIPLE;
-				}
-			}
-			next unless ($ok); # (replaces 'next TRIPLE' inside the foreach above)
-			
-			my $st	= $bridge->new_statement( @triple );
-			push(@triples, $st);
-		}
-		push(@streams, RDF::Trine::Iterator::Graph->new( sub { shift(@triples) } ));
-	}
-	
-	
-	my $ret	= sub {
-		while (@streams) {
-			my $val	= $streams[0]->next;
-			if (defined $val) {
-				return $val;
-			} else {
-				shift(@streams);
-				return undef if (not @streams);
-			}
-		}
-		return undef;
-	};
-	return RDF::Trine::Iterator::Graph->new( $ret, bridge => $bridge );
-}
 
 =begin private
 
@@ -494,8 +589,31 @@ sub aggregate {
 	my $groupby	= shift;
 	my %aggs	= @_;
 	my $pattern	= $self->pattern;
-	my $agg		= RDF::Query::Algebra::Aggregate->new( $pattern, $groupby, %aggs );
-	$self->{parsed}{triples}	= [ $agg ];
+	my $p		= $pattern;
+	if ($p->isa('RDF::Query::Algebra::Project')) {
+		$pattern	= $p	= $p->pattern;
+	}
+	if ($p->is_solution_modifier) {
+		while ($p->pattern->is_solution_modifier) {
+			if ($p->pattern->isa('RDF::Query::Algebra::Project')) {
+				$p->pattern( $p->pattern->pattern );
+			}
+			$p	= $p->pattern;
+		}
+	}
+	
+	my $head	= ($p->is_solution_modifier) ? 1 : 0;
+	my $child	= ($head) ? $p->pattern : $p;
+	my $agg		= RDF::Query::Algebra::Aggregate->new( $child, $groupby, %aggs );
+	
+	my $top;
+	if ($head) {
+		$p->pattern( $agg );
+		$top	= $pattern;
+	} else {
+		$top	= $agg;
+	}
+	$self->{parsed}{triples}	= [ $top ];
 	$self->{parsed}{'variables'}	= [ map { ref($_) ? $_ : RDF::Query::Node::Variable->new( $_ ) } (@$groupby, keys %aggs) ];
 }
 
@@ -515,26 +633,14 @@ sub pattern {
 									or $triples[0]->isa('RDF::Query::Algebra::Limit')
 									or $triples[0]->isa('RDF::Query::Algebra::Offset')
 									or $triples[0]->isa('RDF::Query::Algebra::Distinct')
+									or $triples[0]->isa('RDF::Query::Algebra::Project')
+									or $triples[0]->isa('RDF::Query::Algebra::Construct')
 								)) {
 		my $ggp		= $triples[0];
 		return $ggp;
 	} else {
 		return RDF::Query::Algebra::GroupGraphPattern->new( @triples );
 	}
-}
-
-=item C<< construct_pattern >>
-
-Returns the RDF::Query::Algebra::GroupGraphPattern algebra pattern for this query's CONSTRUCT block.
-
-=cut
-
-sub construct_pattern {
-	my $self	= shift;
-	my $parsed	= $self->parsed;
-	my @triples	= @{ $parsed->{construct_triples} };
-	my $ggp		= RDF::Query::Algebra::GroupGraphPattern->new( @triples );
-	return $ggp;
 }
 
 =item C<< as_sparql >>
@@ -579,20 +685,12 @@ sub as_sparql {
 	}
 	my $mod	= join("\n", @mod);
 	
-	my $methoddata;
+	my $methoddata	= '';
 	if ($method eq 'SELECT') {
-		my $distp	= $ggp->subpatterns_of_type('RDF::Query::Algebra::Distinct');
-		my $dist	= ($distp) ? 'DISTINCT ' : '';
-		$methoddata	= sprintf("%s %s%s\nWHERE", $method, $dist, $vars);
+		$methoddata	= $method;
 	} elsif ($method eq 'ASK') {
 		$methoddata	= $method;
-	} elsif ($method eq 'CONSTRUCT') {
-		my $ctriples	= $parsed->{construct_triples};
-		my $ggp			= RDF::Query::Algebra::GroupGraphPattern->new( @$ctriples );
-		$methoddata		= sprintf("%s %s\nWHERE", $method, $ggp->as_sparql( $context, '' ));
 	} elsif ($method eq 'DESCRIBE') {
-		my $ctriples	= $parsed->{construct_triples};
-		my $ggp			= RDF::Query::Algebra::GroupGraphPattern->new( @$ctriples );
 		$methoddata		= sprintf("%s %s\nWHERE", $method, $vars);
 	}
 	
@@ -619,8 +717,26 @@ sub sse {
 	my $parsed	= $self->parsed;
 	
 	my $ggp		= $self->pattern;
-	my $context	= { namespaces => $self->{parsed}{namespaces} };
-	my $sse	= $ggp->sse( $context, '' );
+	my $ns		= $parsed->{namespaces};
+	my $nscount	= scalar(@{ [ keys %$ns ] });
+	my $base	= $parsed->{base};
+	
+	my $indent	= '  ';
+	my $context	= { namespaces => $ns, indent => $indent };
+	my $indentcount	= 0;
+	$indentcount++ if ($base);
+	$indentcount++ if ($nscount);
+	my $prefix	= $indent x $indentcount;
+	
+	my $sse	= $ggp->sse( $context, $prefix );
+	
+	if ($nscount) {
+		$sse		= sprintf("(prefix (%s)\n${prefix}%s)", join("\n${indent}" . ' 'x9, map { "(${_}: <$ns->{$_}>)" } (sort keys %$ns)), $sse);
+	}
+	
+	if ($base) {
+		$sse	= sprintf("(base <%s>\n${indent}%s)", $base->uri_value, $sse);
+	}
 	
 	chomp($sse);
 	return $sse;
@@ -656,32 +772,39 @@ Returns the class name of a model backend that is present and loadable on the sy
 sub loadable_bridge_class {
 	my $self	= shift;
 	
+	my $l		= Log::Log4perl->get_logger("rdf.query");
 	if (not $ENV{RDFQUERY_NO_RDFTRINE}) {
 		eval "use RDF::Query::Model::RDFTrine;";
 		if (RDF::Query::Model::RDFTrine->can('new')) {
 			return 'RDF::Query::Model::RDFTrine';
 		} else {
-			warn "RDF::Query::Model::RDFTrine didn't load cleanly" if ($debug);
+			$l->debug("RDF::Query::Model::RDFTrine didn't load cleanly");
 		}
-	} else { warn "RDF::Trine supressed" if ($debug and not $ENV{RDFQUERY_SILENT}) }
+	} else {
+		$l->debug("RDF::Trine supressed");
+	}
 	
 	if (not $ENV{RDFQUERY_NO_REDLAND}) {
 		eval "use RDF::Query::Model::Redland;";
 		if (RDF::Query::Model::Redland->can('new')) {
 			return 'RDF::Query::Model::Redland';
 		} else {
-			warn "RDF::Query::Model::Redland didn't load cleanly" if ($debug);
+			$l->debug("RDF::Query::Model::Redland didn't load cleanly");
 		}
-	} else { warn "RDF::Redland supressed" if ($debug and not $ENV{RDFQUERY_SILENT}) }
+	} else {
+		$l->debug("RDF::Redland supressed");
+	}
 	
 	if (not $ENV{RDFQUERY_NO_RDFCORE}) {
 		eval "use RDF::Query::Model::RDFCore;";
 		if (RDF::Query::Model::RDFCore->can('new')) {
 			return 'RDF::Query::Model::RDFCore';
 		} else {
-			warn "RDF::Query::Model::RDFCore didn't load cleanly" if ($debug);
+			$l->debug("RDF::Query::Model::RDFCore didn't load cleanly");
 		}
-	} else { warn "RDF::Core supressed" if ($debug and not $ENV{RDFQUERY_SILENT}) }
+	} else {
+		$l->debug("RDF::Core supressed");
+	}
 	
 	return undef;
 }
@@ -727,13 +850,13 @@ sub get_bridge {
 	my $bridge;
 	if (not $model) {
 		$bridge	= $self->new_bridge();
-	} elsif (blessed($model) and ($model->isa('RDF::Trine::Model'))) {
+	} elsif (($model->isa('RDF::Trine::Model'))) {
 		require RDF::Query::Model::RDFTrine;
 		$bridge	= RDF::Query::Model::RDFTrine->new( $model, parsed => $parsed );
-	} elsif (blessed($model) and $model->isa('RDF::Redland::Model')) {
+	} elsif ($model->isa('RDF::Redland::Model')) {
 		require RDF::Query::Model::Redland;
 		$bridge	= RDF::Query::Model::Redland->new( $model, parsed => $parsed );
-	} elsif (blessed($model) and $model->isa('RDF::Core::Model')) {
+	} elsif ($model->isa('RDF::Core::Model')) {
 		require RDF::Query::Model::RDFCore;
 		$bridge	= RDF::Query::Model::RDFCore->new( $model, parsed => $parsed );
 	} else {
@@ -763,7 +886,7 @@ sub load_data {
 	my $sources	= $parsed->{'sources'};
 	if (ref($sources) and reftype($sources) eq 'ARRAY') {
 		my $need_new_bridge	= 1;
-		my $named_query	= 0;
+		my $named_query		= 0;
 		
 		# put non-named sources first, because they will cause a new bridge to be
 		# constructed. subsequent named data will then be loaded into the correct
@@ -787,44 +910,22 @@ sub load_data {
 }
 
 
-=begin private
+=item C<< algebra_fixup ( $algebra, $bridge, $base, $ns ) >>
 
-=item C<fixup ()>
-
-Does last-minute fix-up on the parse tree. This involves:
-
-	* Loading any external files into the model.
-	* Converting URIs and strings to model-specific objects.
-	* Fixing variable list in the case of 'SELECT *' queries.
-
-=end private
+Called in the fixup method of ::Algebra classes, returns either an optimized
+::Algebra object ready for execution, or undef (in which case it will be
+prepared for execution by the ::Algebra::* class itself.
 
 =cut
 
-sub fixup {
-	my $self		= shift;
-	my $pattern		= $self->pattern;
-	my $bridge		= $self->bridge;
-	my $parsed		= $self->parsed;
-	my $base		= $parsed->{base};
-	my $namespaces	= $parsed->{namespaces};
-	
-	my $native		= $pattern->fixup( $self, $bridge, $base, $namespaces );
-	
-	## CONSTRUCT HAS IMPLICIT VARIABLES
-	if ($parsed->{'method'} eq 'CONSTRUCT') {
-		# project on all the referenced variables in the where pattern so that
-		# they'll be available for the construct pattern:
-		my @vars	= map { RDF::Query::Node::Variable->new($_) } $pattern->referenced_variables;
-		$parsed->{'variables'}	= \@vars;
-		
-		# fixup the construct pattern
-		my $cnative	= $self->construct_pattern->fixup( $self, $bridge, $base, $namespaces );
-		
-		return ($native, $cnative);
-	} else {
-		return ($native, undef);
-	}
+sub algebra_fixup {
+	my $self	= shift;
+	my $pattern	= shift;
+	my $bridge	= shift;
+	my $base	= shift;
+	my $ns		= shift;
+	return if ($self->{force_no_optimization});
+	return $bridge->fixup( $pattern, $self, $base, $ns );
 }
 
 =begin private
@@ -848,11 +949,12 @@ sub var_or_expr_value {
 	my $v		= shift;
 	if ($v->isa('RDF::Query::Expression')) {
 		return $v->evaluate( $self, $bridge, $bound );
-	} elsif ($v->isa('RDF::Query::Node::Variable')) {
+	} elsif ($v->isa('RDF::Trine::Node::Variable')) {
 		return $bound->{ $v->name };
 	} elsif ($v->isa('RDF::Query::Node')) {
 		return $v;
 	} else {
+		warn Dumper($v, $bound);
 		throw RDF::Query::Error -text => 'Not an expression or node value';
 	}
 }
@@ -889,6 +991,8 @@ sub supported_extensions {
 	return qw(
 		http://kasei.us/2008/04/sparql-extension/service
 		http://kasei.us/2008/04/sparql-extension/service/bloom_filters
+		http://kasei.us/2008/04/sparql-extension/unsaid
+		http://kasei.us/2008/04/sparql-extension/federate_bindings
 		http://kasei.us/2008/04/sparql-extension/select_expression
 		http://kasei.us/2008/04/sparql-extension/aggregate
 		http://kasei.us/2008/04/sparql-extension/aggregate/count
@@ -932,7 +1036,8 @@ sub get_function {
 	my $self	= shift;
 	my $uri		= shift;
 	my %args	= @_;
-	warn "trying to get function from $uri" if ($debug);
+	my $l		= Log::Log4perl->get_logger("rdf.query");
+	$l->debug("trying to get function from $uri");
 	
 	if (blessed($uri) and $uri->isa('RDF::Query::Node::Resource')) {
 		$uri	= $uri->uri_value;
@@ -969,10 +1074,38 @@ sub call_function {
 	my $bridge	= shift;
 	my $bound	= shift;
 	my $uri		= shift;
-	warn "trying to get function from $uri" if ($debug);
+	my $l		= Log::Log4perl->get_logger("rdf.query");
+	$l->debug("trying to get function from $uri");
 	
 	my $filter			= RDF::Query::Expression::Function->new( $uri, @_ );
 	return $filter->evaluate( $self, $bridge, $bound );
+}
+
+=item C<< add_computed_statement_generator ( \&generator ) >>
+
+Adds a statement generator to the query object. This statement generator
+will be called as
+C<< $generator->( $query, $bridge, \%bound, $s, $p, $o, $c ) >>
+and is expected to return an RDF::Trine::Iterator::Graph object.
+
+=cut
+
+sub add_computed_statement_generator {
+	my $self	= shift;
+	my $gen		= shift;
+	push( @{ $self->{'computed_statement_generators'} }, $gen );
+}
+
+=item C<< get_computed_statement_generators >>
+
+Returns an ARRAY reference of computed statement generator closures.
+
+=cut
+
+sub get_computed_statement_generators {
+	my $self	= shift;
+	my $comps	= $self->{'computed_statement_generators'} || [];
+	return $comps;
 }
 
 
@@ -991,7 +1124,8 @@ sub net_filter_function {
 	my $self	= shift;
 	my $uri		= shift;
 	my %args	= @_;
-	warn "fetching $uri\n" if ($debug);
+	my $l		= Log::Log4perl->get_logger("rdf.query");
+	$l->debug("fetching $uri");
 	
 	my $bridge	= $self->new_bridge();
 	$bridge->add_uri( $uri );
@@ -1000,7 +1134,7 @@ sub net_filter_function {
 	
 	my $func	= do {
 		my $pred	= $bridge->new_resource('http://www.mindswap.org/~gtw/sparql#function');
-		my $stream	= $bridge->get_statements( $subj, $pred, undef );
+		my $stream	= $bridge->get_statements( $subj, $pred, undef, $self, {} );
 		my $st		= $stream->();
 		my $obj		= $bridge->object( $st );
 		my $func	= $bridge->literal_value( $obj );
@@ -1008,7 +1142,7 @@ sub net_filter_function {
 	
 	my $impl	= do {
 		my $pred	= $bridge->new_resource('http://www.mindswap.org/~gtw/sparql#source');
-		my $stream	= $bridge->get_statements( $subj, $pred, undef );
+		my $stream	= $bridge->get_statements( $subj, $pred, undef, $self, {} );
 		my $st		= $stream->();
 		my $obj		= $bridge->object( $st );
 		my $impl	= $bridge->uri_value( $obj );
@@ -1052,9 +1186,9 @@ sub net_filter_function {
 	return sub {
 		my $query	= shift;
 		my $bridge	= shift;
-		warn "Calling javascript function $func with: " . Dumper(\@_) if ($debug);
+		$l->debug("Calling javascript function $func with: " . Dumper(\@_));
 		my $value	= $cx->call( $func, @_ );
-		warn "--> $value\n" if ($debug);
+		$l->debug("--> $value");
 		return $value;
 	};
 }
@@ -1098,12 +1232,13 @@ sub new_javascript_engine {
 	my $self	= shift;
 	my %args	= @_;
 	my $bridge	= $args{bridge};
+	my $l		= Log::Log4perl->get_logger("rdf.query");
 	
 	my $rt		= JavaScript::Runtime->new();
 	my $cx		= $rt->create_context();
 	my $meta	= $bridge->meta;
-	$cx->bind_function( 'warn' => sub { warn @_ if ($debug || $js_debug) } );
-	$cx->bind_function( '_warn' => sub { warn @_ } );
+	$cx->bind_function( 'warn' => sub { $l->debug(@_) } );
+	$cx->bind_function( '_warn' => sub { $l->debug(@_) } );
 	$cx->bind_function( 'makeTerm' => sub {
 		my $term	= shift;
 		my $lang	= shift;
@@ -1367,6 +1502,44 @@ sub useragent {
 }
 
 
+=item C<< log ( $key [, $value ] ) >>
+
+If no logger object is associated with this query object, does nothing.
+Otherwise, return or set the corresponding value depending on whether a
+C<< $value >> is specified.
+
+=cut
+
+sub log {
+	my $self	= shift;
+	if (blessed(my $l = $self->{ logger })) {
+		$l->log( @_ );
+	}
+}
+
+
+=item C<< logger >>
+
+Returns the logger object associated with this query object (if present).
+
+=cut
+
+sub logger {
+	my $self	= shift;
+	return $self->{ logger };
+}
+
+=item C<< costmodel >>
+
+Returns the RDF::Query::CostModel object associated with this query object (if present).
+
+=cut
+
+sub costmodel {
+	my $self	= shift;
+	return $self->{ costmodel };
+}
+
 =item C<error ()>
 
 Returns the last error the parser experienced.
@@ -1433,42 +1606,14 @@ Debugging function to print out a deparsed (textual) version of a closure.
 =cut
 
 sub _debug_closure {
-	return unless ($debug > 1);
 	my $closure	= shift;
-	require B::Deparse;
-	my $deparse	= B::Deparse->new("-p", "-sC");
-	my $body	= $deparse->coderef2text($closure);
-	warn "--- --- CLOSURE --- ---\n";
-	Carp::cluck $body;
-}
-
-=begin private
-
-=item C<_debug ( $message, $level, $trace )>
-
-Debugging function to print out C<$message> at or above the specified debugging
-C<$level>, with an optional stack C<$trace>.
-	
-=end private
-
-=cut
-
-sub _debug {
-	my $mesg	= shift;
-	my $level	= shift	|| 1;
-	my $trace	= shift || 0;
-	my ($package, $filename, $line, $sub, $hasargs, $wantarray, $evaltext, $is_require, $hints, $bitmask)	= caller(1);
-	
-	$sub		=~ s/^.*://;
-	chomp($mesg);
-	my $output	= join(' ', $mesg, 'at', $filename, $line); # . "\n";
-	if ($debug >= $level) {
-		carp $output;
-		if ($trace) {
-			unless ($filename =~ m/Redland/) {
-				warn Carp::longmess();
-			}
-		}
+	my $l		= Log::Log4perl->get_logger("rdf.query");
+	if ($l->is_trace) {
+		require B::Deparse;
+		my $deparse	= B::Deparse->new("-p", "-sC");
+		my $body	= $deparse->coderef2text($closure);
+		$l->trace("--- --- CLOSURE --- ---");
+		$l->logcluck($body);
 	}
 }
 
@@ -1542,6 +1687,6 @@ C<$iterator> is a RDF::Trine::Iterator object.
 
 =head1 AUTHOR
 
- Gregory Todd Williams <greg@evilfunhouse.com>
+ Gregory Todd Williams <gwilliams@cpan.org>
 
 =cut

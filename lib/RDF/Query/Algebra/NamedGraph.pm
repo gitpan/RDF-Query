@@ -13,9 +13,9 @@ use strict;
 use warnings;
 no warnings 'redefine';
 use base qw(RDF::Query::Algebra);
-use constant DEBUG	=> 0;
 
 use Data::Dumper;
+use Log::Log4perl;
 use RDF::Query::Error;
 use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
@@ -24,10 +24,9 @@ use RDF::Trine::Iterator qw(sgrep smap swatch);
 
 ######################################################################
 
-our ($VERSION, $debug, $lang, $languri);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -99,11 +98,13 @@ Returns the SSE string for this alegbra expression.
 sub sse {
 	my $self	= shift;
 	my $context	= shift;
+	my $prefix	= shift || '';
+	my $indent	= $context->{indent};
 	
 	return sprintf(
-		'(namedgraph %s %s)',
-		$self->graph->sse( $context ),
-		$self->pattern->sse( $context )
+		"(namedgraph\n${prefix}${indent}%s\n${prefix}${indent}%s)",
+		$self->graph->sse( $context, "${prefix}${indent}" ),
+		$self->pattern->sse( $context, "${prefix}${indent}" )
 	);
 }
 
@@ -210,7 +211,7 @@ sub fixup {
 	my $base	= shift;
 	my $ns		= shift;
 	
-	if (my $opt = $bridge->fixup( $self, $query, $base, $ns )) {
+	if (my $opt = $query->algebra_fixup( $self, $bridge, $base, $ns )) {
 		return $opt;
 	} else {
 		my $graph	= ($self->graph->isa('RDF::Query::Node'))
@@ -220,30 +221,6 @@ sub fixup {
 		my $pattern	= $self->pattern->fixup( $query, $bridge, $base, $ns );
 		return $class->new( $graph, $pattern );
 	}
-}
-
-=item C<< execute ( $query, $bridge, \%bound, $context, %args ) >>
-
-=cut
-
-sub execute {
-	my $self		= shift;
-	my $query		= shift;
-	my $bridge		= shift;
-	my $bound		= shift;
-	my $outer_ctx	= shift;
-	my %args		= @_;
-	
-	if ($outer_ctx) {
-		throw RDF::Query::Error::QueryPatternError ( -text => "Can't use nested named graphs" );
-	}
-
-	my $context			= $self->graph;
-	my $named_triples	= $self->pattern;
-	
-	_debug( 'named triples: ' . Dumper($named_triples), 1 ) if (DEBUG);
-	my $nstream	= $named_triples->execute( $query, $bridge, $bound, $context, %args );
-	return $nstream;
 }
 
 1;

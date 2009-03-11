@@ -16,16 +16,17 @@ use base qw(RDF::Query::Algebra);
 
 use Data::Dumper;
 use Set::Scalar;
+use Log::Log4perl;
 use Scalar::Util qw(blessed);
 use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
+use Time::HiRes qw(gettimeofday tv_interval);
 
 ######################################################################
 
-our ($VERSION, $debug);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -71,6 +72,9 @@ Returns the pattern to be sorted.
 
 sub pattern {
 	my $self	= shift;
+	if (@_) {
+		$self->[0]	= shift;
+	}
 	return $self->[0];
 }
 
@@ -95,17 +99,19 @@ Returns the SSE string for this alegbra expression.
 sub sse {
 	my $self	= shift;
 	my $context	= shift;
+	my $prefix	= shift || '';
+	my $indent	= $context->{indent};
 	
 	my @order_sse;
 	my @orderby	= $self->orderby;
 	foreach my $o (@orderby) {
 		my ($dir, $val)	= @$o;
-		push(@order_sse, sprintf("($dir %s)", $val->sse( $context )));
+		push(@order_sse, sprintf("($dir %s)", $val->sse( $context, "${prefix}${indent}" )));
 	}
 	
 	return sprintf(
-		'(sort %s %s)',
-		$self->pattern->sse( $context ),
+		"(sort\n${prefix}${indent}%s\n${prefix}${indent}%s)",
+		$self->pattern->sse( $context, "${prefix}${indent}" ),
 		join(' ', @order_sse),
 	);
 }
@@ -187,7 +193,7 @@ sub fixup {
 	my $base	= shift;
 	my $ns		= shift;
 	
-	if (my $opt = $bridge->fixup( $self, $query, $base, $ns )) {
+	if (my $opt = $query->algebra_fixup( $self, $bridge, $base, $ns )) {
 		return $opt;
 	} else {
 		my $pattern	= $self->pattern->fixup( $query, $bridge, $base, $ns );
@@ -202,78 +208,14 @@ sub fixup {
 	}
 }
 
-=item C<< execute ( $query, $bridge, \%bound, $context, %args ) >>
+=item C<< is_solution_modifier >>
+
+Returns true if this node is a solution modifier.
 
 =cut
 
-sub execute {
-	my $self		= shift;
-	my $query		= shift;
-	my $bridge		= shift;
-	my $bound		= shift;
-	my $context		= shift;
-	my %args		= @_;
-	
-	my $stream		= $self->pattern->execute( $query, $bridge, $bound, $context, %args );
-	my @cols		= $self->orderby;
-	
-#	local($debug)	= 1;
-	my ($req_sort, $actual_sort);
-	eval {
-		$req_sort	= join(',', map { $_->[1]->name => $_->[0] } @cols);
-		$actual_sort	= join(',', $stream->sorted_by());
-		if ($debug) {
-			warn "stream is sorted by $actual_sort\n";
-			warn "trying to sort by $req_sort\n";
-		}
-	};
-	
-	my @variables	= $self->pattern->referenced_variables;
-	my %colmap		= map { $variables[$_] => $_ } (0 .. $#variables);
-	warn 'sort variable colmap: ' . Dumper(\@variables, \%colmap) if ($debug);
-	
-	if (not($@) and substr($actual_sort, 0, length($req_sort)) eq $req_sort) {
-		warn "Already sorted. Ignoring." if ($debug);
-	} else {
-		my ($dir, $data)	= @{ $cols[0] };
-		if ($dir ne 'ASC' and $dir ne 'DESC') {
-			warn "Direction of sort not recognized: $dir";
-			$dir	= 'ASC';
-		}
-		
-		my $col				= $data;
-		my $colmap_value	= $colmap{$col};
-		
-		my @nodes;
-		while (my $node = $stream->next()) {
-			push(@nodes, $node);
-		}
-		
-		no warnings 'numeric';
-		@nodes	= map {
-					my $bound	= $_;
-					my $value	= $query->var_or_expr_value( $bridge, $bound, $data );
-					[ $_, $value ]
-				} @nodes;
-		
-		{
-			local($RDF::Query::Node::Literal::LAZY_COMPARISONS)	= 1;
-			use sort 'stable';
-			@nodes	= sort { $a->[1] <=> $b->[1] } @nodes;
-			@nodes	= reverse @nodes if ($dir eq 'DESC');
-		}
-		
-		@nodes	= map { $_->[0] } @nodes;
-
-
-		my $type	= $stream->type;
-		my $names	= [ $stream->binding_names ];
-		my $args	= $stream->_args;
-		my %sorting	= (sorted_by => [$col, $dir]);
-		$stream		= RDF::Trine::Iterator::Bindings->new( sub { shift(@nodes) }, $names, %$args, %sorting );
-	}
-	
-	return $stream;
+sub is_solution_modifier {
+	return 1;
 }
 
 

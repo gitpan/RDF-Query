@@ -7,6 +7,7 @@ use base qw(RDF::Query::Model);
 
 use Carp qw(carp croak);
 
+use Log::Log4perl;
 use Data::Dumper;
 use File::Spec;
 use File::Temp qw(tempfile);
@@ -24,10 +25,9 @@ use RDF::Trine::Statement::Quad;
 
 ######################################################################
 
-our ($VERSION, $debug);
+our ($VERSION);
 BEGIN {
-	$debug		= 0;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -80,9 +80,12 @@ resources and blanks).
 =cut
 
 sub meta {
+	my $self	= shift;
+	
 	return {
 		class		=> __PACKAGE__,
 		model		=> 'RDF::Core::Model',
+		store		=> 'RDF::Core::Storage',
 		statement	=> 'RDF::Core::Statement',
 		node		=> 'RDF::Core::Node',
 		resource	=> 'RDF::Core::Resource',
@@ -267,8 +270,17 @@ sub _get_statements {
 	my $self	= shift;
 	my @triple	= splice(@_, 0, 3);
 	
-	@triple		= map { _cast_to_rdfcore( $_ ) } @triple;
+	for my $i (0, 1) {
+		my $node	= $triple[ $i ];
+		if (blessed($node) and $node->isa('RDF::Trine::Node::Literal')) {
+			# we have to check this manually, because (as of 2008.7.29) RDF::Core
+			# will die if we try to get statements with a literal in the subject
+			# or predicate position.
+			return RDF::Trine::Iterator::Graph->new( [] );
+		}
+	}
 	
+	@triple		= map { _cast_to_rdfcore( $_ ) } @triple;
 	my $enum	= $self->{'model'}->getStmts( @triple );
 	my $stmt	= $enum->getNext;
 	my $finished	= 0;
@@ -496,15 +508,18 @@ model) to STDERR.
 sub debug {
 	my $self	= shift;
 	my $model	= shift || $self->model;
-	my $stream	= $model->getStmts();
-	warn "------------------------------\n";
-	my $statement	= $stream->getFirst;
-	while (defined $statement) {
-		print STDERR $statement->getLabel . "\n";
-		$statement = $stream->getNext
+	my $l		= Log::Log4perl->get_logger("rdf.query.model.rdfcore");
+	if ($l->is_debug) {
+		my $stream	= $model->getStmts();
+		$l->debug("------------------------------");
+		my $statement	= $stream->getFirst;
+		while (defined $statement) {
+			$l->debug($statement->getLabel);
+			$statement = $stream->getNext
+		}
+		$stream->close;
+		$l->debug("------------------------------");
 	}
-	$stream->close;
-	warn "------------------------------\n";
 }
 
 sub _named_graph_models {

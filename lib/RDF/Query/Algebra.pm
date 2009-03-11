@@ -3,7 +3,7 @@
 
 =head1 NAME
 
-RDF::Query::Node - Base class for Algebra expressions
+RDF::Query::Algebra - Base class for Algebra expressions
 
 =head1 METHODS
 
@@ -14,16 +14,17 @@ RDF::Query::Node - Base class for Algebra expressions
 package RDF::Query::Algebra;
 
 BEGIN {
-	our $VERSION	= '2.002';
+	our $VERSION	= '2.003_01';
 }
 
 use strict;
 use warnings;
 no warnings 'redefine';
+
 use Set::Scalar;
 use Scalar::Util qw(blessed);
 use List::MoreUtils qw(uniq);
-
+use Data::Dumper;
 
 use RDF::Query::Expression;
 use RDF::Query::Expression::Alias;
@@ -33,6 +34,7 @@ use RDF::Query::Expression::Unary;
 use RDF::Query::Expression::Function;
 
 use RDF::Query::Algebra::BasicGraphPattern;
+use RDF::Query::Algebra::Construct;
 use RDF::Query::Algebra::Filter;
 use RDF::Query::Algebra::GroupGraphPattern;
 use RDF::Query::Algebra::Optional;
@@ -47,6 +49,28 @@ use RDF::Query::Algebra::Sort;
 use RDF::Query::Algebra::Limit;
 use RDF::Query::Algebra::Offset;
 use RDF::Query::Algebra::Distinct;
+use RDF::Query::Algebra::Path;
+use RDF::Query::Algebra::Project;
+use RDF::Query::Algebra::Not;
+
+use constant SSE_TAGS	=> {
+	'BGP'					=> 'RDF::Query::Algebra::BasicGraphPattern',
+	'constant'				=> 'RDF::Query::Algebra::Constant',
+	'construct'				=> 'RDF::Query::Algebra::Construct',
+	'distinct'				=> 'RDF::Query::Algebra::Distinct',
+	'filter'				=> 'RDF::Query::Algebra::Filter',
+	'limit'					=> 'RDF::Query::Algebra::Limit',
+	'namedgraph'			=> 'RDF::Query::Algebra::NamedGraph',
+	'offset'				=> 'RDF::Query::Algebra::Offset',
+	'project'				=> 'RDF::Query::Algebra::Project',
+	'quad'					=> 'RDF::Query::Algebra::Quad',
+	'service'				=> 'RDF::Query::Algebra::Service',
+	'sort'					=> 'RDF::Query::Algebra::Sort',
+	'triple'				=> 'RDF::Query::Algebra::Triple',
+	'union'					=> 'RDF::Query::Algebra::Union',
+	'join'					=> 'RDF::Query::Algebra::GroupGraphPattern',
+	'leftjoin'				=> 'RDF::Query::Algebra::Optional',
+};
 
 =item C<< referenced_blanks >>
 
@@ -143,6 +167,13 @@ sub qualify_uris {
 	foreach my $arg ($self->construct_args) {
 		if (blessed($arg) and $arg->isa('RDF::Query::Algebra')) {
 			push(@args, $arg->qualify_uris( $ns, $base ));
+		} elsif (blessed($arg) and $arg->isa('RDF::Query::Node::Resource')) {
+			my $uri	= $arg->uri_value;
+			if (ref($uri)) {
+				$uri	= join('', $ns->{ $uri->[0] }, $uri->[1]);
+				$arg	= RDF::Query::Node::Resource->new( $uri );
+			}
+			push(@args, $arg);
 		} else {
 			push(@args, $arg);
 		}
@@ -150,9 +181,44 @@ sub qualify_uris {
 	return $class->new( @args );
 }
 
-=item C<< subpatterns_of_type ( $type ) >>
+=item C<< bind_variables ( \%bound ) >>
+
+Returns a new algebra pattern with variables named in %bound replaced by their corresponding bound values.
+
+=cut
+
+sub bind_variables {
+	my $self	= shift;
+	my $class	= ref($self);
+	my $bound	= shift;
+	my @args;
+	foreach my $arg ($self->construct_args) {
+		if (blessed($arg) and $arg->isa('RDF::Query::Algebra')) {
+			push(@args, $arg->bind_variables( $bound ));
+		} elsif (blessed($arg) and $arg->isa('RDF::Trine::Node::Variable') and exists($bound->{ $arg->name })) {
+			push(@args, $bound->{ $arg->name });
+		} else {
+			push(@args, $arg);
+		}
+	}
+	return $class->new( @args );
+}
+
+=item C<< is_solution_modifier >>
+
+Returns true if this node is a solution modifier.
+
+=cut
+
+sub is_solution_modifier {
+	return 0;
+}
+
+=item C<< subpatterns_of_type ( $type [, $block] ) >>
 
 Returns a list of Algebra patterns matching C<< $type >> (tested with C<< isa >>).
+If C<< $block >> is given, then matching stops descending a subtree if the current
+node is of type C<< $block >>, continuing matching on other subtrees.
 This list includes the current algebra object if it matches C<< $type >>, and is
 generated in infix order.
 
@@ -161,6 +227,9 @@ generated in infix order.
 sub subpatterns_of_type {
 	my $self	= shift;
 	my $type	= shift;
+	my $block	= shift;
+	
+	return if ($block and $self->isa($block));
 	
 	my @patterns;
 	push(@patterns, $self) if ($self->isa($type));
@@ -170,6 +239,144 @@ sub subpatterns_of_type {
 		}
 	}
 	return @patterns;
+}
+
+=item C<< nested_loop_local_join ( $outer_iterator, $inner_algebra, $query, $bridge, $bound, $context ) >>
+
+Performs a natural, nested loop join, returning a new stream of joined results.
+
+Items from C<< $outer_iterator >> are used as bound values to successive calls
+to C<< $inner_algebra->execute >>.
+
+=cut
+
+sub nested_loop_local_join {
+	my $self	= shift;
+	my $outer	= shift;
+	my $inner	= shift;
+	my $query	= shift;
+	my $bridge	= shift;
+	my $bound	= shift || {};
+	my $context	= shift;
+	my %args	= @_;
+	
+	Carp::confess unless ($outer->isa('RDF::Trine::Iterator::Bindings'));
+	Carp::confess unless ($inner->isa('RDF::Query::Algebra'));
+	my $l		= Log::Log4perl->get_logger("rdf.query.algebra");
+	
+	my $a		= $outer;
+	
+	no warnings 'uninitialized';
+	
+	my $rowa;
+	my $inner_iter;
+	my $need_new_a	= 1;
+	my $sub	= sub {
+		OUTER: while (1) {
+			if ($need_new_a) {
+				$rowa = $a->next or return undef;
+				$l->debug("*** new outer tuple");
+				$l->debug("OUTER: " . Dumper($rowa));
+				my %tmpbound;
+				foreach my $h ($bound, $rowa) {
+					foreach my $k (keys %$h) {
+						if (defined($h->{ $k })) {
+							$tmpbound{ $k }	= $h->{ $k };
+						}
+					}
+				}
+				$l->debug("executing inner pattern " . $inner->as_sparql . " with bound values: " . '{' . join(', ', map { join('=', $_, ($tmpbound{$_}) ? $tmpbound{$_}->as_string : '(undef)') } (keys %tmpbound)) . '}' );
+				$inner_iter		= $inner->execute( $query, $bridge, \%tmpbound, $context, %args ); #->project( @names );
+				$need_new_a		= 0;
+			}
+			$l->debug("OUTER: " . Dumper($rowa));
+			return undef unless ($rowa);
+			LOOP: while (my $rowb = $inner_iter->next) {
+				$l->debug("- INNER: " . Dumper($rowb));
+				$l->debug("[--JOIN--] " . join(' ', map { my $row = $_; '{' . join(', ', map { join('=', $_, ($row->{$_}) ? $row->{$_}->as_string : '(undef)') } (keys %$row)) . '}' } ($rowa, $rowb)));
+				my %keysa	= map {$_=>1} (keys %$rowa);
+				my @shared	= grep { $keysa{ $_ } } (keys %$rowb);
+				foreach my $key (@shared) {
+					my $val_a	= $rowa->{ $key };
+					my $val_b	= $rowb->{ $key };
+					my $defined	= 0;
+					foreach my $n ($val_a, $val_b) {
+						$defined++ if (defined($n));
+					}
+					if ($defined == 2) {
+						my $equal	= $val_a->equal( $val_b );
+						unless ($equal) {
+							$l->debug("can't join because mismatch of $key (" . join(' <==> ', map {$_->as_string} ($val_a, $val_b)) . ")");
+							next LOOP;
+						}
+					}
+				}
+				
+				my $row	= { (map { $_ => $rowa->{$_} } grep { defined($rowa->{$_}) } keys %$rowa), (map { $_ => $rowb->{$_} } grep { defined($rowb->{$_}) } keys %$rowb) };
+				if ($l->is_debug) {
+					$l->debug("JOINED:");
+					foreach my $key (keys %$row) {
+						$l->debug("$key\t=> " . $row->{ $key }->as_string);
+					}
+				}
+				return $row;
+			}
+			$need_new_a	= 1;
+		}
+	};
+	
+	my @names	= uniq( $outer->binding_names, $inner->referenced_variables );
+	my $args	= $outer->_args;
+	return $outer->_new( $sub, 'bindings', \@names, %$args );
+}
+
+=item C<< from_sse ( $sse, \%context ) >>
+
+Given an SSE serialization, returns the corresponding algebra expression.
+
+=cut
+
+sub from_sse {
+	my $class	= shift;
+	my $context	= $_[1];
+	if (substr($_[0], 0, 1) eq '(') {
+		for ($_[0]) {
+			if (my ($tag) = m/^[(](\w+)/) {
+				if ($tag eq 'prefix') {
+					s/^[(]prefix\s*[(]\s*//;
+					my $c	= { %{ $context || {} } };
+					while (my ($ns, $iri) = m/^[(](\S+):\s*<([^>]+)>[)]/) {
+						s/^[(](\S+):\s*<([^>]+)>[)]\s*//;
+						$c->{namespaces}{ $ns }	= $iri;
+						$context	= $c;
+					}
+					s/^[)]\s*//;
+					my $alg	= $class->from_sse( $_, $c );
+					s/^[)]\s*//;
+					return $alg;
+				}
+				
+				if (my $class = SSE_TAGS->{ $tag }) {
+					if ($class->can('_from_sse')) {
+						return $class->_from_sse( $_, $context );
+					} else {
+						s/^[(](\w+)\s*//;
+						my @nodes;
+						while (my $alg = $class->from_sse( $_, $context )) {
+							push(@nodes, $alg);
+						}
+						return $class->new( @nodes );
+					}
+				} else {
+					throw RDF::Query::Error -text => "Unknown SSE tag '$tag' in SSE string: >>$_<<";
+				}
+			} else {
+				throw RDF::Trine::Error -text => "Cannot parse pattern from SSE string: >>$_<<";
+			}
+		}
+	} else {
+		return;
+	}
 }
 
 1;

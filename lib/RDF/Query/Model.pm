@@ -21,10 +21,9 @@ use Carp qw(carp croak confess);
 
 ######################################################################
 
-our ($VERSION, $debug, $lang, $languri);
+our ($VERSION);
 BEGIN {
-	$debug		= 1;
-	$VERSION	= '2.002';
+	$VERSION	= '2.003_01';
 }
 
 ######################################################################
@@ -389,7 +388,61 @@ predicate and objects. Any of the arguments may be undef to match any value.
 
 sub get_statements {
 	my $self	= shift;
-	return $self->_get_statements( @_ );
+	my $s		= shift;
+	my $p		= shift;
+	my $o		= shift;
+	my $iter	= $self->_get_statements( $s, $p, $o );
+	if (@_) {
+		my $query	= shift;
+		my $bound	= shift;
+		if (my $extra_iter = $self->get_computed_statements( $s, $p, $o, $query, $bound )) {
+			$iter	= $iter->concat( $extra_iter );
+		}
+	}
+	return $iter;
+}
+
+=item C<< get_basic_graph_pattern ( $execution_context, @triples ) >>
+
+Returns a stream object of all variable bindings matching the specified RDF::Trine::Statement objects.
+
+=cut
+
+sub get_basic_graph_pattern {
+	my $self	= shift;
+	my $context	= shift;
+	my @triples	= @_;
+	my $iter	= $self->_get_basic_graph_pattern( @triples );
+	return $iter;
+}
+
+=item C<< get_computed_statements ( $subject, $predicate, $object, $query, \%bound ) >>
+
+Returns a stream object of all computed statements matching the specified subject,
+predicate and objects. Any of the arguments may be undef to match any value.
+
+=cut
+
+sub get_computed_statements {
+	my $self	= shift;
+	my $s		= shift;
+	my $p		= shift;
+	my $o		= shift;
+	my $query	= shift;
+	my $bound	= shift;
+	my $iter;
+	if (blessed($query)) {
+		my $comps	= $query->get_computed_statement_generators;
+		foreach my $c (@$comps) {
+			my $new	= $c->( $query, $self, $bound, $s, $p, $o );
+			if ($new and not($iter)) {
+				$iter	= $new;
+			} elsif ($new) {
+				$iter	= $iter->concat( $new );
+			}
+		}
+		return $iter;
+	}
 }
 
 =item C<< get_named_statements ( $subject, $predicate, $object, $context ) >>
@@ -406,7 +459,12 @@ sub get_named_statements {
 	my $p		= shift;
 	my $o		= shift;
 	my $c		= shift;
-	return $self->_get_named_statements( $s, $p, $o, $c );
+	my $iter	= $self->_get_named_statements( $s, $p, $o, $c );
+	if (@_) {
+		my $query	= shift;
+		my $bound	= shift;
+	}
+	return $iter;
 }
 
 
@@ -427,8 +485,6 @@ sub count_statements {
 	my $model	= $self->{'model'};
 	my $stream;
 	
-	my %args	= ( bridge => $self, named => 1 );
-	
 	my $iter	= $model->get_statements( @triple, $context );
 	my $count	= 0;
 	while (my $row = $iter->next) {
@@ -436,6 +492,25 @@ sub count_statements {
 	}
 	
 	return $count;
+}
+
+=item C<node_count ( $subj, $pred, $obj )>
+
+Returns a number representing the frequency of statements in the
+model matching the given triple. This number is used in cost analysis
+for query optimization, and has a range of [0, 1] where zero represents
+no matching triples in the model and one represents matching all triples
+in the model.
+
+=cut
+
+sub node_count {
+	my $self	= shift;
+	my $model	= $self->model;
+	my $total	= $self->count_statements();
+	my $count	= $self->count_statements( @_ );
+	return 0 unless ($total);
+	return $count / $total;
 }
 
 =item C<< fixup ( $pattern, $query, $base, \%namespaces ) >>
@@ -462,11 +537,17 @@ model) to STDERR.
 sub debug {
 	my $self	= shift;
 	my $stream	= $self->get_statements( map { $self->new_variable($_) } qw(s p o) );
-	warn "------------------------------\n";
+	my $nstream	= $self->get_named_statements( map { $self->new_variable($_) } qw(s p o c) );
+	my $l		= Log::Log4perl->get_logger("rdf.query.model");
+	$l->debug("DEFAULT GRAPH ------------------------------");
 	while (my $st = $stream->next) {
-		warn $self->as_string( $st );
+		$l->debug($self->as_string( $st ));
 	}
-	warn "------------------------------\n";
+	$l->debug("NAMED GRAPH ------------------------------");
+	while (my $st = $nstream->next) {
+		$l->debug($self->as_string( $st ));
+	}
+	$l->debug("------------------------------");
 }
 
 
