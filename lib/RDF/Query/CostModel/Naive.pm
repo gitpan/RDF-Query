@@ -15,7 +15,7 @@ package RDF::Query::CostModel::Naive;
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.003_02';
+	$VERSION	= '2.003_03';
 }
 
 use strict;

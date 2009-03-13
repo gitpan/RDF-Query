@@ -27,7 +27,7 @@ use RDF::Trine::Iterator qw(smap sgrep swatch);
 our ($VERSION);
 my @node_methods	= qw(subject predicate object);
 BEGIN {
-	$VERSION	= '2.003_02';
+	$VERSION	= '2.003_03';
 }
 
 ######################################################################
