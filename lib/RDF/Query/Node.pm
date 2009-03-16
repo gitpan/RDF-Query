@@ -25,7 +25,7 @@ use RDF::Query::Node::Variable;
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.003_03';
+	$VERSION	= '2.100_01';
 }
 
 =item C<< is_variable >>
