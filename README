@@ -16,7 +16,6 @@ REQUIREMENTS
      * List::MoreUtils
      * LWP
      * Parse::RecDescent
-     * Parse::RecDescent
      * RDF::Trine
      * Scalar::Util
      * Set::Scalar
@@ -41,7 +40,7 @@ INSTALLATION
 
 VERSION HISTORY
 
-  Version 2.100 (2009-XX-XX)
+  Version 2.100 (2009-03-18)
 
      *** API:
      * Added ::Algebra::BasicGraphPattern::connected method.

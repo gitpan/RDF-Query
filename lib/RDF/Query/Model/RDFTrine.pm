@@ -31,7 +31,7 @@ use RDF::Trine::Iterator qw(smap);
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.100_01';
+	$VERSION	= '2.100';
 }
 
 ######################################################################
