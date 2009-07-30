@@ -5,6 +5,10 @@
 
 RDF::Query::Expression - Class for Expr expressions
 
+=head1 VERSION
+
+This document describes RDF::Query::Expression version 2.200_01, released XX July 2009.
+
 =cut
 
 package RDF::Query::Expression;
@@ -16,14 +20,13 @@ use base qw(RDF::Query::Algebra);
 
 use Data::Dumper;
 use Scalar::Util qw(blessed);
-use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
 
 ######################################################################
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.100';
+	$VERSION	= '2.200_01';
 }
 
 ######################################################################
@@ -125,7 +128,7 @@ sub referenced_variables {
 			push(@vars, $o->referenced_variables);
 		}
 	}
-	return uniq(@vars);
+	return RDF::Query::_uniq(@vars);
 }
 
 =item C<< fixup ( $query, $bridge, $base, \%namespaces ) >>

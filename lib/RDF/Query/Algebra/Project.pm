@@ -5,6 +5,10 @@
 
 RDF::Query::Algebra::Project - Algebra class for projection
 
+=head1 VERSION
+
+This document describes RDF::Query::Algebra::Project version 2.200_01, released XX July 2009.
+
 =cut
 
 package RDF::Query::Algebra::Project;
@@ -17,7 +21,6 @@ use base qw(RDF::Query::Algebra);
 use Data::Dumper;
 use Set::Scalar;
 use Scalar::Util qw(blessed);
-use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
 use RDF::Trine::Iterator qw(sgrep);
 
@@ -25,7 +28,7 @@ use RDF::Trine::Iterator qw(sgrep);
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.100';
+	$VERSION	= '2.200_01';
 }
 
 ######################################################################
@@ -98,7 +101,7 @@ sub sse {
 	my $self	= shift;
 	my $context	= shift;
 	my $prefix	= shift || '';
-	my $indent	= $context->{indent};
+	my $indent	= $context->{indent} || '  ';
 	
 	my $vars	= join(' ',
 					map {
@@ -106,7 +109,7 @@ sub sse {
 					} @{ $self->vars }
 				);
 	return sprintf(
-		"(project (%s)\n${prefix}${indent}%s)",
+		"(project (%s)\n${prefix}${indent}%s\n${prefix})",
 		$vars,
 		$self->pattern->sse( $context, "${prefix}${indent}" ),
 	);
@@ -197,7 +200,7 @@ sub referenced_variables {
 			push(@vars, $v->referenced_variables);
 		}
 	}
-	return uniq(@vars);
+	return RDF::Query::_uniq(@vars);
 }
 
 =item C<< definite_variables >>

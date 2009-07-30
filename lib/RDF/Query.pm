@@ -3,11 +3,11 @@
 
 =head1 NAME
 
-RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF::Redland and RDF::Core.
+RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF::Trine, RDF::Redland, and RDF::Core.
 
 =head1 VERSION
 
-This document describes RDF::Query version 2.100, released XX March 2009.
+This document describes RDF::Query version 2.200_01, released XX July 2009.
 
 =head1 SYNOPSIS
 
@@ -94,7 +94,6 @@ use Data::Dumper;
 use LWP::UserAgent;
 use I18N::LangTags;
 use List::Util qw(first);
-use List::MoreUtils qw(uniq);
 use Scalar::Util qw(blessed reftype looks_like_number);
 use DateTime::Format::W3CDTF;
 
@@ -102,7 +101,7 @@ use Log::Log4perl qw(:easy);
 Log::Log4perl->easy_init($ERROR);
 
 no warnings 'numeric';
-use RDF::Trine 0.108;
+use RDF::Trine 0.111;
 use RDF::Trine::Iterator qw(sgrep smap swatch);
 
 require RDF::Query::Functions;	# (needs to happen at runtime because some of the functions rely on RDF::Query being fully loaded (to call add_hook(), for example))
@@ -129,7 +128,7 @@ use RDF::Query::CostModel::Counted;
 
 our ($VERSION, $DEFAULT_PARSER);
 BEGIN {
-	$VERSION		= '2.100';
+	$VERSION		= '2.200_01';
 	$DEFAULT_PARSER	= 'sparql';
 }
 
@@ -223,6 +222,9 @@ sub new {
 	if (defined $options{secretkey}) {
 		$self->{options}{secretkey}	= $options{secretkey};
 	}
+	if (defined $options{defines}) {
+		@{ $self->{options} }{ keys %{ $options{defines} } }	= values %{ $options{defines} };
+	}
 	
 	if ($options{logger}) {
 		$l->debug("got external logger");
@@ -241,6 +243,16 @@ sub new {
 		$self->{optimize}	= $opt;
 	} else {
 		$self->{optimize}	= 0;
+	}
+	
+	if (my $opt = $options{force_no_optimization}) {
+		$l->debug("got force_no_optimization flag");
+		$self->{force_no_optimization}	= 1;
+	}
+	
+	if (my $time = $options{optimistic_threshold_time}) {
+		$l->debug("got optimistic_threshold_time flag");
+		$self->{optimistic_threshold_time}	= $time;
 	}
 	
 	# add rdf as a default namespace to RDQL queries
@@ -283,6 +295,7 @@ sub prepare {
 	
 	$self->{_query_cache}	= {};	# a new scratch hash for each execution.
 	my %bound	= ($args{ 'bind' }) ? %{ $args{ 'bind' } } : ();
+	my $errors	= ($args{ 'strict_errors' }) ? 1 : 0;
 	my $parsed	= $self->{parsed};
 	my @vars	= $self->variables( $parsed );
 	
@@ -300,16 +313,19 @@ sub prepare {
 	
 	$l->trace("constructing ExecutionContext");
 	my $context	= RDF::Query::ExecutionContext->new(
-					bound				=> \%bound,
-					model				=> $bridge,
-					query				=> $self,
-					base				=> $parsed->{base},
-					ns					=> $parsed->{namespaces},
-					logger				=> $self->logger,
-					costmodel			=> $self->costmodel,
-					optimize			=> $self->{optimize},
-					requested_variables	=> \@vars,
-					model_optimize		=> 1,
+					bound						=> \%bound,
+					model						=> $bridge,
+					query						=> $self,
+					base						=> $parsed->{base},
+					ns							=> $parsed->{namespaces},
+					logger						=> $self->logger,
+					costmodel					=> $self->costmodel,
+					optimize					=> $self->{optimize},
+					force_no_optimization		=> $self->{force_no_optimization},
+					optimistic_threshold_time	=> $self->{optimistic_threshold_time} || 0,
+					requested_variables			=> \@vars,
+					model_optimize				=> 1,
+					strict_errors				=> $errors,
 				);
 	
 	$self->{model}		= $model;
@@ -344,7 +360,6 @@ sub execute {
 		$l->trace(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
 		$l->trace($self->as_sparql);
 		$l->trace(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
-		exit;
 	}
 	return $self->execute_plan( $plan, $context );
 }
@@ -380,7 +395,11 @@ sub execute_plan {
 	$l->debug("executing the graph pattern");
 	
 	my $options	= $parsed->{options} || {};
-
+	
+	if ($self->{options}{plan}) {
+		warn $plan->sse({}, '');
+	}
+	
 	$plan->execute( $context );
 	my $stream	= $plan->as_iterator( $context );
 # 	my $stream	= RDF::Trine::Iterator::Bindings->new( sub { $plan->next }, \@vars, distinct => $plan->distinct, sorted_by => $plan->ordered );
@@ -476,7 +495,9 @@ sub query_plan {
 		return @plans;
 	} else {
 		my ($plan)	= $self->prune_plans( $context, @plans );
-		$l->debug("using query plan: " . $plan->sse({}, ''));
+		if ($l->is_debug) {
+			$l->debug("using query plan: " . $plan->sse({}, ''));
+		}
 		return $plan;
 	}
 }
@@ -486,7 +507,8 @@ sub query_plan {
 =item C<< plan_class >>
 
 Returns the class name for Plan generation. This method should be overloaded by
-RDF::Query subclasses if the subclass also provides a subclass of RDF::Query::Plan.
+RDF::Query subclasses if the implementation also provides a subclass of
+RDF::Query::Plan.
 
 =end private
 
@@ -1557,6 +1579,15 @@ sub error {
 	}
 }
 
+sub _uniq {
+	my %seen;
+	my @data;
+	foreach (@_) {
+		push(@data, $_) unless ($seen{ $_ }++);
+	}
+	return @data;
+}
+
 =begin private
 
 =item C<set_error ( $error )>
@@ -1635,6 +1666,8 @@ __END__
 
 =item * L<DateTime::Format::W3CDTF|DateTime::Format::W3CDTF>
 
+=item * L<Digest::SHA1|Digest::SHA1>
+
 =item * L<Error|Error>
 
 =item * L<I18N::LangTags|I18N::LangTags>
@@ -1643,8 +1676,6 @@ __END__
 
 =item * L<List::Util|List::Util>
 
-=item * L<List::MoreUtils|List::MoreUtils>
-
 =item * L<LWP|LWP>
 
 =item * L<Parse::RecDescent|Parse::RecDescent>
@@ -1652,6 +1683,10 @@ __END__
 =item * L<Scalar::Util|Scalar::Util>
 
 =item * L<Set::Scalar|Set::Scalar>
+
+=item * L<Storable|Storable>
+
+=item * L<URI|URI>
 
 =item * L<RDF::Redland|RDF::Redland> or L<RDF::Core|RDF::Core> for optional model support.
 
@@ -1689,5 +1724,11 @@ C<$iterator> is a RDF::Trine::Iterator object.
 =head1 AUTHOR
 
  Gregory Todd Williams <gwilliams@cpan.org>
+
+=head1 COPYRIGHT
+
+Copyright (c) 2005-2009 Gregory Todd Williams. All rights reserved. This
+program is free software; you can redistribute it and/or modify it under
+the same terms as Perl itself.
 
 =cut

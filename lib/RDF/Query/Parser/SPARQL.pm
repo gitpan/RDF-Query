@@ -7,7 +7,7 @@ RDF::Query::Parser::SPARQL - SPARQL Parser.
 
 =head1 VERSION
 
-This document describes RDF::Query::Parser::SPARQL version 1.000
+This document describes RDF::Query::Parser::SPARQL version 2.200_01, released XX July 2009.
 
 =head1 SYNOPSIS
 
@@ -31,7 +31,6 @@ use strict;
 use warnings;
 no warnings 'redefine';
 use base qw(RDF::Query::Parser);
-our $VERSION		= '2.100';
 
 use URI;
 use Data::Dumper;
@@ -40,7 +39,15 @@ use RDF::Query::Parser;
 use RDF::Query::Algebra;
 use RDF::Trine::Namespace qw(rdf);
 use Scalar::Util qw(blessed looks_like_number);
-use List::MoreUtils qw(uniq);
+
+######################################################################
+
+our ($VERSION);
+BEGIN {
+	$VERSION	= '2.200_01';
+}
+
+######################################################################
 
 my $rdf			= RDF::Trine::Namespace->new('http://www.w3.org/1999/02/22-rdf-syntax-ns#');
 my $xsd			= RDF::Trine::Namespace->new('http://www.w3.org/2001/XMLSchema#');
@@ -503,7 +510,7 @@ sub _SelectQuery {
 
 	if ($star) {
 		my $triples	= $self->{build}{triples} || [];
-		my @vars	= uniq( map { $_->referenced_variables } @$triples );
+		my @vars	= RDF::Query::_uniq( map { $_->referenced_variables } @$triples );
 		$self->{build}{variables}	= [ map { $self->new_variable($_) } @vars ];
 	}
 

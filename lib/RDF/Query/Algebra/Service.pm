@@ -5,6 +5,10 @@
 
 RDF::Query::Algebra::Service - Algebra class for SERVICE (federation) patterns
 
+=head1 VERSION
+
+This document describes RDF::Query::Algebra::Service version 2.200_01, released XX July 2009.
+
 =cut
 
 package RDF::Query::Algebra::Service;
@@ -18,7 +22,6 @@ use URI::Escape;
 use MIME::Base64;
 use Data::Dumper;
 use RDF::Query::Error;
-use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
 use Scalar::Util qw(blessed reftype);
 use Storable qw(store_fd fd_retrieve);
@@ -29,7 +32,7 @@ use RDF::Trine::Iterator qw(sgrep smap swatch);
 our ($VERSION, $BLOOM_FILTER_ERROR_RATE);
 BEGIN {
 	$BLOOM_FILTER_ERROR_RATE	= 0.1;
-	$VERSION	= '2.100';
+	$VERSION	= '2.200_01';
 }
 
 ######################################################################
@@ -138,7 +141,7 @@ sub sse {
 	my $indent	= $context->{indent};
 	
 	return sprintf(
-		'(service\n${prefix}${indent}%s\n${prefix}${indent}%s)',
+		"(service\n${prefix}${indent}%s\n${prefix}${indent}%s)",
 		$self->endpoint->sse( $context, "${prefix}${indent}" ),
 		$self->pattern->sse( $context, "${prefix}${indent}" )
 	);
@@ -192,7 +195,7 @@ Returns a list of the variable names that will be bound after evaluating this al
 
 sub definite_variables {
 	my $self	= shift;
-	return uniq(
+	return RDF::Query::_uniq(
 		map { $_->name } grep { $_->isa('RDF::Query::Node::Variable') } ($self->graph),
 		$self->pattern->definite_variables,
 	);

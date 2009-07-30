@@ -5,6 +5,10 @@
 
 RDF::Query::Federate - A subclass of RDF::Query for efficient federated query execution.
 
+=head1 VERSION
+
+This document describes RDF::Query::Federate version 2.200_01, released XX July 2009.
+
 =head1 SYNOPSIS
 
  my $service = RDF::Query::ServiceDescription->new( $url );
@@ -38,7 +42,7 @@ use RDF::Trine::Iterator qw(sgrep smap swatch);
 
 our ($VERSION);
 BEGIN {
-	$VERSION		= '2.100';
+	$VERSION		= '2.200_01';
 }
 
 
@@ -51,7 +55,9 @@ BEGIN {
 =cut
 
 
-=item C<new ( $query, $baseuri, $languri, $lang )>
+=item C<< new ( $query, \%options ) >>
+
+=item C<< new ( $query, $baseuri, $languri, $lang ) >>
 
 Returns a new RDF::Query::Federate object for the specified C<$query>.
 The query language defaults to SPARQLP, but may be set specifically by
@@ -84,6 +90,11 @@ sub add_service {
 	my $self	= shift;
 	my $service	= shift;
 	push(@{ $self->{ services } }, $service);
+	$self->add_computed_statement_generator( $service->computed_statement_generator );
+	
+	# and clear out the per-execution query cache, because adding a service might affect the cached values
+	$self->{_query_cache}	= {};
+	return;
 }
 
 =item C<< services >>
@@ -112,7 +123,12 @@ sub algebra_fixup {
 	my $base	= shift;
 	my $ns		= shift;
 	my $l		= Log::Log4perl->get_logger("rdf.query.federate");
-	return if ($self->{force_no_optimization});
+	
+	$l->trace("RDF::Query::Federate::algebra_fixup called");
+	if ($self->{force_no_optimization}) {
+		$l->debug("force_no_optimization flag is set, so not performing federation optimization");
+		return;
+	}
 	
 	# optimize BGPs when we're using service descriptions for pattern matching
 	# (instead of local model-based matching). figure out which triples in the
@@ -293,7 +309,8 @@ sub _services_for_bgp_triples {
 =item C<< plan_class >>
 
 Returns the class name for Plan generation. This method should be overloaded by
-RDF::Query subclasses if the subclass also provides a subclass of RDF::Query::Plan.
+RDF::Query subclasses if the implementation also provides a subclass of
+RDF::Query::Plan.
 
 =end private
 

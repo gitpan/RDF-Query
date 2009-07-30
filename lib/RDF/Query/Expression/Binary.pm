@@ -5,6 +5,10 @@
 
 RDF::Query::Expression::Binary - Algebra class for binary expressions
 
+=head1 VERSION
+
+This document describes RDF::Query::Expression::Binary version 2.200_01, released XX July 2009.
+
 =cut
 
 package RDF::Query::Expression::Binary;
@@ -17,14 +21,13 @@ use base qw(RDF::Query::Expression);
 use Data::Dumper;
 use Log::Log4perl;
 use Scalar::Util qw(blessed);
-use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
 
 ######################################################################
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.100';
+	$VERSION	= '2.200_01';
 }
 
 ######################################################################

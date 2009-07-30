@@ -5,6 +5,10 @@
 
 RDF::Query::CostModel::Counted - Execution cost estimator
 
+=head1 VERSION
+
+This document describes RDF::Query::CostModel::Counted version 2.200_01, released XX July 2009.
+
 =head1 METHODS
 
 =over 4
@@ -15,7 +19,7 @@ package RDF::Query::CostModel::Counted;
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.100';
+	$VERSION	= '2.200_01';
 }
 
 use strict;
@@ -28,7 +32,6 @@ use RDF::Query::Error qw(:try);
 use Set::Scalar;
 use Data::Dumper;
 use Scalar::Util qw(blessed);
-use List::MoreUtils qw(uniq);
 
 sub _cost_triple {
 	my $self	= shift;

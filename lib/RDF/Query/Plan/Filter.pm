@@ -5,6 +5,10 @@
 
 RDF::Query::Plan::Filter - Executable query plan for Filters.
 
+=head1 VERSION
+
+This document describes RDF::Query::Plan::Filter version 2.200_01, released XX July 2009.
+
 =head1 METHODS
 
 =over 4
@@ -16,6 +20,15 @@ package RDF::Query::Plan::Filter;
 use strict;
 use warnings;
 use base qw(RDF::Query::Plan);
+
+######################################################################
+
+our ($VERSION);
+BEGIN {
+	$VERSION	= '2.200_01';
+}
+
+######################################################################
 
 =item C<< new ( $plan, $expr ) >>
 
@@ -49,7 +62,9 @@ sub execute ($) {
 		my $expr	= $self->[1];
 		my $bool	= RDF::Query::Node::Resource->new( "sparql:ebv" );
 		my $filter	= RDF::Query::Expression::Function->new( $bool, $expr );
-		$l->debug("filter constructed for " . $expr->sse({}, ''));
+		if ($l->is_trace) {
+			$l->trace("filter constructed for " . $expr->sse({}, ''));
+		}
 		my $query	= $context->query;
 		my $bridge	= $context->model;
 		$self->[0]{filter}	= sub {
@@ -85,12 +100,14 @@ sub next {
 			$l->debug("no remaining rows in filter");
 			return;
 		}
-		$l->debug("filter processing bindings $row");
+		if ($l->is_trace) {
+			$l->trace("filter processing bindings $row");
+		}
 		if ($filter->( $row )) {
-			$l->debug( "- filter returned true on row" );
+			$l->trace( "- filter returned true on row" );
 			return $row;
 		} else {
-			$l->debug( "- filter returned false on row" );
+			$l->trace( "- filter returned false on row" );
 		}
 	}
 }

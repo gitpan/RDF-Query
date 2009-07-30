@@ -5,6 +5,10 @@
 
 RDF::Query::Plan::Construct - Executable query plan for constructing a graph from a set of variable bindings.
 
+=head1 VERSION
+
+This document describes RDF::Query::Plan::Construct version 2.200_01, released XX July 2009.
+
 =head1 METHODS
 
 =over 4
@@ -19,6 +23,15 @@ use base qw(RDF::Query::Plan);
 
 use Log::Log4perl;
 use Scalar::Util qw(blessed);
+
+######################################################################
+
+our ($VERSION);
+BEGIN {
+	$VERSION	= '2.200_01';
+}
+
+######################################################################
 
 =item C<< new ( $plan, \@triples ) >>
 
@@ -84,11 +97,15 @@ sub next {
 		my $row	= $plan->next;
 		return undef unless ($row);
 		
-		$l->debug( "- got construct bindings from pattern: " . $row->as_string );
+		if ($l->is_debug) {
+			$l->debug( "- got construct bindings from pattern: " . $row->as_string );
+		}
 		my $triples	= $self->triples;
 		
 		foreach my $t (@$triples) {
-			$l->debug( "- filling-in construct triple pattern: " . $t->as_string );
+			if ($l->is_debug) {
+				$l->debug( "- filling-in construct triple pattern: " . $t->as_string );
+			}
 			my @triple	= $t->nodes;
 			for my $i (0 .. 2) {
 				if ($triple[$i]->isa('RDF::Trine::Node::Variable')) {

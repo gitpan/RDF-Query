@@ -5,6 +5,10 @@
 
 RDF::Query::Algebra::Offset - Algebra class for offseting query results
 
+=head1 VERSION
+
+This document describes RDF::Query::Algebra::Offset version 2.200_01, released XX July 2009.
+
 =cut
 
 package RDF::Query::Algebra::Offset;
@@ -17,7 +21,6 @@ use base qw(RDF::Query::Algebra);
 use Data::Dumper;
 use Set::Scalar;
 use Scalar::Util qw(blessed);
-use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
 use RDF::Trine::Iterator qw(sgrep);
 
@@ -25,7 +28,7 @@ use RDF::Trine::Iterator qw(sgrep);
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.100';
+	$VERSION	= '2.200_01';
 }
 
 ######################################################################
@@ -144,7 +147,7 @@ Returns a list of the variable names used in this algebra expression.
 
 sub referenced_variables {
 	my $self	= shift;
-	return uniq($self->pattern->referenced_variables);
+	return RDF::Query::_uniq($self->pattern->referenced_variables);
 }
 
 =item C<< definite_variables >>

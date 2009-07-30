@@ -5,6 +5,10 @@
 
 RDF::Query::Node - Class for describing federated query data sources.
 
+=head1 VERSION
+
+This document describes RDF::Query::ServiceDescription version 2.200_01, released XX July 2009.
+
 =head1 METHODS
 
 =over 4
@@ -15,7 +19,7 @@ package RDF::Query::ServiceDescription;
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.100';
+	$VERSION	= '2.200_01';
 }
 
 use strict;
@@ -37,10 +41,14 @@ sub new {
 	my $class	= shift;
 	my $uri		= shift;
 	my %data	= @_;
+	unless ($data{capabilities}) {
+		$data{capabilities}	= [ { type => RDF::Query::Node::Resource->new('http://kasei.us/2008/04/sparql#any_triple') } ];
+
+	}
 	my $data	= {
-					url			=> $uri,
-					label		=> "SPARQL Endpoint $uri",
-					definitive	=> 0,
+					url				=> $uri,
+					label			=> "SPARQL Endpoint $uri",
+					definitive		=> 0,
 					%data,
 				};
 	my $self	= bless( $data, $class );
@@ -58,8 +66,6 @@ sub new_from_uri {
 	my $class	= shift;
 	my $uri		= shift;
 	
-	my $l		= Log::Log4perl->get_logger("rdf.query.servicedescription");
-	my ($label, $url, $triples, $definitive, @capabilities, @patterns);
 	my $ua		= LWP::UserAgent->new( agent => "RDF::Query/$RDF::Query::VERSION" );
 	$ua->default_headers->push_header( 'Accept' => "application/rdf+xml;q=0.5,text/turtle;q=0.7,text/xml" );
 	my $resp	= $ua->get( $uri );
@@ -73,7 +79,21 @@ sub new_from_uri {
 	my $model	= RDF::Trine::Model->new( $store );
 	my $parser	= RDF::Trine::Parser->new('turtle');
 	$parser->parse_into_model( $uri, $content, $model );
-	
+	return $class->new_with_model( $model );
+}
+
+=item C<< new_with_model ( $model ) >>
+
+Creates a new service description object using the DARQ-style service description
+data loaded in the supplied C<< $model >> object.
+
+=cut
+
+sub new_with_model {
+	my $class	= shift;
+	my $model	= shift;
+	my ($label, $url, $triples, $definitive, @capabilities, @patterns);
+	my $l		= Log::Log4perl->get_logger("rdf.query.servicedescription");
 	my $infoquery	= RDF::Query->new( <<"END" );
 		PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 		PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
@@ -102,11 +122,17 @@ END
 			PREFIX foaf: <http://xmlns.com/foaf/0.1/#>
 			PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 			PREFIX sd: <http://darq.sf.net/dose/0.1#>
-			SELECT DISTINCT ?pred ?sofilter ?ssel ?osel ?triples
+			PREFIX sparql: <http://kasei.us/2008/04/sparql#>
+			SELECT DISTINCT ?pred ?type ?sofilter ?ssel ?osel ?triples
 			WHERE {
 				[] a sd:Service ;
 					sd:capability ?cap .
-				?cap sd:predicate ?pred .
+				{
+					?cap sd:predicate ?pred .
+				} UNION {
+					?cap a ?type .
+					FILTER(?type = sparql:any_triple)
+				}
 				OPTIONAL { ?cap sd:sofilter ?sofilter }
 				OPTIONAL { ?cap sd:objectSelectivity ?osel }
 				OPTIONAL { ?cap sd:subjectSelectivity ?ssel }
@@ -115,8 +141,10 @@ END
 END
 		my $iter	= $capquery->execute( $model );
 		while (my $row = $iter->next) {
-			my ($p, $f, $ss, $os, $t)	= @{ $row }{ qw(pred sofilter ssel osel triples) };
-			my $data						= { pred => $p };
+			my ($p, $type, $f, $ss, $os, $t)	= @{ $row }{ qw(pred type sofilter ssel osel triples) };
+			my $data						= ($p)
+											? { pred => $p }
+											: { type => $type };
 			$data->{ object_selectivity }	= $os if (defined $os);
 			$data->{ subject_selectivity }	= $ss if (defined $ss);
 			$data->{ size }					= $t if (defined $t);
@@ -166,16 +194,14 @@ END
 		}
 	}
 	
-	my $data	= {
+	my %data	= (
 					label			=> (ref($label) ? $label->literal_value : ''),
-					url				=> $url->uri_value,
 					size			=> (ref($triples) ? $triples->literal_value : ''),
 					definitive		=> $definitive,
 					capabilities	=> \@capabilities,
 					patterns		=> \@patterns,
-				};
-	my $self	= bless( $data, $class );
-	return $self;
+				);
+	return $class->new( $url->uri_value, %data );
 }
 
 =item C<< url >>
@@ -267,8 +293,8 @@ statements matching C<< $subj, $pred, $obj [, $context ] >>.
 sub computed_statement_generator {
 	my $self	= shift;
 	my $caps	= $self->capabilities;
-	my %preds	= map { $_->{pred}->uri_value => $_ } @$caps;
-	my $l			= Log::Log4perl->get_logger("rdf.query.servicedescription");
+	my %preds	= map { $_->{pred}->uri_value => $_ } grep { exists $_->{pred} } @$caps;
+	my $l		= Log::Log4perl->get_logger("rdf.query.servicedescription");
 	
 	return sub {
 		my $query	= shift;
@@ -322,8 +348,25 @@ sub computed_statement_generator {
 		}
 		
 		if ($ok) {
-			my $st		= RDF::Query::Algebra::Triple->new( $s, $p, $o );
+			my @triple	= ($s,$p,$o);
+			foreach my $i (0 .. $#triple) {
+				my $node	= $triple[$i];
+				if ($node->isa('RDF::Query::Node::Blank')) {
+					# blank nodes need special handling, since we can't directly reference
+					# blank nodes on a remote endpoint.
+					
+					# for now, we'll just assume that this is a losing battle, and no
+					# results are possible when trying to use a blank node to identify
+					# remote nodes (which is an acceptable reading of the spec). so return
+					# an empty iterator without actually making the remote call.
+					return RDF::Trine::Iterator::Bindings->new();
+				}
+			}
+			
+			my $st		= RDF::Query::Algebra::Triple->new( @triple );
 			$l->debug( "running statement generator for " . $st->sse({}, '') );
+			$l->debug( "running statement generator with pre-bound data: " . Dumper($bound) );
+			
 			my $ggp		= RDF::Query::Algebra::GroupGraphPattern->new( $st );
 			my $service	= RDF::Query::Algebra::Service->new(
 							RDF::Query::Node::Resource->new( $self->url ),
@@ -335,11 +378,16 @@ sub computed_statement_generator {
 						);
 			my ($plan)	= RDF::Query::Plan->generate_plans( $service, $context );
 			$plan->execute( $context );
+			my $bindings	= RDF::Trine::Iterator::Bindings->new( sub {
+				my $vb	= $plan->next;
+				return $vb;
+			} );
 			my $iter	= smap {
 							my $bound	= shift;
 							my $triple	= $st->bind_variables( $bound );
+							$triple->label( origin => $self->url );
 							$triple;
-						} RDF::Trine::Iterator::Bindings->new( sub { return $plan->next } );
+						} $bindings;
 			return $iter;
 		} else {
 			return undef;
@@ -361,18 +409,26 @@ sub answers_triple_pattern {
 	my $l		= Log::Log4perl->get_logger("rdf.query.servicedescription");
 	$l->debug( 'checking triple for service compatability: ' . $triple->sse );
 	
+	my $caps	= $self->capabilities;
+	
+	my @wildcards	= grep { exists $_->{type} and $_->{type}->uri_value eq 'http://kasei.us/2008/04/sparql#any_triple' } @$caps;
+	if (@wildcards) {
+		# service can answer any triple pattern, so return true.
+		return 1;
+	}
+	
+	my @pred_caps	= grep { exists $_->{pred} } @$caps;
 	my $p = $triple->predicate;
-	unless ($p->isa('RDF::Trine::Node::Variable')) {	# if predicate is bound (not a variable)
+	if (not($p->isa('RDF::Trine::Node::Variable'))) {	# if predicate is bound (not a variable)
 		my $puri	= $p->uri_value;
-		my $caps	= $self->capabilities;
-		my %preds	= map { $_->{pred}->uri_value => $_ } @$caps;
+		$l->trace("  service compatability based on predicate: $puri");
+		my %preds	= map { $_->{pred}->uri_value => $_ } @pred_caps;
+		$l->trace("  service supports predicates: " . join(', ', keys %preds));
 		my $cap		= $preds{ $puri };
-		if ($self->definitive) {
-			return 0 unless ($cap);		# no capability matches this predicate.
-		} else {
-			# if the description isn't definitive, we conservatively assume
-			# that it can answer any pattern.
-			$cap	||= {};
+		unless ($cap) {
+			# no capability matches this predicate.
+			$l->debug("*** service doesn't support the predicate $puri");
+			return 0;
 		}
 		
 		my $ok		= 1;
@@ -398,11 +454,10 @@ sub answers_triple_pattern {
 				my $bool		= RDF::Query::Node::Resource->new( "sparql:ebv" );
 				my $filter		= RDF::Query::Expression::Function->new( $bool, $sofilter );
 				
-				# XXX "ASK {}" is just a simple query just so we have a valid RDF::Query
-				# XXX object to pass to $filter->evaluate below evaluating a filter really
+				# XXX "ASK {}" is just a simple stand-in query allowing us to have a valid query
+				# XXX object to pass to $filter->evaluate below. evaluating a filter really
 				# XXX shouldn't require a query object in this case, since it's not going
-				# XXX to even touch a datastore, but the code needs to be changed to allow
-				# XXX for that.
+				# XXX to even touch a datastore, but the code needs to be changed to allow for that.
 				my $query		= RDF::Query->new("ASK {}");
 				my $value		= $filter->evaluate( $query, $bridge, $bound );
 				my $nok			= ($value->literal_value eq 'false');
@@ -416,7 +471,7 @@ sub answers_triple_pattern {
 		return $ok;
 	} else {
 		# predicate is a variable in the triple pattern. can we matchit based on sparql:pattern?
-		warn "service doesn't handle triple based on predicate\n";
+		$l->trace("service doesn't handle triple patterns with unbound predicates");
 		return 0;
 	}
 }

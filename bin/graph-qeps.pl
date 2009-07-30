@@ -31,7 +31,7 @@ use RDF::Query::CostModel::Naive;
 use GraphViz;
 use List::Util qw(first);
 use Time::HiRes qw(tv_interval gettimeofday);
-use Benchmark;
+use Benchmark qw(cmpthese);
 
 ################################################################################
 # Log::Log4perl::init( \q[
@@ -43,22 +43,12 @@ use Benchmark;
 ################################################################################
 
 my ($model)	= first { $_->isa('RDF::Trine::Model') } @models;
-my $sparql	= <<"END";
-	PREFIX foaf: <http://xmlns.com/foaf/0.1/>
-	SELECT *
-	WHERE {
-		?person
-			foaf:mbox_sha1sum "$MBOX_SHA" ;
-			foaf:name ?name ;
-		OPTIONAL {
-			?person foaf:knows [ foaf:name ?someone ]
-		}
-	}
-END
-my $query	= RDF::Query::Benchmark->new( $sparql, undef, undef, 'sparql', optimize => 1 );
+my $bridge	= RDF::Query::Model::RDFTrine->new( $model );
+
+my $query	= &RDF::Query::Util::cli_make_query or die RDF::Query->error;
 my $context	= RDF::Query::ExecutionContext->new(
 				bound		=> {},
-				model		=> $model,
+				model		=> $bridge,
 				query		=> $query,
 				optimize	=> 1,
 			);
@@ -82,7 +72,7 @@ foreach my $i (0 .. $#plans) {
 	};
 }
 
-timethese( 5, \%plans );
+cmpthese( 15, \%plans );
 
 package RDF::Query::Benchmark;
 
@@ -92,6 +82,7 @@ use base qw(RDF::Query);
 
 sub prune_plans {
 	my $self	= shift;
+	my $context	= shift;
 	my @plans	= @_;
 	my $index	= $self->{ plan_index };
 	my $plan	= $plans[ $index ];

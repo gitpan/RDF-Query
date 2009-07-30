@@ -5,6 +5,10 @@
 
 RDF::Query::Plan::Triple - Executable query plan for Triples.
 
+=head1 VERSION
+
+This document describes RDF::Query::Plan::Triple version 2.200_01, released XX July 2009.
+
 =head1 METHODS
 
 =over 4
@@ -23,6 +27,15 @@ use Time::HiRes qw(gettimeofday tv_interval);
 
 use RDF::Query::ExecutionContext;
 use RDF::Query::VariableBindings;
+
+######################################################################
+
+our ($VERSION);
+BEGIN {
+	$VERSION	= '2.200_01';
+}
+
+######################################################################
 
 =item C<< new ( @triple ) >>
 
@@ -137,7 +150,9 @@ sub next {
 	my $l		= Log::Log4perl->get_logger("rdf.query.plan.triple");
 	my $iter	= $self->[0]{iter};
 	LOOP: while (my $row = $iter->next) {
-		$l->debug( "- got triple from model: " . $row->as_string );
+		if ($l->is_trace) {
+			$l->trace( "- got triple from model: " . $row->as_string );
+		}
 		if (my $pos = $self->[0]{dups}) {
 			$l->trace( "- checking for duplicate variables in triple" );
 			my @pos	= @$pos;
@@ -151,12 +166,18 @@ sub next {
 		}
 		
 		my $binding	= {};
+		
 		foreach my $key (keys %{ $self->[0]{mappings} }) {
 			my $method	= $self->[0]{mappings}{ $key };
 			$binding->{ $key }	= $row->$method();
 		}
 		my $pre_bound	= $self->[0]{bound};
 		my $bindings	= RDF::Query::VariableBindings->new( $binding );
+		if ($row->can('label')) {
+			if (my $o = $row->label('origin')) {
+				$bindings->label( origin => [ $o ] );
+			}
+		}
 		@{ $bindings }{ keys %$pre_bound }	= values %$pre_bound;
 		$self->[0]{count}++;
 		return $bindings;

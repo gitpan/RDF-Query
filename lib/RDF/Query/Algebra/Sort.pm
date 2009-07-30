@@ -5,6 +5,10 @@
 
 RDF::Query::Algebra::Sort - Algebra class for sorting
 
+=head1 VERSION
+
+This document describes RDF::Query::Algebra::Sort version 2.200_01, released XX July 2009.
+
 =cut
 
 package RDF::Query::Algebra::Sort;
@@ -18,7 +22,6 @@ use Data::Dumper;
 use Set::Scalar;
 use Log::Log4perl;
 use Scalar::Util qw(blessed);
-use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
 use Time::HiRes qw(gettimeofday tv_interval);
 
@@ -26,7 +29,7 @@ use Time::HiRes qw(gettimeofday tv_interval);
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.100';
+	$VERSION	= '2.200_01';
 }
 
 ######################################################################
@@ -100,7 +103,7 @@ sub sse {
 	my $self	= shift;
 	my $context	= shift;
 	my $prefix	= shift || '';
-	my $indent	= $context->{indent};
+	my $indent	= $context->{indent} || '  ';
 	
 	my @order_sse;
 	my @orderby	= $self->orderby;
@@ -164,7 +167,7 @@ Returns a list of the variable names used in this algebra expression.
 
 sub referenced_variables {
 	my $self	= shift;
-	return uniq($self->pattern->referenced_variables);
+	return RDF::Query::_uniq($self->pattern->referenced_variables);
 }
 
 =item C<< definite_variables >>

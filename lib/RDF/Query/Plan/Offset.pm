@@ -5,6 +5,10 @@
 
 RDF::Query::Plan::Offset - Executable query plan for Offsets.
 
+=head1 VERSION
+
+This document describes RDF::Query::Plan::Offset version 2.200_01, released XX July 2009.
+
 =head1 METHODS
 
 =over 4
@@ -16,6 +20,15 @@ package RDF::Query::Plan::Offset;
 use strict;
 use warnings;
 use base qw(RDF::Query::Plan);
+
+######################################################################
+
+our ($VERSION);
+BEGIN {
+	$VERSION	= '2.200_01';
+}
+
+######################################################################
 
 =item C<< new ( $plan, $offset ) >>
 
@@ -41,12 +54,17 @@ sub execute ($) {
 		throw RDF::Query::Error::ExecutionError -text => "OFFSET plan can't be executed while already open";
 	}
 	my $plan	= $self->[2];
+	$self->[0]{exhausted}	= 0;
 	$plan->execute( $context );
 
 	if ($plan->state == $self->OPEN) {
 		$self->state( $self->OPEN );
 		for (my $i = 0; $i < $self->offset; $i++) {
 			my $row	= $plan->next;
+			if(not(defined($row))) {
+				$self->[0]{exhausted}	= 1;
+				last;
+			}
 		}
 	} else {
 		warn "could not execute plan in OFFSET";
@@ -60,12 +78,18 @@ sub execute ($) {
 
 sub next {
 	my $self	= shift;
+	if ($self->[0]{exhausted}) {
+		return undef;
+	}
 	unless ($self->state == $self->OPEN) {
 		throw RDF::Query::Error::ExecutionError -text => "next() cannot be called on an un-open OFFSET";
 	}
 	my $plan	= $self->[2];
 	my $row		= $plan->next;
-	return undef unless ($row);
+	unless ($row) {
+		$self->[0]{exhausted}	= 1;
+		return undef;
+	}
 	return $row;
 }
 

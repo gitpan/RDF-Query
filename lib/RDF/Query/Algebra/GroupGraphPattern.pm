@@ -5,6 +5,10 @@
 
 RDF::Query::Algebra::GroupGraphPattern - Algebra class for GroupGraphPattern patterns
 
+=head1 VERSION
+
+This document describes RDF::Query::Algebra::GroupGraphPattern version 2.200_01, released XX July 2009.
+
 =cut
 
 package RDF::Query::Algebra::GroupGraphPattern;
@@ -18,7 +22,6 @@ use Log::Log4perl;
 use Scalar::Util qw(blessed);
 use Data::Dumper;
 use List::Util qw(first);
-use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
 use RDF::Query::Error qw(:try);
 use Time::HiRes qw(gettimeofday tv_interval);
@@ -29,7 +32,7 @@ use RDF::Trine::Iterator qw(sgrep smap swatch);
 our ($VERSION, $debug);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= '2.100';
+	$VERSION	= '2.200_01';
 	our %SERVICE_BLOOM_IGNORE	= ('http://dbpedia.org/sparql' => 1);	# by default, assume dbpedia doesn't implement k:bloom().
 }
 
@@ -156,7 +159,7 @@ Returns a list of the variable names used in this algebra expression.
 
 sub referenced_variables {
 	my $self	= shift;
-	return uniq(map { $_->referenced_variables } $self->patterns);
+	return RDF::Query::_uniq(map { $_->referenced_variables } $self->patterns);
 }
 
 =item C<< definite_variables >>
@@ -167,7 +170,7 @@ Returns a list of the variable names that will be bound after evaluating this al
 
 sub definite_variables {
 	my $self	= shift;
-	return uniq(map { $_->definite_variables } $self->patterns);
+	return RDF::Query::_uniq(map { $_->definite_variables } $self->patterns);
 }
 
 =item C<< fixup ( $query, $bridge, $base, \%namespaces ) >>
@@ -347,7 +350,7 @@ sub join_bnode_streams {
 	$l->debug('BNODE MAP: ' . Dumper($b_map));
 	################################################
 	
-	my @names	= uniq( map { $_->binding_names() } ($astream, $bstream) );
+	my @names	= RDF::Query::_uniq( map { $_->binding_names() } ($astream, $bstream) );
 	my $a		= $astream->project( @names );
 	my $b		= $bstream->project( @names );
 	

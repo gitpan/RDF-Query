@@ -5,6 +5,10 @@
 
 RDF::Query::Model::RDFTrine::BasicGraphPattern - Plan class for BasicGraphPattern patterns
 
+=head1 VERSION
+
+This document describes RDF::Query::Model::RDFTrine::BasicGraphPattern version 2.200_01, released XX July 2009.
+
 =cut
 
 package RDF::Query::Model::RDFTrine::BasicGraphPattern;
@@ -22,7 +26,7 @@ use RDF::Trine::Statement;
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.100';
+	$VERSION	= '2.200_01';
 }
 
 ######################################################################
@@ -90,7 +94,9 @@ sub execute ($) {
 # 				warn "pre-bound variable found: " . $nodes[$i]->name;
 				$nodes[$i]	= $bound->{ $nodes[$i]->name };
 			}
-			my $triple	= RDF::Trine::Statement->new( @nodes );
+			my $triple	= (scalar(@nodes) == 4)
+						? RDF::Trine::Statement::Quad->new( @nodes )
+						: RDF::Trine::Statement->new( @nodes );
 			push(@bound_triples, $triple);
 		}
 	} else {
@@ -106,6 +112,7 @@ sub execute ($) {
 	} else {
 		warn "no iterator in execute()";
 	}
+	return $self;
 }
 
 =item C<< next >>
@@ -186,7 +193,7 @@ sub graph {
 	my $g		= shift;
 	my $label	= $self->graph_labels;
 	
-	$g->add_node( "$self", label => "BasicGraphPattern" . $self->graph_labels );
+	$g->add_node( "$self", label => "BasicGraphPattern (RDF::Trine)" . $self->graph_labels );
 	
 	my @triples	= $self->triples;
 	foreach my $t (@triples) {
@@ -201,8 +208,8 @@ sub graph {
 				$g->add_node( "${self}$str", label => $str );
 				$g->add_edge( "$t" => "${self}$str", label => $names[ $i ] );
 			} else {
-				$g->add_node( "${self}$n", label => $str );
-				$g->add_edge( "$t" => "${self}$n", label => $names[ $i ] );
+				$g->add_node( "${self}${t}$n", label => $str );
+				$g->add_edge( "$t" => "${self}${t}$n", label => $names[ $i ] );
 			}
 		}
 	}

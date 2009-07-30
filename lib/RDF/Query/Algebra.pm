@@ -5,6 +5,10 @@
 
 RDF::Query::Algebra - Base class for Algebra expressions
 
+=head1 VERSION
+
+This document describes RDF::Query::Algebra version 2.200_01, released XX July 2009.
+
 =head1 METHODS
 
 =over 4
@@ -14,7 +18,7 @@ RDF::Query::Algebra - Base class for Algebra expressions
 package RDF::Query::Algebra;
 
 BEGIN {
-	our $VERSION	= '2.100';
+	our $VERSION	= '2.200_01';
 }
 
 use strict;
@@ -23,7 +27,6 @@ no warnings 'redefine';
 
 use Set::Scalar;
 use Scalar::Util qw(blessed);
-use List::MoreUtils qw(uniq);
 use Data::Dumper;
 
 use RDF::Query::Expression;
@@ -87,7 +90,7 @@ sub referenced_blanks {
 			push(@list, @blanks);
 		}
 	}
-	return uniq(@list);
+	return RDF::Query::_uniq(@list);
 }
 
 =item C<< referenced_functions >>
@@ -109,7 +112,7 @@ sub referenced_functions {
 			}
 		}
 	}
-	return uniq(@list);
+	return RDF::Query::_uniq(@list);
 }
 
 =item C<< check_duplicate_blanks >>

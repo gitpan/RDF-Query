@@ -5,6 +5,10 @@
 
 RDF::Query::Plan::Service - Executable query plan for remote SPARQL queries.
 
+=head1 VERSION
+
+This document describes RDF::Query::Plan::Service version 2.200_01, released XX July 2009.
+
 =head1 METHODS
 
 =over 4
@@ -25,6 +29,15 @@ use URI::Escape;
 use RDF::Query::Error qw(:try);
 use RDF::Query::ExecutionContext;
 use RDF::Query::VariableBindings;
+
+######################################################################
+
+our ($VERSION);
+BEGIN {
+	$VERSION		= '2.200_01';
+}
+
+######################################################################
 
 =item C<< new ( $endpoint, $plan, $sparql, [ \%logging_keys ] ) >>
 
@@ -98,13 +111,25 @@ sub execute ($) {
 		throw RDF::Query::Error::ExecutionError -text => "SERVICE plan can't be executed while already open";
 	}
 	my $l			= Log::Log4perl->get_logger("rdf.query.plan.service");
-	$l->debug('SERVICE execute');
 	my $endpoint	= $self->endpoint;
 	my $sparql		= $self->sparql;
 	my $url			= $endpoint . '?query=' . uri_escape($sparql);
 	my $query		= $context->query;
 	
-	$l->debug( 'SERVICE URL: ' . $url );
+	if ($ENV{RDFQUERY_THROW_ON_SERVICE}) {
+		my $l	= Log::Log4perl->get_logger("rdf.query.plan.service");
+		$l->warn("SERVICE REQUEST $endpoint:{{{\n$sparql\n}}}\n");
+		$l->warn("QUERY LENGTH: " . length($sparql) . "\n");
+		$l->warn("QUERY URL: $url\n");
+		throw RDF::Query::Error::RequestedInterruptError -text => "Won't execute SERVICE block. Unset RDFQUERY_THROW_ON_SERVICE to continue.";
+	}
+	
+	{
+		$l->debug('SERVICE execute');
+		my $printable	= $sparql;
+		$l->debug("SERVICE <$endpoint> pattern: $printable");
+		$l->trace( 'SERVICE URL: ' . $url );
+	}
 	
 # 	my $serial	= 0;
 # 	my ($fh, $write);
@@ -182,6 +207,7 @@ sub next {
 	return undef unless $result;
 	$self->[0]{'count'}++;
 	my $row	= RDF::Query::VariableBindings->new( $result );
+	$row->label( origin => [ $self->endpoint ] );
 	return $row;
 };
 
@@ -229,13 +255,17 @@ sub _get_iterator {
 						$u->default_headers->push_header( 'Accept' => "application/sparql-results+xml;q=0.9,application/rdf+xml;q=0.5,text/turtle;q=0.7,text/xml" );
 						$u;
 					};
-
+	
 	my $response	= $ua->get( $url );
 	if ($response->is_success) {
 		$p->parse_string( $response->content );
 		return $handler->iterator;
 	} else {
-		throw RDF::Query::Error::ExecutionError -text => "error making remote SPARQL call: " . $response->status_line;
+		my $status		= $response->status_line;
+		my $sparql		= $self->sparql;
+		my $endpoint	= $self->endpoint;
+		warn "url: $url\n";
+		throw RDF::Query::Error::ExecutionError -text => "*** error making remote SPARQL call to endpoint $endpoint ($status) while making service call for query: $sparql";
 	}
 }
 

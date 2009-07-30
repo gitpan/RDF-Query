@@ -5,6 +5,10 @@
 
 RDF::Query::Node - Base class for RDF Nodes
 
+=head1 VERSION
+
+This document describes RDF::Query::Node version 2.200_01, released XX July 2009.
+
 =head1 METHODS
 
 =over 4
@@ -25,7 +29,7 @@ use RDF::Query::Node::Variable;
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.100';
+	$VERSION	= '2.200_01';
 }
 
 =item C<< is_variable >>
@@ -62,7 +66,10 @@ sub compare {
 
 =item C<< from_trine ( $node ) >>
 
-Up-casts an RDF::Trine::Node object to an RDF::Query::Node object.
+Returns a new RDF::Query::Node object with the same value as $node, a
+RDF::Trine::Node object. This essentially promotes C<< $node >> to a
+node object with extra functionality provided by the RDF::Query package
+(like SPARQL-defined ordering).
 
 =cut
 
@@ -76,11 +83,40 @@ sub from_trine {
 	} elsif ($n->isa('RDF::Trine::Node::Resource')) {
 		return RDF::Query::Node::Resource->new( $n->uri_value );
 	} elsif ($n->isa('RDF::Trine::Node::Blank')) {
-		return RDF::Query::Node::Variable->new( $n->blank_identifier );
+		return RDF::Query::Node::Blank->new( $n->blank_identifier );
 	} else {
 		die Dumper($n);
 	}
 }
+
+=back
+
+=head1 FUNCTIONS
+
+=over 4
+
+=item C<< compare ( $node_a, $node_b ) >>
+
+Returns -1, 0, or 1 if $node_a sorts less than, equal to, or greater than
+$node_b in the defined SPARQL ordering, respectively. This function may be
+used as the function argument to C<<sort>>.
+
+=cut
+
+sub compare {
+	my $a	= shift;
+	my $b	= shift;
+	warn 'compare';
+	for ($a, $b) {
+		unless ($_->isa('RDF::Query::Node')) {
+			$_	= RDF::Query::Node->from_trine( $_ );
+		}
+	}
+	
+	local($RDF::Query::Node::Literal::LAZY_COMPARISONS)	= 1;
+	return $a <=> $b;
+}
+
 
 1;
 

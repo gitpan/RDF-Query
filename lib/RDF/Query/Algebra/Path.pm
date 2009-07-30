@@ -5,6 +5,10 @@
 
 RDF::Query::Algebra::Path - Algebra class for path patterns
 
+=head1 VERSION
+
+This document describes RDF::Query::Algebra::Path version 2.200_01, released XX July 2009.
+
 =cut
 
 package RDF::Query::Algebra::Path;
@@ -17,7 +21,6 @@ use base qw(RDF::Query::Algebra);
 use Data::Dumper;
 use Set::Scalar;
 use Scalar::Util qw(blessed);
-use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
 
 ######################################################################
@@ -25,7 +28,7 @@ use Carp qw(carp croak confess);
 our ($VERSION, $debug, $lang, $languri);
 BEGIN {
 	$debug		= 0;
-	$VERSION	= '2.100';
+	$VERSION	= '2.200_01';
 }
 
 ######################################################################
@@ -148,7 +151,7 @@ Returns a list of the variable names used in this algebra expression.
 sub referenced_variables {
 	my $self	= shift;
 	my @vars	= grep { $_->isa('RDF::Query::Node::Variable') } ($self->start, $self->end);
-	return uniq(map { $_->name } @vars);
+	return RDF::Query::_uniq(map { $_->name } @vars);
 }
 
 =item C<< definite_variables >>

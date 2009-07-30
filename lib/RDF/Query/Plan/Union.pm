@@ -5,6 +5,10 @@
 
 RDF::Query::Plan::Union - Executable query plan for unions.
 
+=head1 VERSION
+
+This document describes RDF::Query::Plan::Union version 2.200_01, released XX July 2009.
+
 =head1 METHODS
 
 =over 4
@@ -20,7 +24,15 @@ use base qw(RDF::Query::Plan);
 use Scalar::Util qw(blessed refaddr);
 
 use RDF::Query::ExecutionContext;
-use RDF::Query::VariableBindings;
+
+######################################################################
+
+our ($VERSION);
+BEGIN {
+	$VERSION	= '2.200_01';
+}
+
+######################################################################
 
 =item C<< new ( $lhs, $rhs ) >>
 
@@ -75,7 +87,7 @@ sub next {
 	my $iter	= $self->[0]{iter};
 	return undef unless ($iter);
 	my $row		= $iter->next;
-	if ($row) {
+	if (defined($row)) {
 		return $row;
 	} else {
 		$self->[0]{iter}	= undef;

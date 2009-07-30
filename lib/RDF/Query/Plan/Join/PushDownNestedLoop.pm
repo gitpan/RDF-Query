@@ -5,6 +5,10 @@
 
 RDF::Query::Plan::Join::PushDownNestedLoop - Executable query plan for nested loop joins.
 
+=head1 VERSION
+
+This document describes RDF::Query::Plan::Join::PushDownNestedLoop version 2.200_01, released XX July 2009.
+
 =head1 METHODS
 
 =over 4
@@ -19,12 +23,17 @@ use base qw(RDF::Query::Plan::Join);
 use Scalar::Util qw(blessed);
 use Data::Dumper;
 
+######################################################################
+
+our ($VERSION);
 BEGIN {
+	$VERSION	= '2.200_01';
 	$RDF::Query::Plan::Join::JOIN_CLASSES{ 'RDF::Query::Plan::Join::PushDownNestedLoop' }++;
 }
 
+######################################################################
+
 use RDF::Query::ExecutionContext;
-use RDF::Query::VariableBindings;
 
 =item C<< new ( $lhs, $rhs, $opt ) >>
 
@@ -34,6 +43,7 @@ sub new {
 	my $class	= shift;
 	my $lhs		= shift;
 	my $rhs		= shift;
+	
 	my $opt		= shift || 0;
 	if (not($opt) and $rhs->isa('RDF::Query::Plan::Join') and $rhs->optional) {
 		# we can't push down results to an optional pattern because of the
@@ -110,10 +120,12 @@ sub next {
 			}
 		}
 		
-		while (my $inner_row = $self->[0]{inner}->next) {
+		while (defined(my $inner_row = $self->[0]{inner}->next)) {
 #			warn "using inner row: " . Dumper($inner_row);
-			if (my $joined = $inner_row->join( $self->[0]{outer_row} )) {
-				$l->debug("joined bindings: $inner_row |><| $self->[0]{outer_row}");
+			if (defined(my $joined = $inner_row->join( $self->[0]{outer_row} ))) {
+				if ($l->is_trace) {
+					$l->trace("joined bindings: $inner_row |><| $self->[0]{outer_row}");
+				}
 #				warn "-> joined\n";
 				$self->[0]{inner_count}++;
 				return $joined;
@@ -149,7 +161,9 @@ sub close {
 	delete $self->[0]{outer};
 	delete $self->[0]{needs_new_outer};
 	delete $self->[0]{inner_count};
-	$self->lhs->close();
+	if ($self->lhs->state == $self->lhs->OPEN) {
+		$self->lhs->close();
+	}
 	$self->SUPER::close();
 }
 

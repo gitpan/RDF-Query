@@ -7,11 +7,7 @@ use lib qw(../lib lib);
 
 use Data::Dumper;
 use RDF::Query;
+use RDF::Query::Util;
 
-binmode(STDIN, ':utf8');
-my $input	= (scalar(@ARGV) == 0 or $ARGV[0] eq '-')
-			? do { local($/) = undef; <> }
-			: do { local($/) = undef; open(my $fh, '<', $ARGV[0]); binmode($fh, ':utf8'); <$fh> };
-
-my $query	= RDF::Query->new( $input );
+my $query	= &RDF::Query::Util::cli_make_query or die RDF::Query->error;
 print $query->as_sparql;

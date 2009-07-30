@@ -5,6 +5,10 @@
 
 RDF::Query::Plan::Join::NestedLoop - Executable query plan for nested loop joins.
 
+=head1 VERSION
+
+This document describes RDF::Query::Plan::Join::NestedLoop version 2.200_01, released XX July 2009.
+
 =head1 METHODS
 
 =over 4
@@ -22,13 +26,17 @@ use Scalar::Util qw(blessed);
 use Time::HiRes qw(gettimeofday tv_interval);
 
 use RDF::Query::Error qw(:try);
+use RDF::Query::ExecutionContext;
 
+######################################################################
+
+our ($VERSION);
 BEGIN {
+	$VERSION	= '2.200_01';
 	$RDF::Query::Plan::Join::JOIN_CLASSES{ 'RDF::Query::Plan::Join::NestedLoop' }++;
 }
 
-use RDF::Query::ExecutionContext;
-use RDF::Query::VariableBindings;
+######################################################################
 
 =item C<< new ( $lhs, $rhs, $opt, [ \%logging_keys ] ) >>
 
@@ -116,7 +124,9 @@ sub next {
 			my $inner_row	= $inner->[ $self->[0]{inner_index}++ ];
 	#		warn "using inner row: " . Dumper($inner_row);
 			if (my $joined = $inner_row->join( $self->[0]{outer_row} )) {
-				$l->debug("joined bindings: $inner_row |><| $self->[0]{outer_row}");
+				if ($l->is_trace) {
+					$l->trace("joined bindings: $inner_row |><| $self->[0]{outer_row}");
+				}
 #				warn "-> joined\n";
 				$self->[0]{inner_count}++;
 				$self->[0]{count}++;
@@ -147,14 +157,18 @@ sub close {
 		$l->debug("logging nestedloop join execution statistics");
 		my $elapsed = tv_interval ( $t0 );
 		if (my $sparql = $self->logging_keys->{sparql}) {
-			$l->debug("- SPARQL: $sparql");
+			if ($l->is_trace) {
+				$l->trace("- SPARQL: $sparql");
+				$l->trace("- elapsed: $elapsed");
+				$l->trace("- count: $count");
+			}
 			$log->push_key_value( 'execute_time-nestedloop', $sparql, $elapsed );
 			$log->push_key_value( 'cardinality-nestedloop', $sparql, $count );
-			$l->debug("- elapsed: $elapsed");
-			$l->debug("- count: $count");
 		}
 		if (my $bf = $self->logging_keys->{bf}) {
-			$l->debug("- bf: $bf");
+			if ($l->is_trace) {
+				$l->trace("- bf: $bf");
+			}
 			$log->push_key_value( 'cardinality-bf-nestedloop', $bf, $count );
 		}
 	}

@@ -23,7 +23,6 @@ my $sparql	= do { open(my $fh, '<', $qfile) or die $!; local($/) = undef; <$fh> 
 use GraphViz;
 use List::Util qw(first);
 use Time::HiRes qw(tv_interval gettimeofday);
-use Benchmark;
 
 ################################################################################
 # Log::Log4perl::init( \q[
@@ -34,8 +33,7 @@ use Benchmark;
 # ] );
 ################################################################################
 
-my $query	= RDF::Query->new( $sparql, {  optimize => 0 } );
-warn RDF::Query->error unless ($query);
+my $query	= &RDF::Query::Util::cli_make_query or die RDF::Query->error;
 
 my ($bgp)	= $query->pattern->subpatterns_of_type('RDF::Query::Algebra::BasicGraphPattern');
 my @triples	= $bgp->triples;

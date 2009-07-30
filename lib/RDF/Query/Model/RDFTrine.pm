@@ -1,3 +1,16 @@
+# RDF::Query::Model::RDFTrine
+# -----------------------------------------------------------------------------
+
+=head1 NAME
+
+RDF::Query::Model::RDFTrine - An RDF::Query::Model backend for interfacing with an RDF::Trine model.
+
+=head1 VERSION
+
+This document describes RDF::Query::Model::RDFTrine version 2.200_01, released XX July 2009.
+
+=cut
+
 package RDF::Query::Model::RDFTrine;
 
 use strict;
@@ -31,7 +44,7 @@ use RDF::Trine::Iterator qw(smap);
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.100';
+	$VERSION	= '2.200_01';
 }
 
 ######################################################################
@@ -110,56 +123,6 @@ sub model {
 		throw RDF::Query::Error::MethodInvocationError -text => "RDF::Query::Model::RDFTrine::model() cannot be called as a class method";
 	}
 	return $self->{'model'};
-}
-
-=item C<< equals ( $node_a, $node_b ) >>
-
-Returns true if C<$node_a> and C<$node_b> are equal
-
-=cut
-
-sub equals {
-	my $self	= shift;
-	my $nodea	= shift;
-	my $nodeb	= shift;
-	return $nodea->equal( $nodeb );
-}
-
-
-=item C<as_string ( $node )>
-
-Returns a string version of the node object.
-
-=cut
-
-sub as_string {
-	my $self	= shift;
-	my $node	= shift;
-	return unless blessed($node);
-	if ($self->isa_resource( $node )) {
-		my $uri	= $node->uri_value;
-		return qq<[$uri]>;
-	} elsif ($self->isa_literal( $node )) {
-		my $value	= $self->literal_value( $node );
-		my $lang	= $self->literal_value_language( $node );
-		my $dt		= $self->literal_datatype( $node );
-		if ($lang) {
-			return qq["$value"\@${lang}];
-		} elsif ($dt) {
-			return qq["$value"^^<$dt>];
-		} else {
-			return qq["$value"];
-		}
-	} elsif ($self->isa_blank( $node )) {
-		my $id	= $self->blank_identifier( $node );
-		return qq[($id)];
-	} elsif (blessed($node) and $node->isa('RDF::Query::Algebra::Triple')) {
-		return $node->as_sparql;
-	} elsif (blessed($node) and $node->isa('RDF::Query::Algebra::Quad')) {
-		return $node->as_string;
-	} else {
-		return;
-	}
 }
 
 =item C<literal_value ( $node )>
@@ -347,9 +310,9 @@ sub _get_statements {
 	
 	my $model	= $self->model;
 	my @nodes	= map { blessed($_) ? $_ : $self->new_variable() } @triple;
-	if ($l->is_debug) {
-		$l->debug("statement pattern: " . Dumper(\@nodes));
-		$l->debug("model contains:");
+	if ($l->is_trace) {
+		$l->trace("statement pattern: " . Dumper(\@nodes));
+		$l->trace("model contains:");
 		$model->_debug;
 	}
 	my $stream	= smap { _cast_triple_to_local( $_ ) } $model->get_statements( @nodes );
@@ -368,9 +331,17 @@ sub _get_named_statements {
 	my $self	= shift;
 	my @triple	= splice(@_, 0, 3);
 	my $context	= shift;
+	my $l		= Log::Log4perl->get_logger("rdf.query.model.rdftrine");
 	
 	my $model	= $self->_named_graphs_model;
 	my @nodes	= map { $self->is_node($_) ? $_ : $self->new_variable() } (@triple, $context);
+	
+	if ($l->is_trace) {
+		$l->trace("named statement pattern: " . Dumper(\@nodes));
+		$l->trace("model contains:");
+		$model->_debug;
+	}
+
 	my $stream	= smap { _cast_quad_to_local( $_ ) } $model->get_statements( @nodes );
 	return $stream;
 }
@@ -387,6 +358,14 @@ sub _get_basic_graph_pattern {
 	my $model	= ($triples[0]->isa('RDF::Trine::Statement::Quad'))
 				? $self->_named_graphs_model
 				: $self->model;
+	
+	my $l		= Log::Log4perl->get_logger("rdf.query.model.rdftrine");
+	if ($l->is_trace) {
+		$l->trace("get BGP: " . Dumper(\@triples));
+		$l->trace("model contains:");
+		$model->_debug;
+	}
+	
 	my $pattern	= RDF::Trine::Pattern->new( @triples );
 	my $stream	= smap {
 					foreach my $k (keys %$_) {
@@ -590,9 +569,14 @@ sub generate_plans {
 	my %args	= @_;
 	my $model	= $context->model;
 	my $query	= $context->query;
+	
+	if (blessed($query) and $query->{force_no_optimization}) {
+		return;
+	}
+	
 	if ($algebra->isa('RDF::Query::Algebra::BasicGraphPattern')) {
 		if (not($query) or not(scalar(@{$query->get_computed_statement_generators}))) {
-			my @triples	= $algebra->triples;
+			my @triples	= map { $_->distinguish_bnode_variables } $algebra->triples;
 			return RDF::Query::Model::RDFTrine::BasicGraphPattern->new( @triples );
 		}
 	}

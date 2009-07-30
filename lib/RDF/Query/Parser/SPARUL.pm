@@ -7,7 +7,7 @@ RDF::Query::Parser::SPARUL - SPARQL Update Parser.
 
 =head1 VERSION
 
-This document describes RDF::Query::Parser::SPARUL version 1.000
+This document describes RDF::Query::Parser::SPARUL version 2.200_01, released XX July 2009.
 
 =head1 SYNOPSIS
 
@@ -26,7 +26,6 @@ package RDF::Query::Parser::SPARUL;
 use strict;
 use warnings;
 use base qw(RDF::Query::Parser::SPARQL);
-our $VERSION		= '2.100';
 
 use URI;
 use Data::Dumper;
@@ -35,7 +34,15 @@ use RDF::Query::Parser;
 use RDF::Query::Algebra;
 use RDF::Trine::Namespace qw(rdf);
 use Scalar::Util qw(blessed looks_like_number reftype);
-use List::MoreUtils qw(uniq);
+
+######################################################################
+
+our ($VERSION);
+BEGIN {
+	$VERSION	= '2.200_01';
+}
+
+######################################################################
 
 
 # [1] Query ::= Prologue ( SelectQuery | ConstructQuery | DescribeQuery | AskQuery | (Update | Manage)*)

@@ -5,6 +5,10 @@
 
 RDF::Query::Node::Blank - RDF Node class for blank nodes
 
+=head1 VERSION
+
+This document describes RDF::Query::Node::Blank version 2.200_01, released XX July 2009.
+
 =head1 METHODS
 
 =over 4
@@ -26,7 +30,7 @@ use Carp qw(carp croak confess);
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.100';
+	$VERSION	= '2.200_01';
 }
 
 ######################################################################
@@ -64,6 +68,20 @@ Returns the SPARQL string for this node.
 sub as_sparql {
 	my $self	= shift;
 	return $self->sse;
+}
+
+=item C<< make_distinguished_variable >>
+
+Returns a new variable based on this blank node.
+
+=cut
+
+sub make_distinguished_variable {
+	my $self	= shift;
+	my $id		= $self->blank_identifier;
+	my $name	= '__ndv_' . $id;
+	my $var		= RDF::Query::Node::Variable->new( $name );
+	return $var;
 }
 
 

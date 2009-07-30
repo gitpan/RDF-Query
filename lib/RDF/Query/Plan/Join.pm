@@ -5,6 +5,10 @@
 
 RDF::Query::Plan::Join - Join query plan base class.
 
+=head1 VERSION
+
+This document describes RDF::Query::Plan::Join version 2.200_01, released XX July 2009.
+
 =head1 METHODS
 
 =over 4
@@ -20,6 +24,15 @@ use base qw(RDF::Query::Plan);
 use Scalar::Util qw(blessed);
 use RDF::Query::ExecutionContext;
 
+######################################################################
+
+our ($VERSION);
+BEGIN {
+	$VERSION	= '2.200_01';
+}
+
+######################################################################
+
 =item C<< new ( $lhs, $rhs, $optional ) >>
 
 =cut
@@ -32,7 +45,9 @@ sub new {
 	my $self	= $class->SUPER::new( $lhs, $rhs, $opt, @_ );
 	
 	my %vars;
-	foreach my $v ($lhs->referenced_variables, $rhs->referenced_variables) {
+	my @lhs_rv	= $lhs->referenced_variables;
+	my @rhs_rv	= $rhs->referenced_variables;
+	foreach my $v (@lhs_rv, @rhs_rv) {
 		$vars{ $v }++;
 	}
 	$self->[0]{referenced_variables}	= [ keys %vars ];

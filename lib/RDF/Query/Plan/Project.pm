@@ -5,6 +5,10 @@
 
 RDF::Query::Plan::Project - Executable query plan for Projects.
 
+=head1 VERSION
+
+This document describes RDF::Query::Plan::Project version 2.200_01, released XX July 2009.
+
 =head1 METHODS
 
 =over 4
@@ -18,6 +22,15 @@ use warnings;
 use base qw(RDF::Query::Plan);
 
 use Scalar::Util qw(blessed);
+
+######################################################################
+
+our ($VERSION);
+BEGIN {
+	$VERSION	= '2.200_01';
+}
+
+######################################################################
 
 =item C<< new ( $plan, \@keys ) >>
 
@@ -73,11 +86,16 @@ sub next {
 	my $l		= Log::Log4perl->get_logger("rdf.query.plan.project");
 	my $plan	= $self->[1];
 	my $row		= $plan->next;
-	unless ($row) {
-		$l->debug("no remaining rows in project");
+	unless (defined($row)) {
+		$l->trace("no remaining rows in project");
+		if ($self->[1]->state == $self->[1]->OPEN) {
+			$self->[1]->close();
+		}
 		return;
 	}
-	$l->debug( "project on row $row" );
+	if ($l->is_trace) {
+		$l->trace( "project on row $row" );
+	}
 	
 	my $keys	= $self->[2];
 	my $exprs	= $self->[3];
@@ -91,13 +109,17 @@ sub next {
 		if ($e->isa('RDF::Query::Expression::Alias')) {
 			$name			= $e->name;
 			$var_or_expr	= $e->expression;
-			$l->debug( "- project alias " . $var_or_expr->sse . " -> $name" );
+			if ($l->is_trace) {
+				$l->trace( "- project alias " . $var_or_expr->sse . " -> $name" );
+			}
 		} else {
 			$name			= $e->sse;
 			$var_or_expr	= $e;
 		}
 		my $value		= $query->var_or_expr_value( $bridge, $row, $var_or_expr );
-		$l->debug( "- project value $name -> $value" );
+		if ($l->is_trace) {
+			$l->trace( "- project value $name -> $value" );
+		}
 		$proj->{ $name }	= $value;
 	}
 	
@@ -114,7 +136,9 @@ sub close {
 		throw RDF::Query::Error::ExecutionError -text => "close() cannot be called on an un-open PROJECT";
 	}
 	delete $self->[0]{context};
-	$self->[1]->close();
+	if (blessed($self->[1]) and $self->[1]->state == $self->OPEN) {
+		$self->[1]->close();
+	}
 	$self->SUPER::close();
 }
 

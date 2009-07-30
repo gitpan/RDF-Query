@@ -5,6 +5,10 @@
 
 RDF::Query::Algebra::Filter - Algebra class for Filter expressions
 
+=head1 VERSION
+
+This document describes RDF::Query::Algebra::Filter version 2.200_01, released XX July 2009.
+
 =cut
 
 package RDF::Query::Algebra::Filter;
@@ -15,7 +19,6 @@ no warnings 'redefine';
 use base qw(RDF::Query::Algebra);
 
 use Data::Dumper;
-use List::MoreUtils qw(uniq);
 use Carp qw(carp croak confess);
 use Scalar::Util qw(blessed reftype);
 
@@ -26,7 +29,7 @@ use RDF::Trine::Iterator qw(sgrep smap swatch);
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.100';
+	$VERSION	= '2.200_01';
 }
 
 ######################################################################
@@ -111,7 +114,7 @@ sub sse {
 	my $self	= shift;
 	my $context	= shift;
 	my $prefix	= shift || '';
-	my $indent	= $context->{indent};
+	my $indent	= $context->{indent} || '  ';
 	
 	return sprintf(
 		"(filter %s\n${prefix}${indent}%s)",
@@ -160,9 +163,9 @@ sub referenced_variables {
 	my $pattern	= $self->pattern;
 	my @vars	= $pattern->referenced_variables;
 	if (blessed($expr) and $expr->isa('RDF::Query::Algebra')) {
-		return uniq(@vars, $self->expr->referenced_variables);
+		return RDF::Query::_uniq(@vars, $self->expr->referenced_variables);
 	} elsif (blessed($expr) and $expr->isa('RDF::Query::Node::Variable')) {
-		return uniq(@vars, $expr->name);
+		return RDF::Query::_uniq(@vars, $expr->name);
 	} else {
 		return (@vars);
 	}
