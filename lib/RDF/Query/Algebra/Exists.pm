@@ -1,17 +1,17 @@
-# RDF::Query::Algebra::Sort
+# RDF::Query::Algebra::Exists
 # -----------------------------------------------------------------------------
 
 =head1 NAME
 
-RDF::Query::Algebra::Sort - Algebra class for sorting
+RDF::Query::Algebra::Exists - Algebra class for EXISTS and NOT EXISTS patterns
 
 =head1 VERSION
 
-This document describes RDF::Query::Algebra::Sort version 2.201_01, released 27 January 2010.
+This document describes RDF::Query::Algebra::Exists version 2.201_01, released 27 January 2010.
 
 =cut
 
-package RDF::Query::Algebra::Sort;
+package RDF::Query::Algebra::Exists;
 
 use strict;
 use warnings;
@@ -19,11 +19,8 @@ no warnings 'redefine';
 use base qw(RDF::Query::Algebra);
 
 use Data::Dumper;
-use Set::Scalar;
-use Log::Log4perl;
-use Scalar::Util qw(blessed);
 use Carp qw(carp croak confess);
-use Time::HiRes qw(gettimeofday tv_interval);
+use RDF::Trine::Iterator qw(smap sgrep swatch);
 
 ######################################################################
 
@@ -40,17 +37,19 @@ BEGIN {
 
 =cut
 
-=item C<new ( $pattern, [ $dir => $expr ] )>
+=item C<new ( $pattern, $pattern, $exists, $not_flag )>
 
-Returns a new Sort structure.
+Returns a new EXISTS structure for the specified $pattern. If $not_flag is true,
+the pattern will be interpreted as a NOT EXISTS pattern.
 
 =cut
 
 sub new {
 	my $class	= shift;
 	my $pattern	= shift;
-	my @orderby	= @_;
-	return bless( [ $pattern, @orderby ], $class );
+	my $exists	= shift;
+	my $not		= shift;
+	return bless( [ $pattern, $exists, $not ], $class );
 }
 
 =item C<< construct_args >>
@@ -62,35 +61,40 @@ will produce a clone of this algebra pattern.
 
 sub construct_args {
 	my $self	= shift;
-	my $pattern	= $self->pattern;
-	my @orderby	= $self->orderby;
-	return ($pattern, @orderby);
+	return ($self->pattern, $self->exists_pattern, $self->not_flag);
 }
 
 =item C<< pattern >>
 
-Returns the pattern to be sorted.
+Returns the base pattern (LHS) onto which the not-pattern joins.
 
 =cut
 
 sub pattern {
 	my $self	= shift;
-	if (@_) {
-		$self->[0]	= shift;
-	}
 	return $self->[0];
 }
 
-=item C<< orderby >>
+=item C<< exists_pattern >>
 
-Returns the array of ordering definitions.
+Returns the not-pattern (RHS).
 
 =cut
 
-sub orderby {
+sub exists_pattern {
 	my $self	= shift;
-	my @orderby	= @{ $self }[ 1 .. $#{ $self } ];
-	return @orderby;
+	return $self->[1];
+}
+
+=item C<< not_flag >>
+
+Returns true if the pattern is a NOT EXISTS pattern.
+
+=cut
+
+sub not_flag {
+	my $self	= shift;
+	return $self->[2];
 }
 
 =item C<< sse >>
@@ -103,19 +107,13 @@ sub sse {
 	my $self	= shift;
 	my $context	= shift;
 	my $prefix	= shift || '';
-	my $indent	= $context->{indent} || '  ';
+	my $indent	= $context->{indent};
 	
-	my @order_sse;
-	my @orderby	= $self->orderby;
-	foreach my $o (@orderby) {
-		my ($dir, $val)	= @$o;
-		push(@order_sse, sprintf("($dir %s)", $val->sse( $context, "${prefix}${indent}" )));
-	}
-	
+	my $tag		= ($self->not_flag) ? 'not-exists' : 'exists';
 	return sprintf(
-		"(sort\n${prefix}${indent}%s\n${prefix}${indent}%s)",
+		"(${tag}\n${prefix}${indent}%s\n${prefix}${indent}%s)",
 		$self->pattern->sse( $context, "${prefix}${indent}" ),
-		join(' ', @order_sse),
+		$self->not_pattern->sse( $context, "${prefix}${indent}" )
 	);
 }
 
@@ -129,22 +127,11 @@ sub as_sparql {
 	my $self	= shift;
 	my $context	= shift;
 	my $indent	= shift;
-	
-	my @order_sparql;
-	my @orderby	= $self->orderby;
-	foreach my $o (@orderby) {
-		my ($dir, $val)	= @$o;
-		$dir			= uc($dir);
-		my $str			= ($dir eq 'ASC')
-						? $val->as_sparql( $context )
-						: sprintf("%s(%s)", $dir, $val->as_sparql( $context ));
-		push(@order_sparql, $str);
-	}
-	
+	my $tag		= ($self->not_flag) ? 'NOT EXISTS' : 'EXISTS';
 	my $string	= sprintf(
-		"%s\nORDER BY %s",
+		"%s\n${indent}${tag} %s",
 		$self->pattern->as_sparql( $context, $indent ),
-		join(' ', @order_sparql),
+		$self->not_pattern->as_sparql( $context, $indent ),
 	);
 	return $string;
 }
@@ -156,7 +143,7 @@ Returns the type of this algebra expression.
 =cut
 
 sub type {
-	return 'SORT';
+	return 'EXISTS';
 }
 
 =item C<< referenced_variables >>
@@ -167,7 +154,7 @@ Returns a list of the variable names used in this algebra expression.
 
 sub referenced_variables {
 	my $self	= shift;
-	return RDF::Query::_uniq($self->pattern->referenced_variables);
+	return RDF::Query::_uniq($self->pattern->referenced_variables, $self->exists_pattern->referenced_variables);
 }
 
 =item C<< binding_variables >>
@@ -179,7 +166,7 @@ bind values during execution.
 
 sub binding_variables {
 	my $self	= shift;
-	return RDF::Query::_uniq($self->pattern->binding_variables);
+	return;
 }
 
 =item C<< definite_variables >>
@@ -190,7 +177,7 @@ Returns a list of the variable names that will be bound after evaluating this al
 
 sub definite_variables {
 	my $self	= shift;
-	return $self->pattern->definite_variables;
+	return;
 }
 
 =item C<< fixup ( $query, $bridge, $base, \%namespaces ) >>
@@ -207,30 +194,12 @@ sub fixup {
 	my $bridge	= shift;
 	my $base	= shift;
 	my $ns		= shift;
-	
+
 	if (my $opt = $query->algebra_fixup( $self, $bridge, $base, $ns )) {
 		return $opt;
 	} else {
-		my $pattern	= $self->pattern->fixup( $query, $bridge, $base, $ns );
-		my @order	= map {
-						my ($d,$e)	= @$_;
-						my $ne		= ($e->isa('RDF::Query::Node::Variable'))
-									? $e
-									: $e->fixup( $query, $bridge, $base, $ns );
-						[ $d, $ne ]
-					} $self->orderby;
-		return $class->new( $pattern, @order );
+		return $class->new( map { $_->fixup( $query, $bridge, $base, $ns ) } ($self->pattern, $self->not_pattern) );
 	}
-}
-
-=item C<< is_solution_modifier >>
-
-Returns true if this node is a solution modifier.
-
-=cut
-
-sub is_solution_modifier {
-	return 1;
 }
 
 

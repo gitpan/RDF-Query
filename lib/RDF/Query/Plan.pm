@@ -7,7 +7,7 @@ RDF::Query::Plan - Executable query plan nodes.
 
 =head1 VERSION
 
-This document describes RDF::Query::Plan version 2.200, released 6 August 2009.
+This document describes RDF::Query::Plan version 2.201_01, released 27 January 2010.
 
 =head1 METHODS
 
@@ -35,6 +35,7 @@ use RDF::Query::Plan::Join::NestedLoop;
 use RDF::Query::Plan::Join::PushDownNestedLoop;
 use RDF::Query::Plan::Limit;
 use RDF::Query::Plan::Not;
+use RDF::Query::Plan::Exists;
 use RDF::Query::Plan::Offset;
 use RDF::Query::Plan::Project;
 use RDF::Query::Plan::Quad;
@@ -55,7 +56,7 @@ use constant CLOSED		=> 0x04;
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.200';
+	$VERSION	= '2.201_01';
 }
 
 ######################################################################
@@ -195,12 +196,16 @@ sub _sse {
 
 sub _sse_atom {
 	my $self	= shift;
-	my $context	= shift;
+	my $context	= shift || {};
 	my $indent	= shift;
 	my $more	= shift;
 	my $p		= shift;
 	my $v		= shift;
 	no warnings 'uninitialized';
+	
+	my $ns		= $context->{ namespaces } || {};
+	my %ns		= %$ns;
+	
 	if ($p eq 's') {
 		for ($v) {
 			s/\\/\\\\/g;
@@ -219,17 +224,17 @@ sub _sse_atom {
 		return $v;
 	} elsif ($p eq 'W') {
 		if (blessed($v)) {
-			return $v->sse( $context, "${indent}${more}" );
+			return $v->sse( { namespaces => \%ns }, "${indent}${more}" );
 		} else {
 			return $v;
 		}
 	} elsif ($p =~ m/^[PNETV]$/) {
-		return $v->sse( $context, "${indent}${more}" );
+		return $v->sse( { namespaces => \%ns }, "${indent}${more}" );
 	} elsif ($p eq 'J') {
 		if ($v->isa('RDF::Query::Node::Variable')) {
 			return $v->name;
 		} else {
-			return $v->sse( $context, "${indent}${more}" );
+			return $v->sse( { namespaces => \%ns }, "${indent}${more}" );
 		}
 	}
 }
@@ -382,6 +387,14 @@ sub generate_plans {
 			foreach my $p (@patt) {
 				foreach my $n (@npatt) {
 					push(@return_plans, RDF::Query::Plan::Not->new( $p, $n ));
+				}
+			}
+		} elsif ($type eq 'Exists') {
+			my @patt	= $self->generate_plans( $algebra->pattern, $context, %args );
+			my @npatt	= $self->generate_plans( $algebra->exists_pattern, $context, %args );
+			foreach my $p (@patt) {
+				foreach my $n (@npatt) {
+					push(@return_plans, RDF::Query::Plan::Exists->new( $p, $n, $algebra->not_flag ));
 				}
 			}
 		} elsif ($type eq 'Filter') {

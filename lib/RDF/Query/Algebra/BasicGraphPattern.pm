@@ -7,7 +7,7 @@ RDF::Query::Algebra::BasicGraphPattern - Algebra class for BasicGraphPattern pat
 
 =head1 VERSION
 
-This document describes RDF::Query::Algebra::BasicGraphPattern version 2.200, released 6 August 2009.
+This document describes RDF::Query::Algebra::BasicGraphPattern version 2.201_01, released 27 January 2010.
 
 =cut
 
@@ -20,7 +20,7 @@ use base qw(RDF::Query::Algebra);
 
 use Data::Dumper;
 use Log::Log4perl;
-use Scalar::Util qw(refaddr);
+use Scalar::Util qw(refaddr reftype);
 use Carp qw(carp croak confess);
 use Time::HiRes qw(gettimeofday tv_interval);
 use RDF::Trine::Iterator qw(smap swatch);
@@ -30,7 +30,7 @@ use RDF::Trine::Iterator qw(smap swatch);
 our ($VERSION);
 my %AS_SPARQL;
 BEGIN {
-	$VERSION	= '2.200';
+	$VERSION	= '2.201_01';
 }
 
 ######################################################################
@@ -112,6 +112,9 @@ sub as_sparql {
 		return $AS_SPARQL{ refaddr( $self ) };
 	} else {
 		my $context	= shift;
+# 		if (ref($context)) {
+# 			$context	= { %$context };
+# 		}
 		my $indent	= shift || '';
 		my @triples;
 		foreach my $t ($self->triples) {
@@ -142,6 +145,18 @@ Returns a list of the variable names used in this algebra expression.
 sub referenced_variables {
 	my $self	= shift;
 	return RDF::Query::_uniq(map { $_->referenced_variables } $self->triples);
+}
+
+=item C<< binding_variables >>
+
+Returns a list of the variable names used in this algebra expression that will
+bind values during execution.
+
+=cut
+
+sub binding_variables {
+	my $self	= shift;
+	return RDF::Query::_uniq(map { $_->binding_variables } $self->triples);
 }
 
 =item C<< definite_variables >>

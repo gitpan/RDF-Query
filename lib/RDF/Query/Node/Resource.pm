@@ -7,7 +7,7 @@ RDF::Query::Node::Resource - RDF Node class for resources
 
 =head1 VERSION
 
-This document describes RDF::Query::Node::Resource version 2.200, released 6 August 2009.
+This document describes RDF::Query::Node::Resource version 2.201_01, released 27 January 2010.
 
 =cut
 
@@ -27,7 +27,7 @@ use Carp qw(carp croak confess);
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.200';
+	$VERSION	= '2.201_01';
 }
 
 ######################################################################
@@ -68,8 +68,10 @@ Returns the SPARQL string for this node.
 
 sub as_sparql {
 	my $self	= shift;
-	my $context	= shift;
-	return $self->sse( $context );
+	my $context	= shift || {};
+	my $ns		= $context->{ namespaces } || {};
+	my %ns		= %$ns;
+	return $self->sse( { namespaces => \%ns } );
 }
 
 
