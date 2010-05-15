@@ -7,7 +7,7 @@ RDF::Query::Algebra::BasicGraphPattern - Algebra class for BasicGraphPattern pat
 
 =head1 VERSION
 
-This document describes RDF::Query::Algebra::BasicGraphPattern version 2.201, released 30 January 2010.
+This document describes RDF::Query::Algebra::BasicGraphPattern version 2.202_01, released 30 January 2010.
 
 =cut
 
@@ -30,7 +30,7 @@ use RDF::Trine::Iterator qw(smap swatch);
 our ($VERSION);
 my %AS_SPARQL;
 BEGIN {
-	$VERSION	= '2.201';
+	$VERSION	= '2.202_01';
 }
 
 ######################################################################
@@ -187,34 +187,6 @@ sub _check_duplicate_blanks {
 		}
 	}
 	return [keys %seen];
-}
-
-=item C<< fixup ( $query, $bridge, $base, \%namespaces ) >>
-
-Returns a new pattern that is ready for execution using the given bridge.
-This method replaces generic node objects with bridge-native objects.
-
-=cut
-
-sub fixup {
-	my $self	= shift;
-	my $class	= ref($self);
-	my $query	= shift;
-	my $bridge	= shift;
-	my $base	= shift;
-	my $ns		= shift;
-	
-	if (my $opt = $query->algebra_fixup( $self, $bridge, $base, $ns )) {
-		return $opt;
-	} else {
-		my @nodes	= map { $_->fixup( $query, $bridge, $base, $ns ) } $self->triples;
-		if (my $cm = $query->costmodel) {
-			# execute triple patterns that have the least cost first (minimizing intermediate results)
-			@nodes	= map { $_->[0] } sort { $a->[1] <=> $b->[1] } map { [ $_, $cm->cost($_) ] } @nodes;
-		}
-		my $fixed	= $class->new( @nodes );
-		return $fixed;
-	}
 }
 
 =item C<< connected >>

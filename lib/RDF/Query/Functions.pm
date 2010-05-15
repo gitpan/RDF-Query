@@ -7,7 +7,7 @@ RDF::Query::Functions - Standard Extension Functions
 
 =head1 VERSION
 
-This document describes RDF::Query::Functions version 2.201, released 30 January 2010.
+This document describes RDF::Query::Functions version 2.202_01, released 30 January 2010.
 
 =cut
 
@@ -35,7 +35,7 @@ use Carp qw(carp croak confess);
 our ($VERSION, $l);
 BEGIN {
 	$l			= Log::Log4perl->get_logger("rdf.query.functions");
-	$VERSION	= '2.201';
+	$VERSION	= '2.202_01';
 }
 
 ######################################################################
@@ -253,7 +253,7 @@ $RDF::Query::functions{"http://www.w3.org/2001/XMLSchema#dateTime"}	= sub {
 	my $query	= shift;
 	my $bridge	= shift;
 	my $node	= shift;
-	my $f		= ref($query) ? $query->{dateparser} : DateTime::Format::W3CDTF->new;
+	my $f		= ref($query) ? $query->dateparser : DateTime::Format::W3CDTF->new;
 	my $value	= $node->literal_value;
 	my $dt		= eval { $f->parse_datetime( $value ) };
 	if ($dt) {
@@ -620,7 +620,7 @@ $RDF::Query::functions{"java:com.hp.hpl.jena.query.function.library.now"}	= sub 
 	my $query	= shift;
 	my $bridge	= shift;
 	my $dt		= DateTime->now();
-	my $f		= ref($query) ? $query->{dateparser} : DateTime::Format::W3CDTF->new;
+	my $f		= ref($query) ? $query->dateparser : DateTime::Format::W3CDTF->new;
 	my $value	= $f->format_datetime( $dt );
 	return RDF::Query::Node::Literal->new( $value, undef, 'http://www.w3.org/2001/XMLSchema#dateTime' );
 };

@@ -7,7 +7,7 @@ RDF::Query::Plan - Executable query plan nodes.
 
 =head1 VERSION
 
-This document describes RDF::Query::Plan version 2.201, released 30 January 2010.
+This document describes RDF::Query::Plan version 2.202_01, released 30 January 2010.
 
 =head1 METHODS
 
@@ -38,12 +38,14 @@ use RDF::Query::Plan::Not;
 use RDF::Query::Plan::Exists;
 use RDF::Query::Plan::Offset;
 use RDF::Query::Plan::Project;
+use RDF::Query::Plan::Extend;
 use RDF::Query::Plan::Quad;
 use RDF::Query::Plan::Service;
 use RDF::Query::Plan::Sort;
 use RDF::Query::Plan::Triple;
 use RDF::Query::Plan::ThresholdUnion;
 use RDF::Query::Plan::Union;
+use RDF::Query::Plan::SubSelect;
 
 use RDF::Trine::Statement;
 use RDF::Trine::Statement::Quad;
@@ -56,7 +58,7 @@ use constant CLOSED		=> 0x04;
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.201';
+	$VERSION	= '2.202_01';
 }
 
 ######################################################################
@@ -370,7 +372,8 @@ sub generate_plans {
 			my @base	= $self->generate_plans( $algebra->pattern, $context, %args );
 			my @groups	= $algebra->groupby;
 			my @ops		= $algebra->ops;
-			my @plans	= map { RDF::Query::Plan::Aggregate->new( $_, \@groups, @ops ) } @base;
+			my @having	= $algebra->having;
+			my @plans	= map { RDF::Query::Plan::Aggregate->new( $_, \@groups, expressions => \@ops, having => \@having ) } @base;
 			push(@return_plans, @plans);
 		} elsif ($type eq 'Construct') {
 			my $triples	= $algebra->triples;
@@ -509,6 +512,15 @@ sub generate_plans {
 				push(@plans, RDF::Query::Plan::Project->new( $plan, $vars ));
 			}
 			push(@return_plans, @plans);
+		} elsif ($type eq 'Extend') {
+			my $pattern	= $algebra->pattern;
+			my $vars	= $algebra->vars;
+			my @base	= $self->generate_plans( $pattern, $context, %args );
+			my @plans;
+			foreach my $plan (@base) {
+				push(@plans, RDF::Query::Plan::Extend->new( $plan, $vars ));
+			}
+			push(@return_plans, @plans);
 		} elsif ($type eq 'Service') {
 			my $pattern	= $algebra->pattern;
 			my @base	= $self->generate_plans( $pattern, $context, %args );
@@ -522,6 +534,9 @@ sub generate_plans {
 				push(@plans, RDF::Query::Plan::Service->new( $algebra->endpoint->uri_value, $plan, $sparql ));
 			}
 			push(@return_plans, @plans);
+		} elsif ($type eq 'SubSelect') {
+			my $query	= $algebra->query;
+			push(@return_plans, RDF::Query::Plan::SubSelect->new( $query ));
 		} elsif ($type eq 'Sort') {
 			my @base	= $self->generate_plans( $algebra->pattern, $context, %args );
 			my @order	= $algebra->orderby;
@@ -745,21 +760,22 @@ sub plan_node_name;
 Returns a list of scalar identifiers for the type of the content (children)
 nodes of this plan node. These identifiers are recognized:
 
-* 'P' - A RDF::Query::Plan object
-* 'T' - An RDF::Trine::Statement object
-* 'Q' - An RDF::Trine::Statement::Quad object
-* 'N' - An RDF node
-* 'W' - An RDF node or wildcard ('*')
-* 'E' - An expression (either an RDF::Query::Expression object or an RDF node)
-* 'J' - A valid Project node (an RDF::Query::Expression object or an Variable node)
-* 'V' - A variable binding set (an object of type RDF::Query::VariableBindings)
-* 'u' - A valid URI string
-* 'i' - An integer
-* 'b' - A boolean integer value (0 or 1)
-* 's' - A string
-* 'w' - A bareword string
-* '\X' - An array reference of X nodes (where X is another identifier scalar)
-* '*X' - A list of X nodes (where X is another identifier scalar)
+ * 'P' - A RDF::Query::Plan object
+ * 'T' - An RDF::Trine::Statement object
+ * 'Q' - An RDF::Trine::Statement::Quad object
+ * 'N' - An RDF node
+ * 'W' - An RDF node or wildcard ('*')
+ * 'E' - An expression (either an RDF::Query::Expression object or an RDF node)
+ * 'J' - A valid Project node (an RDF::Query::Expression object or an Variable node)
+ * 'V' - A variable binding set (an object of type RDF::Query::VariableBindings)
+ * 'u' - A valid URI string
+ * 'i' - An integer
+ * 'b' - A boolean integer value (0 or 1)
+ * 's' - A string
+ * 'w' - A bareword string
+ * '\X' - An array reference of X nodes (where X is another identifier scalar)
+ * '*X' - A list of X nodes (where X is another identifier scalar)
+ * 'Q' - A RDF::Query object
 
 =cut
 

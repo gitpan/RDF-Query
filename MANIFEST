@@ -16,13 +16,12 @@ bin/query.pl
 Changes.ttl
 data/about.xrdf
 data/bnode-person.rdf
+data/federation_data/alice_bob.rdf
+data/federation_data/alice.rdf
+data/federation_data/bob.rdf
 data/Flower-2.rdf
 data/foaf.xrdf
 data/greenwich.rdf
-data/rdfa-test.xhtml
-data/federation_data/alice.rdf
-data/federation_data/alice_bob.rdf
-data/federation_data/bob.rdf
 data/named_graphs/alice.rdf
 data/named_graphs/alice.ttl
 data/named_graphs/bob.rdf
@@ -31,8 +30,10 @@ data/named_graphs/meta.rdf
 data/named_graphs/meta.ttl
 data/named_graphs/repeats1.rdf
 data/named_graphs/repeats2.rdf
+data/rdfa-test.xhtml
 data/service-kasei.ttl
 data/service.ttl
+data/t-sparql11-aggregates-1.rdf
 data/temporal.rdf
 doap.rdf
 examples/create_query_api.pl
@@ -57,6 +58,7 @@ lib/RDF/Query/Algebra/BasicGraphPattern.pm
 lib/RDF/Query/Algebra/Construct.pm
 lib/RDF/Query/Algebra/Distinct.pm
 lib/RDF/Query/Algebra/Exists.pm
+lib/RDF/Query/Algebra/Extend.pm
 lib/RDF/Query/Algebra/Filter.pm
 lib/RDF/Query/Algebra/GroupGraphPattern.pm
 lib/RDF/Query/Algebra/Limit.pm
@@ -69,15 +71,12 @@ lib/RDF/Query/Algebra/Project.pm
 lib/RDF/Query/Algebra/Quad.pm
 lib/RDF/Query/Algebra/Service.pm
 lib/RDF/Query/Algebra/Sort.pm
+lib/RDF/Query/Algebra/SubSelect.pm
 lib/RDF/Query/Algebra/TimeGraph.pm
 lib/RDF/Query/Algebra/Triple.pm
 lib/RDF/Query/Algebra/Union.pm
 lib/RDF/Query/BGPOptimizer.pm
 lib/RDF/Query/Compiler/SQL.pm
-lib/RDF/Query/CostModel.pm
-lib/RDF/Query/CostModel/Counted.pm
-lib/RDF/Query/CostModel/Logged.pm
-lib/RDF/Query/CostModel/Naive.pm
 lib/RDF/Query/Error.pm
 lib/RDF/Query/ExecutionContext.pm
 lib/RDF/Query/Expression.pm
@@ -114,6 +113,7 @@ lib/RDF/Query/Plan/Constant.pm
 lib/RDF/Query/Plan/Construct.pm
 lib/RDF/Query/Plan/Distinct.pm
 lib/RDF/Query/Plan/Exists.pm
+lib/RDF/Query/Plan/Extend.pm
 lib/RDF/Query/Plan/Filter.pm
 lib/RDF/Query/Plan/Join.pm
 lib/RDF/Query/Plan/Join/NestedLoop.pm
@@ -125,6 +125,7 @@ lib/RDF/Query/Plan/Project.pm
 lib/RDF/Query/Plan/Quad.pm
 lib/RDF/Query/Plan/Service.pm
 lib/RDF/Query/Plan/Sort.pm
+lib/RDF/Query/Plan/SubSelect.pm
 lib/RDF/Query/Plan/ThresholdUnion.pm
 lib/RDF/Query/Plan/Triple.pm
 lib/RDF/Query/Plan/Union.pm
@@ -146,8 +147,6 @@ t/algebra-func.t
 t/algebra-subsumption.t
 t/algebra.t
 t/constraints.t
-t/costmodel-logged.t
-t/costmodel-naive.t
 t/dataset-from-file.t
 t/dataset-from-net.t
 t/dev-computed-statements.t
@@ -157,7 +156,6 @@ t/dev-sql-compiler.t
 t/dev-time-grpahs.t
 t/dev-time-intervals.t
 t/distance.js
-t/ext-aggregate.t
 t/ext-federate-bindings.t
 t/ext-select-expr.t
 t/ext-service.t
@@ -172,7 +170,6 @@ t/logging.t
 t/model-bridge.t
 t/models.pl
 t/named-graphs.t
-t/optimizer.t
 t/optional.t
 t/parser-rdql.t
 t/parser-sparql.t
@@ -180,8 +177,8 @@ t/parser-sparql11.t
 t/parser-sparqlp.t
 t/plan-rdftrine.t
 t/plan.t
-t/pod.t
 t/pod_coverage.t
+t/pod.t
 t/protocol-serialization.t
 t/queryform-ask.t
 t/queryform-construct.t
@@ -190,6 +187,11 @@ t/resultforms.t
 t/serialize.t
 t/sha1.js
 t/sha1.js.asc
+t/sparql11-aggregates.t
+t/sparql11-federation.t
+t/sparql11-negation.t
+t/sparql11-select_expressions.t
+t/sparql11-subselect.t
 t/streams.t.deprecated
 t/syntactic_forms.t
 t/union.t

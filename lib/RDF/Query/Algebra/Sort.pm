@@ -7,7 +7,7 @@ RDF::Query::Algebra::Sort - Algebra class for sorting
 
 =head1 VERSION
 
-This document describes RDF::Query::Algebra::Sort version 2.201, released 30 January 2010.
+This document describes RDF::Query::Algebra::Sort version 2.202_01, released 30 January 2010.
 
 =cut
 
@@ -29,7 +29,7 @@ use Time::HiRes qw(gettimeofday tv_interval);
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.201';
+	$VERSION	= '2.202_01';
 }
 
 ######################################################################
@@ -191,36 +191,6 @@ Returns a list of the variable names that will be bound after evaluating this al
 sub definite_variables {
 	my $self	= shift;
 	return $self->pattern->definite_variables;
-}
-
-=item C<< fixup ( $query, $bridge, $base, \%namespaces ) >>
-
-Returns a new pattern that is ready for execution using the given bridge.
-This method replaces generic node objects with bridge-native objects.
-
-=cut
-
-sub fixup {
-	my $self	= shift;
-	my $class	= ref($self);
-	my $query	= shift;
-	my $bridge	= shift;
-	my $base	= shift;
-	my $ns		= shift;
-	
-	if (my $opt = $query->algebra_fixup( $self, $bridge, $base, $ns )) {
-		return $opt;
-	} else {
-		my $pattern	= $self->pattern->fixup( $query, $bridge, $base, $ns );
-		my @order	= map {
-						my ($d,$e)	= @$_;
-						my $ne		= ($e->isa('RDF::Query::Node::Variable'))
-									? $e
-									: $e->fixup( $query, $bridge, $base, $ns );
-						[ $d, $ne ]
-					} $self->orderby;
-		return $class->new( $pattern, @order );
-	}
 }
 
 =item C<< is_solution_modifier >>

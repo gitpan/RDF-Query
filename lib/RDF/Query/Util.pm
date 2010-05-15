@@ -7,7 +7,7 @@ RDF::Query::Util - Miscellaneous utility functions to support work with RDF::Que
 
 =head1 VERSION
 
-This document describes RDF::Query::Util version 2.201, released 30 January 2010.
+This document describes RDF::Query::Util version 2.202_01, released 30 January 2010.
 
 =head1 SYNOPSIS
 
@@ -38,7 +38,7 @@ use LWP::Simple;
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.201';
+	$VERSION	= '2.202_01';
 }
 
 ######################################################################
@@ -67,7 +67,7 @@ following the final argument parsed by C<< &cli_parse_args >>.
 
 sub cli_make_query {
 	my %args	= cli_parse_args();
-	my $class	= delete $args{ class };
+	my $class	= delete $args{ class } || 'RDF::Query';
 	my $sparql	= delete $args{ query };
 	my $l		= Log::Log4perl->get_logger("rdf.query.util");
 	$l->debug("creating sparql query with class $class");

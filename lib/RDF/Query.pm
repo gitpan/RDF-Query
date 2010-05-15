@@ -7,7 +7,7 @@ RDF::Query - An RDF query implementation of SPARQL/RDQL in Perl for use with RDF
 
 =head1 VERSION
 
-This document describes RDF::Query version 2.201, released 30 January 2010.
+This document describes RDF::Query version 2.202_01, released 30 January 2010.
 
 =head1 SYNOPSIS
 
@@ -103,7 +103,7 @@ use Log::Log4perl qw(:easy);
 Log::Log4perl->easy_init($ERROR);
 
 no warnings 'numeric';
-use RDF::Trine 0.114;
+use RDF::Trine 0.123;
 require RDF::Query::Functions;	# (needs to happen at runtime because some of the functions rely on RDF::Query being fully loaded (to call add_hook(), for example))
 								# all the built-in functions including:
 								#     datatype casting, language ops, logical ops,
@@ -122,14 +122,12 @@ use RDF::Query::Compiler::SQL;
 use RDF::Query::Error qw(:try);
 use RDF::Query::Logger;
 use RDF::Query::Plan;
-use RDF::Query::CostModel::Naive;
-use RDF::Query::CostModel::Counted;
 
 ######################################################################
 
 our ($VERSION, $DEFAULT_PARSER);
 BEGIN {
-	$VERSION		= '2.201';
+	$VERSION		= '2.202_01';
 	$DEFAULT_PARSER	= 'sparql';
 }
 
@@ -169,7 +167,6 @@ sub new {
 	$class->clear_error;
 	
 	my $l		= Log::Log4perl->get_logger("rdf.query");
-	my $f	= DateTime::Format::W3CDTF->new;
 	no warnings 'uninitialized';
 	
 	my %names	= (
@@ -192,15 +189,11 @@ sub new {
 	my $parser	= $pclass->new();
 	my $parsed	= $parser->parse( $query, $baseuri );
 	
-	my $ua		= LWP::UserAgent->new( agent => "RDF::Query/${VERSION}" );
-	$ua->default_headers->push_header( 'Accept' => "application/sparql-results+xml;q=0.9,application/rdf+xml;q=0.5,text/turtle;q=0.7,text/xml" );
-	my $self 	= bless( {
+	my $self	= $class->_new(
 					base			=> $baseuri,
-					dateparser		=> $f,
 					parser			=> $parser,
 					parsed			=> $parsed,
-					useragent		=> $ua,
-				}, $class );
+				);
 	unless ($parsed->{'triples'}) {
 		$class->set_error( $parser->error );
 		$l->debug($parser->error);
@@ -233,13 +226,6 @@ sub new {
 		$self->{logger}	= $options{logger};
 	}
 	
-	if ($options{costmodel}) {
-		$l->debug("got cost model");
-		$self->{costmodel}	= $options{costmodel};
-	} else {
-		$self->{costmodel}	= RDF::Query::CostModel::Naive->new();
-	}
-	
 	if (my $opt = $options{optimize}) {
 		$l->debug("got optimization flag: $opt");
 		$self->{optimize}	= $opt;
@@ -261,6 +247,12 @@ sub new {
 	if ($pclass eq 'RDF::Query::Parser::RDQL') {
 		$self->{parsed}{namespaces}{rdf}	= 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 	}
+	return $self;
+}
+
+sub _new {
+	my $class	= shift;
+	my $self 	= bless( { @_ }, $class );
 	return $self;
 }
 
@@ -321,7 +313,6 @@ sub prepare {
 					base						=> $parsed->{base},
 					ns							=> $parsed->{namespaces},
 					logger						=> $self->logger,
-					costmodel					=> $self->costmodel,
 					optimize					=> $self->{optimize},
 					force_no_optimization		=> $self->{force_no_optimization},
 					optimistic_threshold_time	=> $self->{optimistic_threshold_time} || 0,
@@ -676,9 +667,9 @@ Returns the query as a string in the SPARQL syntax.
 
 sub as_sparql {
 	my $self	= shift;
-	my $parsed	= $self->parsed;
+	my $parsed	= $self->parsed || {};
 	
-	my $context	= { namespaces => { %{ $self->{parsed}{namespaces} } } };
+	my $context	= { namespaces => { %{ $parsed->{namespaces} || {} } } };
 	my $method	= $parsed->{method};
 	my @vars	= map { $_->as_sparql( $context, '' ) } @{ $parsed->{ variables } };
 	my $vars	= join(' ', @vars);
@@ -765,6 +756,18 @@ sub sse {
 	
 	chomp($sse);
 	return $sse;
+}
+
+=item C<< dateparser >>
+
+Returns the DateTime::Format::W3CDTF object associated with this query object.
+
+=cut
+
+sub dateparser {
+	my $self	= shift;
+	my $parser	= ($self->{dateparser} ||= DateTime::Format::W3CDTF->new);
+	return $parser;
 }
 
 =begin private
@@ -934,24 +937,6 @@ sub load_data {
 	}
 }
 
-
-=item C<< algebra_fixup ( $algebra, $bridge, $base, $ns ) >>
-
-Called in the fixup method of ::Algebra classes, returns either an optimized
-::Algebra object ready for execution, or undef (in which case it will be
-prepared for execution by the ::Algebra::* class itself.
-
-=cut
-
-sub algebra_fixup {
-	my $self	= shift;
-	my $pattern	= shift;
-	my $bridge	= shift;
-	my $base	= shift;
-	my $ns		= shift;
-	return if ($self->{force_no_optimization});
-	return $bridge->fixup( $pattern, $self, $base, $ns );
-}
 
 =begin private
 
@@ -1523,7 +1508,14 @@ Returns the LWP::UserAgent object used for retrieving web content.
 
 sub useragent {
 	my $self	= shift;
-	return $self->{useragent};
+	if (my $ua = $self->{useragent}) {
+		return $ua;
+	} else {
+		my $ua		= LWP::UserAgent->new( agent => "RDF::Query/${VERSION}" );
+		$ua->default_headers->push_header( 'Accept' => "application/sparql-results+xml;q=0.9,application/rdf+xml;q=0.5,text/turtle;q=0.7,text/xml" );
+		$self->{useragent}	= $ua;
+		return $ua;
+	}
 }
 
 
@@ -1552,17 +1544,6 @@ Returns the logger object associated with this query object (if present).
 sub logger {
 	my $self	= shift;
 	return $self->{ logger };
-}
-
-=item C<< costmodel >>
-
-Returns the RDF::Query::CostModel object associated with this query object (if present).
-
-=cut
-
-sub costmodel {
-	my $self	= shift;
-	return $self->{ costmodel };
 }
 
 =item C<error ()>
@@ -1658,42 +1639,6 @@ __END__
 
 =back
 
-=head1 REQUIRES
-
-=over 4
-
-=item * L<RDF::Trine|RDF::Trine>
-
-=item * L<DateTime|DateTime>
-
-=item * L<DateTime::Format::W3CDTF|DateTime::Format::W3CDTF>
-
-=item * L<Digest::SHA1|Digest::SHA1>
-
-=item * L<Error|Error>
-
-=item * L<I18N::LangTags|I18N::LangTags>
-
-=item * L<JSON|JSON>
-
-=item * L<List::Util|List::Util>
-
-=item * L<LWP|LWP>
-
-=item * L<Parse::RecDescent|Parse::RecDescent>
-
-=item * L<Scalar::Util|Scalar::Util>
-
-=item * L<Set::Scalar|Set::Scalar>
-
-=item * L<Storable|Storable>
-
-=item * L<URI|URI>
-
-=item * L<RDF::Redland|RDF::Redland> or L<RDF::Core|RDF::Core> for optional model support.
-
-=back
-
 =head1 DEFINED HOOKS
 
 The following hook URIs are defined and may be used to extend the query engine
@@ -1722,6 +1667,10 @@ C<$bridge> is the model bridge (RDF::Query::Model::*) object.
 C<$iterator> is a RDF::Trine::Iterator object.
 
 =back
+
+=head1 SEE ALSO
+
+L<http://www.perlrdf.org/>
 
 =head1 AUTHOR
 

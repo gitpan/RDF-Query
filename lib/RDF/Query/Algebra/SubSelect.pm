@@ -1,33 +1,37 @@
-# RDF::Query::Algebra::Offset
+# RDF::Query::Algebra::SubSelect
 # -----------------------------------------------------------------------------
 
 =head1 NAME
 
-RDF::Query::Algebra::Offset - Algebra class for offseting query results
+RDF::Query::Algebra::SubSelect - Algebra class for Subselects
 
 =head1 VERSION
 
-This document describes RDF::Query::Algebra::Offset version 2.202_01, released 30 January 2010.
+This document describes RDF::Query::Algebra::SubSelect version 2.202_01, released 30 January 2010.
 
 =cut
 
-package RDF::Query::Algebra::Offset;
+package RDF::Query::Algebra::SubSelect;
 
 use strict;
 use warnings;
-no warnings 'redefine';
 use base qw(RDF::Query::Algebra);
 
+use Log::Log4perl;
+use URI::Escape;
+use MIME::Base64;
 use Data::Dumper;
-use Set::Scalar;
-use Scalar::Util qw(blessed);
+use RDF::Query::Error;
 use Carp qw(carp croak confess);
-use RDF::Trine::Iterator qw(sgrep);
+use Scalar::Util qw(blessed reftype);
+use Storable qw(store_fd fd_retrieve);
+use RDF::Trine::Iterator qw(sgrep smap swatch);
 
 ######################################################################
 
-our ($VERSION);
+our ($VERSION, $BLOOM_FILTER_ERROR_RATE);
 BEGIN {
+	$BLOOM_FILTER_ERROR_RATE	= 0.1;
 	$VERSION	= '2.202_01';
 }
 
@@ -39,17 +43,16 @@ BEGIN {
 
 =cut
 
-=item C<< new ( $pattern, $offset ) >>
+=item C<new ( $query )>
 
-Returns a new Sort structure.
+Returns a new SubSelect structure.
 
 =cut
 
 sub new {
 	my $class	= shift;
-	my $pattern	= shift;
-	my $offset	= shift;
-	return bless( [ $pattern, $offset ], $class );
+	my $query	= shift;
+	return bless( [ $query ], $class );
 }
 
 =item C<< construct_args >>
@@ -61,34 +64,23 @@ will produce a clone of this algebra pattern.
 
 sub construct_args {
 	my $self	= shift;
-	my $pattern	= $self->pattern;
-	my $offset	= $self->offset;
-	return ($pattern, $offset);
+	return ($self->query);
 }
 
-=item C<< pattern >>
+=item C<< query >>
 
-Returns the pattern to be sorted.
+Returns the sub-select query.
 
 =cut
 
-sub pattern {
+sub query {
 	my $self	= shift;
 	if (@_) {
-		$self->[0]	= shift;
+		my $query	= shift;
+		$self->[0]	= $query;
 	}
-	return $self->[0];
-}
-
-=item C<< offset >>
-
-Returns the offset number of the pattern.
-
-=cut
-
-sub offset {
-	my $self	= shift;
-	return $self->[1];
+	my $query	= $self->[0];
+	return $query;
 }
 
 =item C<< sse >>
@@ -103,11 +95,7 @@ sub sse {
 	my $prefix	= shift || '';
 	my $indent	= $context->{indent};
 	
-	return sprintf(
-		"(offset %s\n${prefix}${indent}%s)",
-		$self->offset,
-		$self->pattern->sse( $context, "${prefix}${indent}" ),
-	);
+	return $self->query->sse( $context );
 }
 
 =item C<< as_sparql >>
@@ -120,11 +108,9 @@ sub as_sparql {
 	my $self	= shift;
 	my $context	= shift;
 	my $indent	= shift;
-	
 	my $string	= sprintf(
-		"%s\nOFFSET %d",
-		$self->pattern->as_sparql( $context, $indent ),
-		$self->offset,
+		"{ %s }",
+		$self->query->as_sparql( $context, $indent ),
 	);
 	return $string;
 }
@@ -136,7 +122,7 @@ Returns the type of this algebra expression.
 =cut
 
 sub type {
-	return 'LIMIT';
+	return 'SUBSELECT';
 }
 
 =item C<< referenced_variables >>
@@ -147,7 +133,8 @@ Returns a list of the variable names used in this algebra expression.
 
 sub referenced_variables {
 	my $self	= shift;
-	return RDF::Query::_uniq($self->pattern->referenced_variables);
+	my @list	= $self->query->pattern->referenced_variables;
+	return @list;
 }
 
 =item C<< binding_variables >>
@@ -159,7 +146,7 @@ bind values during execution.
 
 sub binding_variables {
 	my $self	= shift;
-	return RDF::Query::_uniq($self->pattern->binding_variables);
+	return $self->query->pattern->binding_variables;
 }
 
 =item C<< definite_variables >>
@@ -170,19 +157,8 @@ Returns a list of the variable names that will be bound after evaluating this al
 
 sub definite_variables {
 	my $self	= shift;
-	return $self->pattern->definite_variables;
+	return $self->query->pattern->definite_variables;
 }
-
-=item C<< is_solution_modifier >>
-
-Returns true if this node is a solution modifier.
-
-=cut
-
-sub is_solution_modifier {
-	return 1;
-}
-
 
 
 1;

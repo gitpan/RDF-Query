@@ -7,7 +7,7 @@ RDF::Query::Algebra::Quad - Algebra class for Quad patterns
 
 =head1 VERSION
 
-This document describes RDF::Query::Algebra::Quad version 2.201, released 30 January 2010.
+This document describes RDF::Query::Algebra::Quad version 2.202_01, released 30 January 2010.
 
 =cut
 
@@ -28,7 +28,7 @@ use RDF::Trine::Iterator qw(smap sgrep swatch);
 my %QUAD_LABELS;
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.201';
+	$VERSION	= '2.202_01';
 }
 
 ######################################################################
@@ -160,31 +160,6 @@ sub distinguish_bnode_variables {
 		}
 	}
 	return $class->new( @nodes );
-}
-
-=item C<< fixup ( $query, $bridge, $base, \%namespaces ) >>
-
-Returns a new pattern that is ready for execution using the given bridge.
-This method replaces generic node objects with bridge-native objects.
-
-=cut
-
-sub fixup {
-	my $self	= shift;
-	my $class	= ref($self);
-	my $query	= shift;
-	my $bridge	= shift;
-	my $base	= shift;
-	my $ns		= shift;
-	
-	if (my $opt = $query->algebra_fixup( $self, $bridge, $base, $ns )) {
-		return $opt;
-	} else {
-		my @nodes	= $self->nodes;
-		@nodes	= map { $bridge->as_native( $_, $base, $ns ) } @nodes;
-		my $fixed	= $class->new( @nodes );
-		return $fixed;
-	}
 }
 
 =item C<< label ( $label => $value ) >>

@@ -7,7 +7,7 @@ RDF::Query::Node::Blank - RDF Node class for blank nodes
 
 =head1 VERSION
 
-This document describes RDF::Query::Node::Blank version 2.201, released 30 January 2010.
+This document describes RDF::Query::Node::Blank version 2.202_01, released 30 January 2010.
 
 =head1 METHODS
 
@@ -30,7 +30,7 @@ use Carp qw(carp croak confess);
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.201';
+	$VERSION	= '2.202_01';
 }
 
 ######################################################################
@@ -57,6 +57,23 @@ sub _cmp {
 	my $cmp	= $nodea->blank_identifier cmp $nodeb->blank_identifier;
 	$l->debug("-> $cmp");
 	return $cmp;
+}
+
+=item C<< new ( [ $name ] ) >>
+
+Returns a new Blank node object. If C<< $name >> is supplied, it will be used as
+the blank node identifier. Otherwise a time-based identifier will be generated
+and used.
+
+=cut
+
+sub new {
+	my $class	= shift;
+	my $name	= shift;
+	unless (defined($name)) {
+		$name	= 'r' . time() . 'r' . $RDF::Trine::Node::Blank::COUNTER++;
+	}
+	return $class->_new( $name );
 }
 
 =item C<< as_sparql >>
