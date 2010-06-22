@@ -7,7 +7,7 @@ RDF::Query::Plan::Sort - Executable query plan for Sorts.
 
 =head1 VERSION
 
-This document describes RDF::Query::Plan::Sort version 2.202, released 30 January 2010.
+This document describes RDF::Query::Plan::Sort version 3.000_01, released 30 January 2010.
 
 =head1 METHODS
 
@@ -25,7 +25,7 @@ use base qw(RDF::Query::Plan);
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.202';
+	$VERSION	= '3.000_01';
 }
 
 ######################################################################
@@ -113,8 +113,8 @@ sub _cmp_rows {
 	no warnings 'numeric';
 	foreach my $data (@$exprs) {
 		my ($expr, $rev)	= @$data;
-		my $a_val	= $query->var_or_expr_value( $bridge, $a, $expr );
-		my $b_val	= $query->var_or_expr_value( $bridge, $b, $expr );
+		my $a_val	= $query->var_or_expr_value( $a, $expr );
+		my $b_val	= $query->var_or_expr_value( $b, $expr );
 		local($RDF::Query::Node::Literal::LAZY_COMPARISONS)	= 1;
 		my $cmp		= $a_val <=> $b_val;
 		if ($cmp != 0) {

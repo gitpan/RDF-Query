@@ -7,7 +7,7 @@ RDF::Query::Algebra::Sort - Algebra class for sorting
 
 =head1 VERSION
 
-This document describes RDF::Query::Algebra::Sort version 2.202, released 30 January 2010.
+This document describes RDF::Query::Algebra::Sort version 3.000_01, released 30 January 2010.
 
 =cut
 
@@ -29,7 +29,7 @@ use Time::HiRes qw(gettimeofday tv_interval);
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.202';
+	$VERSION	= '3.000_01';
 }
 
 ######################################################################
@@ -147,6 +147,22 @@ sub as_sparql {
 		join(' ', @order_sparql),
 	);
 	return $string;
+}
+
+=item C<< as_hash >>
+
+Returns the query as a nested set of plain data structures (no objects).
+
+=cut
+
+sub as_hash {
+	my $self	= shift;
+	my $context	= shift;
+	return {
+		type 		=> lc($self->type),
+		pattern		=> $self->pattern->as_hash,
+		order		=> [ map { $_->as_hash } $self->orderby ],
+	};
 }
 
 =item C<< type >>

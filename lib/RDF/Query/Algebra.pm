@@ -7,7 +7,7 @@ RDF::Query::Algebra - Base class for Algebra expressions
 
 =head1 VERSION
 
-This document describes RDF::Query::Algebra version 2.202, released 30 January 2010.
+This document describes RDF::Query::Algebra version 3.000_01, released 30 January 2010.
 
 =head1 METHODS
 
@@ -19,7 +19,7 @@ package RDF::Query::Algebra;
 
 our (@ISA, @EXPORT_OK);
 BEGIN {
-	our $VERSION	= '2.202';
+	our $VERSION	= '3.000_01';
 	
 	require Exporter;
 	@ISA		= qw(Exporter);
@@ -63,6 +63,11 @@ use RDF::Query::Algebra::Extend;
 use RDF::Query::Algebra::Not;
 use RDF::Query::Algebra::Exists;
 use RDF::Query::Algebra::SubSelect;
+use RDF::Query::Algebra::Load;
+use RDF::Query::Algebra::Clear;
+use RDF::Query::Algebra::Update;
+use RDF::Query::Algebra::Minus;
+use RDF::Query::Algebra::Sequence;
 
 use constant SSE_TAGS	=> {
 	'BGP'					=> 'RDF::Query::Algebra::BasicGraphPattern',
