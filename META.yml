@@ -38,6 +38,7 @@ requires:
   Error: 0
   File::Spec: 0
   File::Temp: 0
+  I18N::LangTags: 0
   JSON: 2
   Parse::RecDescent: 0
   RDF::Trine: 0.124
@@ -48,4 +49,4 @@ resources:
   homepage: http://search.cpan.org/dist/RDF-Query/
   license: http://dev.perl.org/licenses/
   repository: http://github.com/kasei/perlrdf/
-version: 2.901_01
+version: 2.901
