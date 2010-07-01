@@ -24,6 +24,7 @@ no_index:
     - examples
     - inc
     - t
+    - xt
 recommends:
   Bloom::Filter: 1
   Crypt::GPG: 0
@@ -49,4 +50,4 @@ resources:
   homepage: http://search.cpan.org/dist/RDF-Query/
   license: http://dev.perl.org/licenses/
   repository: http://github.com/kasei/perlrdf/
-version: 2.901
+version: 2.902_01
