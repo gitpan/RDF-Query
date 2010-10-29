@@ -7,7 +7,7 @@ RDF::Query::Algebra::Project - Algebra class for projection
 
 =head1 VERSION
 
-This document describes RDF::Query::Algebra::Project version 2.902.
+This document describes RDF::Query::Algebra::Project version 2.903_01.
 
 =cut
 
@@ -28,7 +28,7 @@ use RDF::Trine::Iterator qw(sgrep);
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.902';
+	$VERSION	= '2.903_01';
 }
 
 ######################################################################
@@ -267,21 +267,45 @@ sub referenced_variables {
 	return RDF::Query::_uniq(@vars);
 }
 
-=item C<< binding_variables >>
+=item C<< bind_variables ( \%bound ) >>
+
+Returns a new algebra pattern with variables named in %bound replaced by their corresponding bound values.
+
+=cut
+
+sub bind_variables {
+	my $self	= shift;
+	my $class	= ref($self);
+	my $bound	= shift;
+	my $pattern	= $self->pattern->bind_variables( $bound );
+	my $vars	= $self->vars;
+	my @vars;
+	foreach my $v (@$vars) {
+		if (blessed($v) and $v->isa('RDF::Query::Node::Variable') and exists $bound->{ $v->name }) {
+			push(@vars, $bound->{ $v->name });
+		} else {
+			push(@vars, $v);
+		}
+	}
+	return $class->new( $pattern, \@vars );
+}
+
+=item C<< potentially_bound >>
 
 Returns a list of the variable names used in this algebra expression that will
 bind values during execution.
 
 =cut
 
-sub binding_variables {
+sub potentially_bound {
 	my $self	= shift;
-	my @vars	= $self->pattern->binding_variables;
+	my @vars;
+#	push(@vars, $self->pattern->potentially_bound);
 	foreach my $v (@{ $self->vars }) {
 		if ($v->isa('RDF::Query::Node::Variable')) {
 			push(@vars, $v->name);
 		} else {
-			push(@vars, $v->binding_variables);
+			push(@vars, $v->potentially_bound);
 		}
 	}
 	return RDF::Query::_uniq(@vars);

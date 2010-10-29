@@ -7,7 +7,7 @@ RDF::Query::Parser::SPARQL11 - SPARQL 1.1 Parser.
 
 =head1 VERSION
 
-This document describes RDF::Query::Parser::SPARQL11 version 2.902.
+This document describes RDF::Query::Parser::SPARQL11 version 2.903_01.
 
 =head1 SYNOPSIS
 
@@ -44,7 +44,7 @@ use Scalar::Util qw(blessed looks_like_number reftype);
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.902';
+	$VERSION	= '2.903_01';
 }
 
 ######################################################################
@@ -106,6 +106,13 @@ SPARQL 1.1 Update statements.
 sub parse {
 	my $self	= shift;
 	my $input	= shift;
+	
+	unless (defined($input)) {
+		$self->{build}	= undef;
+		$self->{error}	= "No query string found to parse";
+		return;
+	}
+	
 	my $baseuri	= shift;
 	my $update	= shift || 0;
 	
@@ -122,19 +129,28 @@ sub parse {
 	local($self->{pattern_container_stack})	= [];
 	local($self->{update})					= $update;
 	my $triples								= $self->_push_pattern_container();
-	$self->{build}							= { sources => [], triples => $triples };
+	local($self->{build});
+	my $build								= { sources => [], triples => $triples };
+	$self->{build}							= $build;
 	if ($baseuri) {
 		$self->{build}{base}	= $baseuri;
 	}
-	
+
 	try {
 		$self->_RW_Query();
 	} catch RDF::Query::Error with {
 		my $e	= shift;
 		$self->{build}	= undef;
+		$build			= undef;
+		$self->{error}	= $e->stacktrace
+	} otherwise {
+		my $e	= shift;
+		$self->{build}	= undef;
+		$build			= undef;
 		$self->{error}	= $e->stacktrace
 	};
-	my $data								= delete $self->{build};
+
+	my $data								= $build;
 #	$data->{triples}						= $self->_pop_pattern_container();
 	return $data;
 }
@@ -251,7 +267,7 @@ sub _RW_Query {
 			throw RDF::Query::Error::PermissionError -text => "CREATE GRAPH update forbidden in read-only queries"
 				unless ($self->{update});
 			$self->_CreateGraph();
-		} elsif ($self->_test(qr/DROP\s+(SILENT\s+)?GRAPH/i)) {
+		} elsif ($self->_test(qr/DROP\s+(SILENT\s+)?/i)) {
 			throw RDF::Query::Error::PermissionError -text => "DROP GRAPH update forbidden in read-only queries"
 				unless ($self->{update});
 			$self->_DropGraph();
@@ -260,7 +276,7 @@ sub _RW_Query {
 				unless ($self->{update});
 			$self->_LoadUpdate();
 # 			warn Dumper($self->{build});
-		} elsif ($self->_test(qr/CLEAR\s+GRAPH/i)) {
+		} elsif ($self->_test(qr/CLEAR\s+(SILENT\s+)?/i)) {
 			throw RDF::Query::Error::PermissionError -text => "CLEAR GRAPH update forbidden in read-only queries"
 				unless ($self->{update});
 			$self->_ClearGraphUpdate();
@@ -279,10 +295,18 @@ sub _RW_Query {
 		} elsif ($self->_test(qr/(WITH|INSERT|DELETE)/i)) {
 			throw RDF::Query::Error::PermissionError -text => "INSERT/DELETE update forbidden in read-only queries"
 				unless ($self->{update});
-			if ($self->_test(qr/(WITH\s*${r_IRI_REF}\s*)?INSERT/i)) {
-				$self->_InsertUpdate();
-			} elsif ($self->_test(qr/(WITH\s*${r_IRI_REF}\s*)?DELETE/i)) {
-				$self->_DeleteUpdate();
+			my ($graph);
+			if ($self->_test(qr/WITH/)) {
+				$self->_eat(qr/WITH/i);
+				$self->__consume_ws_opt;
+				$self->_IRIref;
+				($graph)	= splice( @{ $self->{stack} } );
+				$self->__consume_ws_opt;
+			}
+			if ($self->_test(qr/INSERT/ims)) {
+				$self->_InsertUpdate($graph);
+			} elsif ($self->_test(qr/DELETE/ims)) {
+				$self->_DeleteUpdate($graph);
 			}
 		} else {
 			my $l		= Log::Log4perl->get_logger("rdf.query");
@@ -411,14 +435,7 @@ sub _DeleteDataUpdate {
 
 sub _InsertUpdate {
 	my $self	= shift;
-	my ($graph);
-	if ($self->_test(qr/WITH/i)) {
-		$self->_eat(qr/WITH/i);
-		$self->__consume_ws_opt;
-		my $iri	= $self->_eat( $r_IRI_REF );
-		$graph	= RDF::Query::Node::Resource->new( substr($iri,1,length($iri)-2), $self->__base );
-		$self->__consume_ws_opt;
-	}
+	my $graph	= shift;
 	$self->_eat(qr/INSERT/i);
 	$self->__consume_ws_opt;
 	$self->_eat('{');
@@ -460,7 +477,7 @@ sub _InsertUpdate {
 	
 	my @ds_keys	= keys %dataset;
 	unless (@ds_keys) {
-		$dataset{ default }	= [$graph];
+		$dataset{ default }	= [$graph || ()];
 	}
 	
 	my $insert	= RDF::Query::Algebra::Update->new(undef, $data, $ggp, \%dataset);
@@ -470,16 +487,9 @@ sub _InsertUpdate {
 
 sub _DeleteUpdate {
 	my $self	= shift;
-	my $graph;
+	my $graph	= shift;
 	my ($delete_data, $insert_data);
 	
-	if ($self->_test(qr/WITH/i)) {
-		$self->_eat(qr/WITH/i);
-		$self->__consume_ws_opt;
-		my $iri	= $self->_eat( $r_IRI_REF );
-		$graph	= RDF::Query::Node::Resource->new( substr($iri,1,length($iri)-2), $self->__base );
-		$self->__consume_ws_opt;
-	}
 	$self->_eat(qr/DELETE/i);
 	$self->__consume_ws_opt;
 	my %dataset;
@@ -533,7 +543,7 @@ sub _DeleteUpdate {
 	$self->_eat(qr/WHERE/i);
 	$self->__consume_ws_opt;
 	if ($graph) {
-		local($self->{named_graph})	= $graph;
+#  		local($self->{named_graph})	= $graph;
 		$self->_GroupGraphPattern;
 		my $ggp	= $self->_remove_pattern;
 		$ggp	= RDF::Query::Algebra::NamedGraph->new( $graph, $ggp );
@@ -550,7 +560,7 @@ sub _DeleteUpdate {
 	
 	my @ds_keys	= keys %dataset;
 	if ($graph and not(scalar(@ds_keys))) {
-		$dataset{ default }	= [$graph];
+		$dataset{ default }	= [$graph || ()];
 	}
 	
 	my $insert	= RDF::Query::Algebra::Update->new($delete_data, $insert_data, $ggp, \%dataset);
@@ -592,6 +602,7 @@ sub _ModifyTemplate {
 sub __ModifyTemplate {
 	my $self	= shift;
 	my $graph	= shift;
+	local($self->{_modify_template})	= 1;
 	if ($self->_TriplesBlock_test) {
 		my $data;
 		$self->_push_pattern_container;
@@ -632,23 +643,6 @@ sub _LoadUpdate {
 	$self->{build}{method}		= 'LOAD';
 }
 
-sub _ClearGraphUpdate {
-	my $self	= shift;
-	$self->_eat(qr/CLEAR GRAPH/i);
-	$self->_ws;
-	if ($self->_test(qr/DEFAULT/i)) {
-		$self->_eat(qr/DEFAULT/i);
-		my $pat	= RDF::Query::Algebra::Clear->new();
-		$self->_add_patterns( $pat );
-	} else {
-		$self->_IRIref;
-		my ($graph)	= splice( @{ $self->{stack} } );
-		my $pat	= RDF::Query::Algebra::Clear->new( $graph );
-		$self->_add_patterns( $pat );
-	}
-	$self->{build}{method}		= 'CLEAR';
-}
-
 sub _CreateGraph {
 	my $self	= shift;
 	my $op		= $self->_eat(qr/CREATE\s+(SILENT\s+)?GRAPH/i);
@@ -661,15 +655,59 @@ sub _CreateGraph {
 	$self->{build}{method}		= 'CREATE';
 }
 
-sub _DropGraph {
+sub _ClearGraphUpdate {
 	my $self	= shift;
-	my $op		= $self->_eat(qr/DROP\s+(SILENT\s+)?GRAPH/i);
+	my $op		= $self->_eat(qr/CLEAR(\s+SILENT)?/i);
 	my $silent	= ($op =~ /SILENT/i);
 	$self->_ws;
-	$self->_IRIref;
-	my ($graph)	= splice( @{ $self->{stack} } );
-	my $pat	= RDF::Query::Algebra::Clear->new( $graph );
-	$self->_add_patterns( $pat );
+	if ($self->_test(qr/GRAPH/i)) {
+		$self->_eat(qr/GRAPH/i);
+		$self->_ws;
+		$self->_IRIref;
+		my ($graph)	= splice( @{ $self->{stack} } );
+		my $pat	= RDF::Query::Algebra::Clear->new( $graph );
+		$self->_add_patterns( $pat );
+	} elsif ($self->_test(qr/DEFAULT/i)) {
+		$self->_eat(qr/DEFAULT/i);
+		my $pat	= RDF::Query::Algebra::Clear->new();
+		$self->_add_patterns( $pat );
+	} elsif ($self->_test(qr/NAMED/i)) {
+		$self->_eat(qr/NAMED/i);
+		my $pat	= RDF::Query::Algebra::Clear->new( RDF::Query::Node::Resource->new('tag:gwilliams@cpan.org,2010-01-01:RT:NAMED') );
+		$self->_add_patterns( $pat );
+	} elsif ($self->_test(qr/ALL/i)) {
+		$self->_eat(qr/ALL/i);
+		my $pat	= RDF::Query::Algebra::Clear->new( RDF::Query::Node::Resource->new('tag:gwilliams@cpan.org,2010-01-01:RT:ALL') );
+		$self->_add_patterns( $pat );
+	}
+	$self->{build}{method}		= 'CLEAR';
+}
+
+sub _DropGraph {
+	my $self	= shift;
+	my $op		= $self->_eat(qr/DROP(\s+SILENT)?/i);
+	my $silent	= ($op =~ /SILENT/i);
+	$self->_ws;
+	if ($self->_test(qr/GRAPH/i)) {
+		$self->_eat(qr/GRAPH/i);
+		$self->_ws;
+		$self->_IRIref;
+		my ($graph)	= splice( @{ $self->{stack} } );
+		my $pat	= RDF::Query::Algebra::Clear->new( $graph );
+		$self->_add_patterns( $pat );
+	} elsif ($self->_test(qr/DEFAULT/i)) {
+		$self->_eat(qr/DEFAULT/i);
+		my $pat	= RDF::Query::Algebra::Clear->new();
+		$self->_add_patterns( $pat );
+	} elsif ($self->_test(qr/NAMED/i)) {
+		$self->_eat(qr/NAMED/i);
+		my $pat	= RDF::Query::Algebra::Clear->new( RDF::Query::Node::Resource->new('tag:gwilliams@cpan.org,2010-01-01:RT:NAMED') );
+		$self->_add_patterns( $pat );
+	} elsif ($self->_test(qr/ALL/i)) {
+		$self->_eat(qr/ALL/i);
+		my $pat	= RDF::Query::Algebra::Clear->new( RDF::Query::Node::Resource->new('tag:gwilliams@cpan.org,2010-01-01:RT:ALL') );
+		$self->_add_patterns( $pat );
+	}
 	$self->{build}{method}		= 'CLEAR';
 }
 
@@ -696,11 +734,11 @@ sub _SelectQuery {
 		my $triples	= $self->{build}{triples} || [];
 		my @vars;
 		foreach my $t (@$triples) {
-			my @v	= $t->binding_variables;
+			my @v	= $t->potentially_bound;
 			push(@vars, @v);
 		}
 		@vars	= RDF::Query::_uniq( @vars );
-		$self->{build}{variables}	= [ map { $self->new_variable($_) } @vars ];
+		push( @{ $self->{build}{variables} }, map { $self->new_variable($_) } @vars );
 	}
 
 	$self->__consume_ws_opt;
@@ -741,21 +779,24 @@ sub _SelectQuery {
 sub __SelectVars {
 	my $self	= shift;
 	my $star	= 0;
-	if ($self->_test('*')) {
-		$self->_eat('*');
-		$star	= 1;
-		$self->__consume_ws_opt;
-	} else {
-		my @vars;
-		$self->__SelectVar;
-		push( @vars, splice(@{ $self->{stack} }));
-		$self->__consume_ws_opt;
-		while ($self->__SelectVar_test) {
+	my @vars;
+	my $count	= 0;
+	while ($self->_test('*') or $self->__SelectVar_test) {
+		if ($self->_test('*')) {
+			$self->_eat('*');
+			$star	= 1;
+			$self->__consume_ws_opt;
+			$count++;
+		} else {
 			$self->__SelectVar;
 			push( @vars, splice(@{ $self->{stack} }));
 			$self->__consume_ws_opt;
+			$count++;
 		}
-		$self->{build}{variables}	= \@vars;
+	}
+	$self->{build}{variables}	= \@vars;
+	if ($count == 0) {
+		throw RDF::Query::Error::ParseError -text => "Syntax error: No select variable or expression specified";
 	}
 	return $star;
 }
@@ -767,7 +808,7 @@ sub _BrackettedAliasExpression {
 	$self->_Expression;
 	my ($expr)	= splice(@{ $self->{stack} });
 	$self->__consume_ws_opt;
-	$self->_eat('AS');
+	$self->_eat(qr/AS/i);
 	$self->__consume_ws_opt;
 	$self->_Var;
 	my ($var)	= splice(@{ $self->{stack} });
@@ -1031,14 +1072,17 @@ sub _GroupClause {
 	my $self	= shift;
 	$self->_eat( qr/GROUP\s+BY/i );
 	
+	$self->{build}{__aggregate}	||= {};
 	my @vars;
 	$self->__consume_ws_opt;
 	$self->__GroupByVar;
-	push( @vars, splice(@{ $self->{stack} }));
+	my ($v)	= splice(@{ $self->{stack} });
+	push( @vars, $v );
 	$self->__consume_ws_opt;
 	while ($self->__GroupByVar_test) {
 		$self->__GroupByVar;
-		push( @vars, splice(@{ $self->{stack} }));
+		my ($v)	= splice(@{ $self->{stack} });
+		push( @vars, $v );
 		$self->__consume_ws_opt;
 	}
 	$self->{build}{__group_by}	= \@vars;
@@ -1049,6 +1093,7 @@ sub _HavingClause {
 	my $self	= shift;
 	$self->_eat(qr/HAVING/i);
 	$self->__consume_ws_opt;
+	$self->{build}{__aggregate}	||= {};
 	local($self->{__aggregate_call_ok})	= 1;
 	$self->_Constraint;
 	my ($expr) = splice(@{ $self->{stack} });
@@ -1243,8 +1288,10 @@ sub _GroupGraphPatternSub {
 	my @filters		= splice(@{ $self->{filters} });
 	my @patterns;
 	my $pattern	= RDF::Query::Algebra::GroupGraphPattern->new( @$cont );
-	while (my $f = shift @filters) {
-		$pattern	= RDF::Query::Algebra::Filter->new( $f, $pattern );
+	if (@filters) {
+		while (my $f = shift @filters) {
+			$pattern	= RDF::Query::Algebra::Filter->new( $f, $pattern );
+		}
 	}
 	$self->_add_patterns( $pattern );
 }
@@ -1261,7 +1308,20 @@ sub __handle_GraphPatternNotTriples {
 		unless ($ggp) {
 			$ggp	= RDF::Query::Algebra::GroupGraphPattern->new();
 		}
+		
 		my $opt	= $class->new( $ggp, @args );
+		$self->_add_patterns( $opt );
+	} elsif ($class eq 'RDF::Query::Algebra::Extend') {
+		my $cont	= $self->_pop_pattern_container;
+		my $ggp		= RDF::Query::Algebra::GroupGraphPattern->new( @$cont );
+		$self->_push_pattern_container;
+		# my $ggp	= $self->_remove_pattern();
+		unless ($ggp) {
+			$ggp	= RDF::Query::Algebra::GroupGraphPattern->new();
+		}
+		
+		my ($alias)	= @args;
+		my $opt		= $class->new( $ggp, [$alias] );
 		$self->_add_patterns( $opt );
 	} elsif ($class =~ /RDF::Query::Algebra::(Union|NamedGraph|GroupGraphPattern|Service)$/) {
 		# no-op
@@ -1286,8 +1346,7 @@ sub _SubSelect {
 		local($self->{filters})					= [];
 		local($self->{pattern_container_stack})	= [];
 		my $triples								= $self->_push_pattern_container();
-		local($self->{build})					= {};
-		$self->{build}{triples}					= $triples;
+		local($self->{build})					= { triples => $triples};
 		if ($self->{baseURI}) {
 			$self->{build}{base}	= $self->{baseURI};
 		}
@@ -1310,11 +1369,11 @@ sub _SubSelect {
 			my $triples	= $self->{build}{triples} || [];
 			my @vars;
 			foreach my $t (@$triples) {
-				my @v	= $t->binding_variables;
+				my @v	= $t->potentially_bound;
 				push(@vars, @v);
 			}
 			@vars	= RDF::Query::_uniq( @vars );
-			$self->{build}{variables}	= [ map { $self->new_variable($_) } @vars ];
+			push( @{ $self->{build}{variables} }, map { $self->new_variable($_) } @vars );
 		}
 		
 		$self->__consume_ws_opt;
@@ -1329,8 +1388,8 @@ sub _SubSelect {
 		$self->__solution_modifiers( $star );
 		
 		delete $self->{build}{options};
-		$self->{build}{method}		= 'SELECT';
 		my $data	= delete $self->{build};
+		$data->{method}	= 'SELECT';
 		my $query	= RDF::Query->_new(
 			base			=> $self->{baseURI},
 #			parser			=> $self,
@@ -1365,9 +1424,10 @@ sub _TriplesBlock {
 ## the one with one underscore (_TriplesBlock) will pop everything off and make the BGP.
 sub __TriplesBlock {
 	my $self	= shift;
+	my $got_dot	= 0;
+TRIPLESBLOCKLOOP:	
 	$self->_TriplesSameSubjectPath;
 	$self->__consume_ws_opt;
-	my $got_dot	= 0;
 	while ($self->_test('.')) {
 		if ($got_dot) {
 			throw RDF::Query::Error::ParseError -text => "Syntax error: found extra DOT after TriplesBlock";
@@ -1377,16 +1437,17 @@ sub __TriplesBlock {
 		$self->__consume_ws_opt;
 		if ($self->_TriplesBlock_test) {
 			$got_dot	= 0;
-			$self->__TriplesBlock;
-			$self->__consume_ws_opt;
+			goto TRIPLESBLOCKLOOP;
 		}
+		$self->__consume_ws_opt;
 	}
+	$self->__consume_ws_opt;
 }
 
 # [22] GraphPatternNotTriples ::= OptionalGraphPattern | GroupOrUnionGraphPattern | GraphGraphPattern
 sub _GraphPatternNotTriples_test {
 	my $self	= shift;
-	return $self->_test(qr/SERVICE|MINUS|OPTIONAL|{|GRAPH/i);
+	return $self->_test(qr/BIND|SERVICE|MINUS|OPTIONAL|{|GRAPH/i);
 }
 
 sub _GraphPatternNotTriples {
@@ -1395,6 +1456,8 @@ sub _GraphPatternNotTriples {
 		$self->_ServiceGraphPattern;
 	} elsif ($self->_test(qr/MINUS/i)) {
 		$self->_MinusGraphPattern;
+	} elsif ($self->_test(qr/BIND/i)) {
+		$self->_Bind;
 	} elsif ($self->_OptionalGraphPattern_test) {
 		$self->_OptionalGraphPattern;
 	} elsif ($self->_GroupOrUnionGraphPattern_test) {
@@ -1402,6 +1465,16 @@ sub _GraphPatternNotTriples {
 	} else {
 		$self->_GraphGraphPattern;
 	}
+}
+
+sub _Bind {
+	my $self	= shift;
+	$self->_eat(qr/BIND/i);
+	$self->__consume_ws_opt;
+	$self->_BrackettedAliasExpression;
+	my ($alias)	= splice(@{ $self->{stack} });
+	my $opt		= ['RDF::Query::Algebra::Extend', $alias];
+	$self->_add_stack( $opt );
 }
 
 sub _ServiceGraphPattern {
@@ -1430,6 +1503,24 @@ sub _OptionalGraphPattern_test {
 sub _OptionalGraphPattern {
 	my $self	= shift;
 	$self->_eat( qr/OPTIONAL/i );
+	{	# If there are filters to the left of the OPTIONAL, they need to be added to the implicit GGP to the left of the OPTIONAL
+		my @filters		= splice(@{ $self->{filters} });
+		use Data::Dumper;
+		if (@filters) {
+			my $cont	= $self->_pop_pattern_container;
+			my $ggp		= RDF::Query::Algebra::GroupGraphPattern->new( @$cont );
+			$self->_push_pattern_container;
+			# my $ggp	= $self->_remove_pattern();
+			unless ($ggp) {
+				$ggp	= RDF::Query::Algebra::GroupGraphPattern->new();
+			}
+			while (my $f = shift @filters) {
+				$ggp	= RDF::Query::Algebra::Filter->new( $f, $ggp );
+			}
+			$self->_add_patterns($ggp);
+		}
+	}	
+	
 	$self->__consume_ws_opt;
 	$self->_GroupGraphPattern;
 	my $ggp	= $self->_remove_pattern;
@@ -1440,6 +1531,24 @@ sub _OptionalGraphPattern {
 sub _MinusGraphPattern {
 	my $self	= shift;
 	$self->_eat( qr/MINUS/i );
+	{	# If there are filters to the left of the MINUS, they need to be added to the implicit GGP to the left of the MINUS
+		my @filters		= splice(@{ $self->{filters} });
+		use Data::Dumper;
+		if (@filters) {
+			my $cont	= $self->_pop_pattern_container;
+			my $ggp		= RDF::Query::Algebra::GroupGraphPattern->new( @$cont );
+			$self->_push_pattern_container;
+			# my $ggp	= $self->_remove_pattern();
+			unless ($ggp) {
+				$ggp	= RDF::Query::Algebra::GroupGraphPattern->new();
+			}
+			while (my $f = shift @filters) {
+				$ggp	= RDF::Query::Algebra::Filter->new( $f, $ggp );
+			}
+			$self->_add_patterns($ggp);
+		}
+	}	
+	
 	$self->__consume_ws_opt;
 	$self->_GroupGraphPattern;
 	my $ggp	= $self->_remove_pattern;
@@ -1456,12 +1565,12 @@ sub _GraphGraphPattern {
 	my ($graph)	= splice(@{ $self->{stack} });
 	$self->__consume_ws_opt;
 	
-# 	if ($graph->isa('RDF::Trine::Node::Resource')) {
+	if ($graph->isa('RDF::Trine::Node::Resource')) {
 		local($self->{named_graph})	= $graph;
 		$self->_GroupGraphPattern;
-# 	} else {
-# 		$self->_GroupGraphPattern;
-# 	}
+	} else {
+		$self->_GroupGraphPattern;
+	}
 	
 	my $ggp	= $self->_remove_pattern;
 	my $pattern	= RDF::Query::Algebra::NamedGraph->new( $graph, $ggp );
@@ -2420,7 +2529,7 @@ sub _Aggregate {
 			if ($self->_test(qr/;/)) {
 				$self->_eat(qr/;/);
 				$self->__consume_ws_opt;
-				$self->_eat(qr/SEPERATOR/i);
+				$self->_eat(qr/SEPARATOR/i);
 				$self->__consume_ws_opt;
 				$self->_eat(qr/=/);
 				$self->__consume_ws_opt;
@@ -2452,7 +2561,7 @@ sub _BuiltInCall_test {
 		return 1 if ($self->_test( $r_AGGREGATE_CALL ));
 	}
 	return 1 if $self->_test(qr/((NOT\s+)?EXISTS)|COALESCE/i);
-	return $self->_test(qr/STR|STRDT|STRLANG|BNODE|IRI|URI|LANG|LANGMATCHES|DATATYPE|BOUND|sameTerm|isIRI|isURI|isBLANK|isLITERAL|REGEX|IF/i);
+	return $self->_test(qr/STR|STRDT|STRLANG|BNODE|IRI|URI|LANG|LANGMATCHES|DATATYPE|BOUND|sameTerm|isIRI|isURI|isBLANK|isLITERAL|REGEX|IF|isNumeric/i);
 }
 
 sub _BuiltInCall {
@@ -2462,6 +2571,7 @@ sub _BuiltInCall {
 	} elsif ($self->_test(qr/(NOT\s+)?EXISTS/i)) {
 		my $op	= $self->_eat(qr/(NOT\s+)?EXISTS/i);
 		$self->__consume_ws_opt;
+		local($self->{filters})					= [];
 		$self->_GroupGraphPattern;
 		my $cont	= $self->_remove_pattern;
 		my $iri		= RDF::Query::Node::Resource->new( 'sparql:exists' );
@@ -2487,7 +2597,7 @@ sub _BuiltInCall {
 		$self->__consume_ws_opt;
 		$self->_eat('(');
 		$self->__consume_ws_opt;
-		if ($op =~ /^(STR|URI|IRI|LANG|DATATYPE|isIRI|isURI|isBLANK|isLITERAL)$/i) {
+		if ($op =~ /^(STR|URI|IRI|LANG|DATATYPE|isIRI|isURI|isBLANK|isLITERAL|isNumeric)$/i) {
 			### one-arg functions that take an expression
 			$self->_Expression;
 			my ($expr)	= splice(@{ $self->{stack} });
@@ -2883,7 +2993,7 @@ sub _eat {
 # 		Carp::cluck( "eating $thing with input $self->{tokens}" );
 # 	}
 	
-	if (blessed($thing) and $thing->isa('Regexp')) {
+	if (ref($thing) and $thing->isa('Regexp')) {
 		if ($self->{tokens} =~ /^$thing/) {
 			my $match	= $&;
 			substr($self->{tokens}, 0, length($match))	= '';
@@ -3003,7 +3113,7 @@ sub __base {
 sub __new_statement {
 	my $self	= shift;
 	my @nodes	= @_;
-	if (my $graph = $self->{named_graph} and $self->{named_graph}->isa('RDF::Trine::Node::Resource')) {
+	if ($self->{_modify_template} and my $graph = $self->{named_graph} and $self->{named_graph}->isa('RDF::Trine::Node::Resource')) {
 		return RDF::Query::Algebra::Quad->new( @nodes, $graph );
 	} else {
 		return RDF::Query::Algebra::Triple->_new( @nodes );
@@ -3017,11 +3127,11 @@ sub __new_path {
 	my $end		= shift;
 	(undef, my $op, my @nodes)	= @$pdata;
 	@nodes	= map { $self->__strip_path( $_ ) } @nodes;
-	if (my $graph = $self->{named_graph} and $self->{named_graph}->isa('RDF::Trine::Node::Resource')) {
-		return RDF::Query::Algebra::Path->new( $start, [$op, @nodes], $end, $graph );
-	} else {
+# 	if (my $graph = $self->{named_graph} and $self->{named_graph}->isa('RDF::Trine::Node::Resource')) {
+# 		return RDF::Query::Algebra::Path->new( $start, [$op, @nodes], $end, $graph );
+# 	} else {
 		return RDF::Query::Algebra::Path->new( $start, [$op, @nodes], $end );
-	}
+# 	}
 }
 
 sub __strip_path {

@@ -42,12 +42,12 @@ requires:
   I18N::LangTags: 0
   JSON: 2
   Parse::RecDescent: 0
-  RDF::Trine: 0.124
+  RDF::Trine: 0.126
   Scalar::Util: 0
   Set::Scalar: 0
-  URI: 0
+  URI: 1.52
 resources:
   homepage: http://search.cpan.org/dist/RDF-Query/
   license: http://dev.perl.org/licenses/
   repository: http://github.com/kasei/perlrdf/
-version: 2.902
+version: 2.903_01

@@ -7,7 +7,7 @@ RDF::Query::Algebra::NamedGraph - Algebra class for NamedGraph patterns
 
 =head1 VERSION
 
-This document describes RDF::Query::Algebra::NamedGraph version 2.902.
+This document describes RDF::Query::Algebra::NamedGraph version 2.903_01.
 
 =cut
 
@@ -29,7 +29,7 @@ use RDF::Trine::Iterator qw(sgrep smap swatch);
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.902';
+	$VERSION	= '2.903_01';
 }
 
 ######################################################################
@@ -170,17 +170,17 @@ sub referenced_variables {
 	return @list;
 }
 
-=item C<< binding_variables >>
+=item C<< potentially_bound >>
 
 Returns a list of the variable names used in this algebra expression that will
 bind values during execution.
 
 =cut
 
-sub binding_variables {
+sub potentially_bound {
 	my $self	= shift;
 	my @list	= RDF::Query::_uniq(
-		$self->pattern->binding_variables,
+		$self->pattern->potentially_bound,
 		(map { $_->name } grep { $_->isa('RDF::Query::Node::Variable') } ($self->graph)),
 	);
 	return @list;
