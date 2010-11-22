@@ -7,7 +7,7 @@ RDF::Query::Algebra::TimeGraph - Algebra class for temporal patterns
 
 =head1 VERSION
 
-This document describes RDF::Query::Algebra::TimeGraph version 2.903.
+This document describes RDF::Query::Algebra::TimeGraph version 2.903_02.
 
 =cut
 
@@ -25,12 +25,15 @@ use Carp qw(carp croak confess);
 
 our ($VERSION);
 BEGIN {
-	$VERSION	= '2.903';
+	$VERSION	= '2.903_02';
 }
 
 ######################################################################
 
 =head1 METHODS
+
+Beyond the methods documented below, this class inherits methods from the
+L<RDF::Query::Algebra> class.
 
 =over 4
 
