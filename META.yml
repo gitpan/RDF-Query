@@ -8,7 +8,7 @@ build_requires:
   FindBin: 0
   Test::Exception: 0
   Test::JSON: 0
-  Test::More: 0.61
+  Test::More: 0.88
   YAML: 0
 configure_requires:
   ExtUtils::MakeMaker: 6.42
@@ -42,7 +42,7 @@ requires:
   I18N::LangTags: 0
   JSON: 2
   Parse::RecDescent: 0
-  RDF::Trine: 0.126
+  RDF::Trine: 0.133
   Scalar::Util: 0
   Set::Scalar: 0
   URI: 1.52
@@ -50,4 +50,4 @@ resources:
   homepage: http://search.cpan.org/dist/RDF-Query/
   license: http://dev.perl.org/licenses/
   repository: http://github.com/kasei/perlrdf/
-version: 2.904
+version: 2.904_01
