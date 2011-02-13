@@ -35,6 +35,7 @@ recommends:
 requires:
   Data::UUID: 0
   DateTime::Format::W3CDTF: 0
+  Digest::SHA: 0
   Digest::SHA1: 0
   Error: 0
   File::Spec: 0
@@ -50,4 +51,4 @@ resources:
   homepage: http://search.cpan.org/dist/RDF-Query/
   license: http://dev.perl.org/licenses/
   repository: http://github.com/kasei/perlrdf/
-version: 2.904_01
+version: 2.904_02
