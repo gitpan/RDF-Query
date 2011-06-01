@@ -51,4 +51,4 @@ resources:
   homepage: http://search.cpan.org/dist/RDF-Query/
   license: http://dev.perl.org/licenses/
   repository: http://github.com/kasei/perlrdf/
-version: 2.906
+version: 2.906_01
