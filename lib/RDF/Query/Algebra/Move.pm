@@ -1,17 +1,17 @@
-# RDF::Query::Algebra::Create
+# RDF::Query::Algebra::Move
 # -----------------------------------------------------------------------------
 
 =head1 NAME
 
-RDF::Query::Algebra::Create - Algebra class for CREATE GRAPH operations
+RDF::Query::Algebra::Move - Algebra class for MOVE operations
 
 =head1 VERSION
 
-This document describes RDF::Query::Algebra::Create version 2.907_01.
+This document describes RDF::Query::Algebra::Move version 2.907_01.
 
 =cut
 
-package RDF::Query::Algebra::Create;
+package RDF::Query::Algebra::Move;
 
 use strict;
 use warnings;
@@ -46,19 +46,18 @@ L<RDF::Query::Algebra> class.
 
 =cut
 
-=item C<new ( $graph )>
+=item C<new ( $from, $to, $silent )>
 
-Returns a new CREATE GRAPH structure.
+Returns a new MOVE structure.
 
 =cut
 
 sub new {
 	my $class	= shift;
-	my $graph	= shift;
-	unless ($graph) {
-		$graph	= RDF::Trine::Node::Nil->new;
-	}
-	return bless([$graph], $class);
+	my $from	= shift;
+	my $to		= shift;
+	my $silent	= shift || 0;
+	return bless([$from, $to, $silent], $class);
 }
 
 =item C<< construct_args >>
@@ -70,7 +69,7 @@ will produce a clone of this algebra pattern.
 
 sub construct_args {
 	my $self	= shift;
-	return ($self->graph);
+	return ($self->from, $self->to, $self->silent);
 }
 
 =item C<< as_sparql >>
@@ -84,8 +83,17 @@ sub as_sparql {
 	my $context	= shift;
 	my $indent	= shift;
 	
-	my $graph	= $self->graph;
-	my $string	= sprintf( "CREATE GRAPH <%s>", $graph->uri_value );
+	my $from	= $self->from;
+	my $to		= $self->to;
+	for ($from, $to) {
+		if ($_->isa('RDF::Trine::Node::Nil')) {
+			$_	= 'DEFAULT';
+		} else {
+			$_	= '<' . $_->uri_value . '>';
+		}
+	}
+	
+	my $string	= sprintf( "MOVE %s%s TO %s", ($self->silent ? 'SILENT ' : ''), $from, $to );
 	return $string;
 }
 
@@ -100,8 +108,16 @@ sub sse {
 	my $context	= shift;
 	my $indent	= shift;
 	
-	my $graph	= $self->graph;
-	my $string	= sprintf( "(create <%s>)", $graph->uri_value );
+	my $from	= $self->from;
+	my $to		= $self->to;
+	for ($from, $to) {
+		if ($_->isa('RDF::Trine::Node::Nil')) {
+			$_	= 'DEFAULT';
+		} else {
+			$_	= '<' . $_->uri_value . '>';
+		}
+	}
+	my $string	= sprintf( "(move%s %s %s)", ($self->silent ? '-silent' : ''), $from, $to );
 	return $string;
 }
 
@@ -125,13 +141,31 @@ sub referenced_variables {
 	return;
 }
 
-=item C<< graph >>
+=item C<< from >>
 
 =cut
 
-sub graph {
+sub from {
 	my $self	= shift;
 	return $self->[0];
+}
+
+=item C<< to >>
+
+=cut
+
+sub to {
+	my $self	= shift;
+	return $self->[1];
+}
+
+=item C<< silent >>
+
+=cut
+
+sub silent {
+	my $self	= shift;
+	return $self->[2];
 }
 
 1;

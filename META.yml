@@ -1,5 +1,5 @@
 ---
-abstract: 'An RDF query implementation of SPARQL/RDQL in Perl for use with RDF::Trine.'
+abstract: 'A SPARQL 1.1 Query implementation for use with RDF::Trine.'
 author:
   - 'Gregory Todd Williams <gwilliams@cpan.org>'
   - 'Gregory Todd Williams <gwilliams@cpan.org>'
@@ -43,7 +43,7 @@ requires:
   JSON: 2
   Module::Pluggable: 0
   Parse::RecDescent: 0
-  RDF::Trine: 0.135
+  RDF::Trine: 0.138
   Scalar::Util: 0
   Set::Scalar: 0
   URI: 1.52
@@ -51,4 +51,4 @@ resources:
   homepage: http://search.cpan.org/dist/RDF-Query/
   license: http://dev.perl.org/licenses/
   repository: http://github.com/kasei/perlrdf/
-version: 2.907
+version: 2.907_01
