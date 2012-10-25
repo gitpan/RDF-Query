@@ -1,5 +1,5 @@
 ---
-abstract: 'A SPARQL 1.1 Query implementation for use with RDF::Trine.'
+abstract: 'A complete SPARQL 1.1 Query and Update implementation for use with RDF::Trine.'
 author:
   - 'Gregory Todd Williams <gwilliams@cpan.org>'
   - 'Gregory Todd Williams <gwilliams@cpan.org>'
@@ -31,7 +31,6 @@ recommends:
   Geo::Distance: 0.09
   Getopt::Simple: 0
   LWP::Simple: 0
-  RDF::Redland: 1
 requires:
   Data::UUID: 0
   DateTime::Format::W3CDTF: 0
@@ -48,7 +47,8 @@ requires:
   Set::Scalar: 0
   URI: 1.52
 resources:
+  bugtracker: https://github.com/kasei/perlrdf/issues
   homepage: http://search.cpan.org/dist/RDF-Query/
   license: http://dev.perl.org/licenses/
   repository: http://github.com/kasei/perlrdf/
-version: 2.908
+version: 2.908_01
